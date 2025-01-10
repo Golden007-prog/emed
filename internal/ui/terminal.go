@@ -1,0 +1,262 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+)
+
+// TerminalTab represents a single terminal session
+type TerminalTab struct {
+	id       int
+	textView *tview.TextView
+	// TODO: Add actual terminal emulator here
+}
+
+// Terminal represents the terminal panel with tabs
+type Terminal struct {
+	container     *tview.Flex
+	contentArea   *tview.Pages
+	tabs          []*TerminalTab
+	activeTab     int
+	nextID        int
+	noTermsView   *tview.TextView // View shown when no terminals are open
+}
+
+// NewTerminal creates a new terminal panel
+func NewTerminal() *Terminal {
+	t := &Terminal{
+		container:   tview.NewFlex().SetDirection(tview.FlexRow),
+		contentArea: tview.NewPages(),
+		tabs:        make([]*TerminalTab, 0),
+		activeTab:   -1,
+		nextID:      1,
+	}
+	
+	// Create no terminals view
+	t.noTermsView = tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText("\n\n\nNo terminal open.\n\nPress Ctrl+T to create a new terminal.")
+	
+	// Add the no terminals view as a page
+	t.contentArea.AddPage("no-terms", t.noTermsView, true, false)
+	
+	// Set up container (no tab bar, tabs will be in title)
+	t.container.
+		AddItem(t.contentArea, 0, 1, true).  // Content takes all space
+		SetBorder(true).
+		SetTitle(" Terminal ").
+		SetTitleAlign(tview.AlignLeft).
+		SetBorderAttributes(tcell.AttrBold)
+	
+	// Show no terminals view initially
+	t.showNoTermsView()
+	
+	return t
+}
+
+// NewTab creates a new terminal tab
+func (t *Terminal) NewTab() {
+	// Create terminal view (placeholder for now)
+	textView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true)
+	
+	// Add initial prompt
+	textView.SetText("[green]$[-] Welcome to Emed Terminal\n[green]$[-] ")
+	
+	tab := &TerminalTab{
+		id:       t.nextID,
+		textView: textView,
+	}
+	t.nextID++
+	
+	t.tabs = append(t.tabs, tab)
+	tabIndex := len(t.tabs) - 1
+	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabIndex), textView, true, false)
+	
+	// Switch to new tab
+	t.activeTab = tabIndex
+	t.switchToTab(tabIndex)
+}
+
+// showNoTermsView shows the "no terminals" message
+func (t *Terminal) showNoTermsView() {
+	t.contentArea.SwitchToPage("no-terms")
+	t.container.SetTitle(" Terminal ")
+	t.activeTab = -1
+}
+
+// switchToTab switches to the specified tab
+func (t *Terminal) switchToTab(index int) {
+	if index < 0 || index >= len(t.tabs) {
+		return
+	}
+	
+	t.activeTab = index
+	t.contentArea.SwitchToPage(fmt.Sprintf("term-%d", index))
+	t.updateTabBar()
+}
+
+// updateTabBar updates the title with tab information
+func (t *Terminal) updateTabBar() {
+	if len(t.tabs) == 0 {
+		t.container.SetTitle(" Terminal ")
+		return
+	}
+	
+	// Build tab display centered around active tab
+	var tabTexts []string
+	maxVisible := 4 // Maximum number of tabs to show (reduced to leave room for indicators and prevent trimming)
+	
+	// Calculate visible range, ensuring active tab is always visible
+	start := t.activeTab - 2
+	end := t.activeTab + 2
+	
+	// Adjust if we're near the beginning
+	if start < 0 {
+		start = 0
+		end = start + maxVisible
+		if end > len(t.tabs) {
+			end = len(t.tabs)
+		}
+	}
+	
+	// Adjust if we're near the end
+	if end > len(t.tabs) {
+		end = len(t.tabs)
+		start = end - maxVisible
+		if start < 0 {
+			start = 0
+		}
+	}
+	
+	// Ensure active tab is within visible range
+	if t.activeTab < start {
+		start = t.activeTab
+		end = start + maxVisible
+		if end > len(t.tabs) {
+			end = len(t.tabs)
+		}
+	}
+	if t.activeTab >= end {
+		end = t.activeTab + 1
+		start = end - maxVisible
+		if start < 0 {
+			start = 0
+		}
+	}
+	
+	// Add indicator if there are tabs before
+	if start > 0 {
+		tabTexts = append(tabTexts, "...")
+	}
+	
+	// Add visible tabs
+	for i := start; i < end; i++ {
+		name := fmt.Sprintf("Term %d", t.tabs[i].id)
+		
+		if i == t.activeTab {
+			// Highlight active tab with green color and brackets
+			tabTexts = append(tabTexts, fmt.Sprintf("[green][%s][-]", name))
+		} else {
+			tabTexts = append(tabTexts, name)
+		}
+	}
+	
+	// Add indicator if there are tabs after
+	if end < len(t.tabs) {
+		tabTexts = append(tabTexts, "...")
+	}
+	
+	// Set title with tabs
+	title := fmt.Sprintf(" %s ", strings.Join(tabTexts, " | "))
+	t.container.SetTitle(title)
+}
+
+// NextTab switches to the next tab
+func (t *Terminal) NextTab() {
+	if len(t.tabs) <= 1 {
+		// Nothing to switch to
+		return
+	}
+	next := (t.activeTab + 1) % len(t.tabs)
+	t.switchToTab(next)
+}
+
+// PreviousTab switches to the previous tab
+func (t *Terminal) PreviousTab() {
+	if len(t.tabs) <= 1 {
+		// Nothing to switch to
+		return
+	}
+	prev := t.activeTab - 1
+	if prev < 0 {
+		prev = len(t.tabs) - 1
+	}
+	t.switchToTab(prev)
+}
+
+// CloseCurrentTab closes the current tab
+func (t *Terminal) CloseCurrentTab() {
+	if t.activeTab < 0 || t.activeTab >= len(t.tabs) {
+		return
+	}
+	
+	// Remove tab
+	t.contentArea.RemovePage(fmt.Sprintf("term-%d", t.activeTab))
+	t.tabs = append(t.tabs[:t.activeTab], t.tabs[t.activeTab+1:]...)
+	
+	// Check if there are no more tabs
+	if len(t.tabs) == 0 {
+		t.showNoTermsView()
+		return
+	}
+	
+	// Adjust active tab
+	if t.activeTab >= len(t.tabs) {
+		t.activeTab = len(t.tabs) - 1
+	}
+	
+	// Rebuild pages (to fix indices)
+	t.rebuildPages()
+	t.switchToTab(t.activeTab)
+}
+
+// rebuildPages rebuilds the page indices after tab removal
+func (t *Terminal) rebuildPages() {
+	// Remove all pages
+	for i := range t.tabs {
+		t.contentArea.RemovePage(fmt.Sprintf("term-%d", i))
+	}
+	// Re-add with correct indices
+	for i, tab := range t.tabs {
+		t.contentArea.AddPage(fmt.Sprintf("term-%d", i), tab.textView, true, i == t.activeTab)
+	}
+}
+
+// GetView returns the primitive for the terminal
+func (t *Terminal) GetView() tview.Primitive {
+	return t.container
+}
+
+// HasFocus checks if the terminal or any of its tabs has focus
+func (t *Terminal) HasFocus(focused tview.Primitive) bool {
+	if focused == t.container {
+		return true
+	}
+	// Check if any tab content has focus
+	for _, tab := range t.tabs {
+		if focused == tab.textView {
+			return true
+		}
+	}
+	// Check the no-terms view
+	if focused == t.noTermsView {
+		return true
+	}
+	return false
+}
+

@@ -1,0 +1,538 @@
+package ui
+
+import (
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+)
+
+// Global to track the main application root and modal state
+var (
+	mainAppRoot     tview.Primitive
+	modalIsOpen     bool
+	previousFocus   tview.Primitive
+)
+
+// EmModal represents a modal dialog with a transparent full-screen background
+type EmModal struct {
+	*tview.Box
+	app         *tview.Application
+	container   *tview.Box       // Transparent full-screen container
+	content     tview.Primitive  // The actual modal content
+	cancellable bool
+	onCancel    func()
+	onClose     func()
+	previousRoot tview.Primitive
+}
+
+// SetPreviousRoot sets the previous root to restore when modal closes
+func (m *EmModal) SetPreviousRoot(root tview.Primitive) {
+	m.previousRoot = root
+}
+
+// NewEmModal creates a new modal dialog
+func NewEmModal(app *tview.Application, content tview.Primitive, cancellable bool) *EmModal {
+	m := &EmModal{
+		Box:         tview.NewBox(),
+		app:         app,
+		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(tcell.ColorDefault),
+		content:     content,
+		cancellable: cancellable,
+	}
+	
+	// We no longer set up handlers on the container since we'll handle them in InputHandler and MouseHandler
+	
+	return m
+}
+
+// SetOnCancel sets the cancel callback
+func (m *EmModal) SetOnCancel(handler func()) *EmModal {
+	m.onCancel = handler
+	return m
+}
+
+// SetOnClose sets the close callback (called on any close, including cancel)
+func (m *EmModal) SetOnClose(handler func()) *EmModal {
+	m.onClose = handler
+	return m
+}
+
+// Show displays the modal
+func (m *EmModal) Show() {
+	// Store the currently focused element before showing modal
+	previousFocus = m.app.GetFocus()
+	
+	// Mark that a modal is open
+	modalIsOpen = true
+	
+	// Set the container as root (it will draw the content)
+	m.app.SetRoot(m, true)
+	m.app.SetFocus(m.content)
+}
+
+// Close closes the modal and restores the previous view
+func (m *EmModal) Close() {
+	if m.onClose != nil {
+		m.onClose()
+	}
+	
+	// Mark that modal is closed
+	modalIsOpen = false
+	
+	// Restore the previous root
+	if m.previousRoot != nil {
+		m.app.SetRoot(m.previousRoot, true)
+	} else if mainAppRoot != nil {
+		// Fallback to the global main app root
+		m.app.SetRoot(mainAppRoot, true)
+	}
+	
+	// Restore the previous focus
+	if previousFocus != nil {
+		m.app.SetFocus(previousFocus)
+	}
+}
+
+// Cancel cancels the modal (only for cancellable modals)
+func (m *EmModal) Cancel() {
+	if m.cancellable {
+		if m.onCancel != nil {
+			m.onCancel()
+		}
+		m.Close()
+	}
+}
+
+// Draw draws the modal
+func (m *EmModal) Draw(screen tcell.Screen) {
+	// First draw the main application content behind the modal
+	if m.previousRoot != nil {
+		m.previousRoot.Draw(screen)
+	} else if mainAppRoot != nil {
+		mainAppRoot.Draw(screen)
+	}
+	
+	// Get screen dimensions
+	screenWidth, screenHeight := screen.Size()
+	
+	// Get content's preferred size
+	contentWidth, contentHeight := screenWidth/2, screenHeight/2 // Default 50% of screen
+	
+	// Allow customization of size through the content itself
+	// Check if content has specific size requirements
+	if _, ok := m.content.(*tview.Box); ok {
+		// You can store custom width/height in the box if needed
+		// For now, use reasonable defaults based on screen size
+		contentWidth = screenWidth * 6 / 10  // 60% width
+		contentHeight = screenHeight * 4 / 10 // 40% height
+	}
+	
+	// Center the content
+	x := (screenWidth - contentWidth) / 2
+	y := (screenHeight - contentHeight) / 2
+	
+	// Set the content's position and size
+	m.content.SetRect(x, y, contentWidth, contentHeight)
+	
+	// Draw the modal content on top
+	m.content.Draw(screen)
+}
+
+// Focus passes focus to the modal content
+func (m *EmModal) Focus(delegate func(p tview.Primitive)) {
+	delegate(m.content)
+}
+
+// HasFocus returns whether the modal has focus
+func (m *EmModal) HasFocus() bool {
+	return m.content.HasFocus()
+}
+
+// GetRect returns the container's rect (full screen)
+func (m *EmModal) GetRect() (int, int, int, int) {
+	return m.container.GetRect()
+}
+
+// SetRect sets the container's rect
+func (m *EmModal) SetRect(x, y, width, height int) {
+	m.container.SetRect(x, y, width, height)
+}
+
+// InputHandler returns the input handler
+func (m *EmModal) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+	return func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+		// Handle ESC for cancellable modals FIRST
+		if m.cancellable && event.Key() == tcell.KeyEscape {
+			m.Cancel()
+			return
+		}
+		
+		// Pass through to the modal content FIRST to let it handle its own keys
+		if handler := m.content.InputHandler(); handler != nil {
+			handler(event, setFocus)
+		}
+		
+		// Always consume the event to prevent it from propagating to the app
+		// This blocks all keys from reaching the main app while modal is open
+	}
+}
+
+// MouseHandler returns the mouse handler
+func (m *EmModal) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		if action == tview.MouseLeftClick || action == tview.MouseScrollUp || action == tview.MouseScrollDown {
+			// Get modal content position and size
+			x, y, width, height := m.content.GetRect()
+			mouseX, mouseY := event.Position()
+			
+			// Check if click is inside modal content
+			if mouseX >= x && mouseX < x+width && mouseY >= y && mouseY < y+height {
+				// Pass click to modal content if inside
+				if handler := m.content.MouseHandler(); handler != nil {
+					consumed, capture = handler(action, event, setFocus)
+					// Make sure the content stays focused
+					setFocus(m.content)
+					return consumed, capture
+				}
+				return true, nil
+			} else if action == tview.MouseLeftClick {
+				// Click outside modal - close if cancellable
+				if m.cancellable {
+					m.Cancel()
+				}
+				return true, nil // Always consume the event
+			}
+		}
+		// Consume all mouse events to prevent interaction with background
+		return true, nil
+	}
+}
+
+// EmModalConfig provides configuration for modal appearance
+type EmModalConfig struct {
+	Width           int    // Width as percentage of screen (0-100)
+	Height          int    // Height as percentage of screen (0-100)
+	BackgroundColor tcell.Color
+	BorderColor     tcell.Color
+	TitleColor      tcell.Color
+	Title           string
+	TitleAlign      int
+}
+
+// NewConfiguredModal creates a modal with specific configuration
+func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellable bool) (*modalWrapper, *tview.Flex) {
+	// Create a flex container for the modal content
+	modalContent := tview.NewFlex().SetDirection(tview.FlexRow)
+	
+	// Set up the modal box styling
+	modalContent.SetBorder(true).
+		SetTitle(config.Title).
+		SetTitleAlign(config.TitleAlign).
+		SetBackgroundColor(config.BackgroundColor).
+		SetBorderColor(config.BorderColor).
+		SetTitleColor(config.TitleColor)
+	
+	// Create the modal with the styled content
+	modal := NewEmModal(app, modalContent, cancellable)
+	
+	// Create a wrapper that overrides Draw to use custom sizing
+	wrapper := &modalWrapper{
+		EmModal: modal,
+		config:  config,
+	}
+	
+	return wrapper, modalContent
+}
+
+// modalWrapper wraps EmModal to provide custom drawing
+type modalWrapper struct {
+	*EmModal
+	config EmModalConfig
+}
+
+// Draw draws the modal with custom sizing
+func (w *modalWrapper) Draw(screen tcell.Screen) {
+	// First draw the main application content behind the modal
+	if w.previousRoot != nil {
+		w.previousRoot.Draw(screen)
+	} else if mainAppRoot != nil {
+		mainAppRoot.Draw(screen)
+	}
+	
+	screenWidth, screenHeight := screen.Size()
+	
+	// Use configured size or defaults
+	width := w.config.Width
+	height := w.config.Height
+	if width <= 0 || width > 100 {
+		width = 60 // Default 60%
+	}
+	if height <= 0 || height > 100 {
+		height = 40 // Default 40%
+	}
+	
+	contentWidth := screenWidth * width / 100
+	contentHeight := screenHeight * height / 100
+	
+	// Center the content
+	x := (screenWidth - contentWidth) / 2
+	y := (screenHeight - contentHeight) / 2
+	
+	// Set the content's position and size
+	w.content.SetRect(x, y, contentWidth, contentHeight)
+	
+	// Draw the modal content on top
+	w.content.Draw(screen)
+}
+
+// SetMainAppRoot sets the main application root for modal restoration
+func SetMainAppRoot(root tview.Primitive) {
+	mainAppRoot = root
+}
+
+// IsModalOpen returns true if a modal is currently open
+func IsModalOpen() bool {
+	return modalIsOpen
+}
+
+// solidBackground is a primitive that draws a solid background behind content
+type solidBackground struct {
+	*tview.Box
+	content tview.Primitive
+}
+
+// Draw draws the background and content
+func (s *solidBackground) Draw(screen tcell.Screen) {
+	// Draw the box with border and background first
+	s.Box.DrawForSubclass(screen, s)
+	
+	// Get inner rect
+	x, y, width, height := s.GetInnerRect()
+	
+	// Set content rect and draw it on top
+	s.content.SetRect(x, y, width, height)
+	s.content.Draw(screen)
+}
+
+// Focus passes focus to the content
+func (s *solidBackground) Focus(delegate func(p tview.Primitive)) {
+	delegate(s.content)
+}
+
+// HasFocus returns whether the content has focus
+func (s *solidBackground) HasFocus() bool {
+	return s.content.HasFocus()
+}
+
+// InputHandler returns the content's input handler
+func (s *solidBackground) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+	return s.content.InputHandler()
+}
+
+// MouseHandler returns the content's mouse handler  
+func (s *solidBackground) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return s.content.MouseHandler()
+}
+
+// ShowConfirmModal shows a confirmation dialog
+func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, onCancel func()) {
+	// Create outer flex (borderless, titleless)
+	outerFlex := tview.NewFlex()
+	
+	// Create a Box that will fill the entire area with black background
+	backgroundBox := tview.NewBox().
+		SetBorder(true).
+		SetTitle(" " + title + " ").
+		SetTitleAlign(tview.AlignCenter).
+		SetBackgroundColor(tcell.ColorBlack).
+		SetBorderColor(tcell.ColorYellow).
+		SetTitleColor(tcell.ColorYellow)
+	
+	// Create content flex for message and buttons
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	
+	// Create message text
+	messageView := tview.NewTextView().
+		SetText(message).
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+	
+	// Create buttons
+	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
+	
+	yesButton := tview.NewButton("YES")
+	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	yesButton.SetSelectedFunc(func() {
+		// Will be set after modal creation
+	})
+	
+	noButton := tview.NewButton("NO")
+	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	noButton.SetSelectedFunc(func() {
+		// Will be set after modal creation
+	})
+	
+	buttonsFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(yesButton, 10, 0, true).
+		AddItem(nil, 2, 0, false).
+		AddItem(noButton, 10, 0, false).
+		AddItem(nil, 0, 1, false)
+	
+	// Add message and buttons to content flex
+	contentFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(messageView, 0, 2, false).
+		AddItem(buttonsFlex, 3, 0, true).
+		AddItem(nil, 0, 1, false)
+	
+	// Create a custom primitive that combines background and content
+	modalContent := &backgroundWithContent{
+		Box:        tview.NewBox(),
+		background: backgroundBox,
+		content:    contentFlex,
+	}
+	
+	// Add the combined primitive to outer flex
+	outerFlex.AddItem(modalContent, 0, 1, true)
+	
+	// Create the modal with the outer flex
+	modal := NewEmModal(app, outerFlex, true)
+	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Set button handlers with access to modal
+	yesButton.SetSelectedFunc(func() {
+		modal.Close()
+		if onConfirm != nil {
+			onConfirm()
+		}
+	})
+	
+	noButton.SetSelectedFunc(func() {
+		modal.Cancel()
+	})
+	
+	// Set up button navigation
+	yesButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			app.SetFocus(noButton)
+			return nil
+		case tcell.KeyLeft:
+			app.SetFocus(noButton)
+			return nil
+		}
+		return event
+	})
+	
+	noButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			app.SetFocus(yesButton)
+			return nil
+		case tcell.KeyLeft:
+			app.SetFocus(yesButton)
+			return nil
+		}
+		return event
+	})
+	
+	modal.SetOnCancel(onCancel)
+	modal.Show()
+	app.SetFocus(yesButton)
+}
+
+// backgroundWithContent combines a background box with content
+type backgroundWithContent struct {
+	*tview.Box
+	background *tview.Box
+	content    tview.Primitive
+}
+
+// Draw draws the background box fully, then the content on top
+func (b *backgroundWithContent) Draw(screen tcell.Screen) {
+	x, y, width, height := b.GetRect()
+	
+	// Set the background box to fill the entire area
+	b.background.SetRect(x, y, width, height)
+	
+	// Draw the background box (with border and filled background)
+	b.background.DrawForSubclass(screen, b)
+	
+	// Get the inner rect (inside the border)
+	innerX, innerY, innerWidth, innerHeight := b.background.GetInnerRect()
+	
+	// Fill the background with black
+	for row := innerY; row < innerY+innerHeight; row++ {
+		for col := innerX; col < innerX+innerWidth; col++ {
+			screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
+		}
+	}
+	
+	// Set content rect to the inner area and draw it
+	b.content.SetRect(innerX, innerY, innerWidth, innerHeight)
+	b.content.Draw(screen)
+}
+
+// GetRect returns the rect
+func (b *backgroundWithContent) GetRect() (int, int, int, int) {
+	return b.Box.GetRect()
+}
+
+// SetRect sets the rect
+func (b *backgroundWithContent) SetRect(x, y, width, height int) {
+	b.Box.SetRect(x, y, width, height)
+}
+
+// Focus passes focus to the content
+func (b *backgroundWithContent) Focus(delegate func(p tview.Primitive)) {
+	delegate(b.content)
+}
+
+// HasFocus returns whether the content has focus
+func (b *backgroundWithContent) HasFocus() bool {
+	return b.content.HasFocus()
+}
+
+// InputHandler returns the content's input handler
+func (b *backgroundWithContent) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+	return b.content.InputHandler()
+}
+
+// MouseHandler returns the content's mouse handler
+func (b *backgroundWithContent) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return b.content.MouseHandler()
+}
+
+// ShowHelpModal shows a help dialog
+func ShowHelpModal(app *tview.Application, helpText string) {
+	// Create modal configuration
+	config := EmModalConfig{
+		Width:           80,
+		Height:          80,
+		BackgroundColor: tcell.ColorBlack,  // Use black background for consistency
+		BorderColor:     tcell.ColorGreen,
+		TitleColor:      tcell.ColorGreen,
+		Title:           " Help ",
+		TitleAlign:      tview.AlignCenter,
+	}
+	
+	modal, content := NewConfiguredModal(app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Create scrollable text view for help
+	helpView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(helpText).
+		SetScrollable(true).
+		SetTextAlign(tview.AlignLeft)
+	
+	// Add padding and help text
+	content.
+		AddItem(helpView, 0, 1, true)
+	
+	// Help can be closed with ESC or by clicking outside
+	modal.Show()
+	app.SetFocus(helpView)
+}
