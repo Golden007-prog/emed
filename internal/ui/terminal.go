@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	
-	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -48,9 +47,7 @@ func NewTerminal() *Terminal {
 		AddItem(t.contentArea, 0, 1, true).  // Content takes all space
 		SetBorder(true).
 		SetTitle(" Terminal ").
-		SetTitleAlign(tview.AlignLeft).
-		SetBorderAttributes(tcell.AttrBold)
-	
+		SetTitleAlign(tview.AlignLeft)
 	// Show no terminals view initially
 	t.showNoTermsView()
 	
