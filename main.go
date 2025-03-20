@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+	// Enable true color support
+	os.Setenv("COLORTERM", "truecolor")
+	
 	app := tview.NewApplication()
 	
 	// Set up signal handling for clean shutdown

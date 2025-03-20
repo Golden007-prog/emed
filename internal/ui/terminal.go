@@ -4,24 +4,26 @@ import (
 	"fmt"
 	"strings"
 	
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 // TerminalTab represents a single terminal session
 type TerminalTab struct {
 	id       int
-	textView *tview.TextView
-	// TODO: Add actual terminal emulator here
+	emulator *VT10XTerminal
 }
 
 // Terminal represents the terminal panel with tabs
 type Terminal struct {
-	container     *tview.Flex
-	contentArea   *tview.Pages
-	tabs          []*TerminalTab
-	activeTab     int
-	nextID        int
-	noTermsView   *tview.TextView // View shown when no terminals are open
+	container        *tview.Flex
+	contentArea      *tview.Pages
+	tabs             []*TerminalTab
+	activeTab        int
+	nextID           int
+	noTermsView      *tview.TextView // View shown when no terminals are open
+	app              *tview.Application // Reference to app for refresh
+	onLastTabClosed  func() // Callback when last tab is closed
 }
 
 // NewTerminal creates a new terminal panel
@@ -54,25 +56,45 @@ func NewTerminal() *Terminal {
 	return t
 }
 
+// SetApp sets the application reference for refresh
+func (t *Terminal) SetApp(app *tview.Application) {
+	t.app = app
+}
+
 // NewTab creates a new terminal tab
 func (t *Terminal) NewTab() {
-	// Create terminal view (placeholder for now)
-	textView := tview.NewTextView().
-		SetDynamicColors(true).
-		SetScrollable(true)
+	// Create terminal emulator
+	emulator := NewVT10XTerminal()
 	
-	// Add initial prompt
-	textView.SetText("[green]$[-] Welcome to Emed Terminal\n[green]$[-] ")
+	// Set app reference for refresh
+	if t.app != nil {
+		emulator.SetApp(t.app)
+	}
+	
+	// Set mode change callback to update status
+	emulator.SetOnModeChange(func(mode TerminalMode) {
+		t.updateTabBar() // Refresh to show mode indicator
+	})
+	
+	// Start the terminal
+	if err := emulator.Start(); err != nil {
+		// Fall back to a text view with error message
+		errorView := tview.NewTextView().
+			SetText(fmt.Sprintf("Failed to start terminal: %v", err)).
+			SetTextColor(tcell.ColorRed)
+		t.contentArea.AddPage(fmt.Sprintf("term-%d", t.nextID), errorView, true, false)
+		return
+	}
 	
 	tab := &TerminalTab{
 		id:       t.nextID,
-		textView: textView,
+		emulator: emulator,
 	}
 	t.nextID++
 	
 	t.tabs = append(t.tabs, tab)
 	tabIndex := len(t.tabs) - 1
-	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabIndex), textView, true, false)
+	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabIndex), emulator, true, false)
 	
 	// Switch to new tab
 	t.activeTab = tabIndex
@@ -155,9 +177,14 @@ func (t *Terminal) updateTabBar() {
 	for i := start; i < end; i++ {
 		name := fmt.Sprintf("Term %d", t.tabs[i].id)
 		
+		// Add mode indicator for active tab in passthrough mode
 		if i == t.activeTab {
+			modeIndicator := ""
+			if t.tabs[i].emulator != nil && t.tabs[i].emulator.GetMode() == ModePassthrough {
+				modeIndicator = "[yellow]*[-]"
+			}
 			// Highlight active tab with green color and brackets
-			tabTexts = append(tabTexts, fmt.Sprintf("[green][%s][-]", name))
+			tabTexts = append(tabTexts, fmt.Sprintf("[green][%s][-]%s", name, modeIndicator))
 		} else {
 			tabTexts = append(tabTexts, name)
 		}
@@ -202,6 +229,11 @@ func (t *Terminal) CloseCurrentTab() {
 		return
 	}
 	
+	// Stop the terminal emulator
+	if t.tabs[t.activeTab].emulator != nil {
+		t.tabs[t.activeTab].emulator.Stop()
+	}
+	
 	// Remove tab
 	t.contentArea.RemovePage(fmt.Sprintf("term-%d", t.activeTab))
 	t.tabs = append(t.tabs[:t.activeTab], t.tabs[t.activeTab+1:]...)
@@ -209,6 +241,10 @@ func (t *Terminal) CloseCurrentTab() {
 	// Check if there are no more tabs
 	if len(t.tabs) == 0 {
 		t.showNoTermsView()
+		// Call the callback if set
+		if t.onLastTabClosed != nil {
+			t.onLastTabClosed()
+		}
 		return
 	}
 	
@@ -230,7 +266,7 @@ func (t *Terminal) rebuildPages() {
 	}
 	// Re-add with correct indices
 	for i, tab := range t.tabs {
-		t.contentArea.AddPage(fmt.Sprintf("term-%d", i), tab.textView, true, i == t.activeTab)
+		t.contentArea.AddPage(fmt.Sprintf("term-%d", i), tab.emulator, true, i == t.activeTab)
 	}
 }
 
@@ -246,7 +282,7 @@ func (t *Terminal) HasFocus(focused tview.Primitive) bool {
 	}
 	// Check if any tab content has focus
 	for _, tab := range t.tabs {
-		if focused == tab.textView {
+		if focused == tab.emulator {
 			return true
 		}
 	}
@@ -255,5 +291,15 @@ func (t *Terminal) HasFocus(focused tview.Primitive) bool {
 		return true
 	}
 	return false
+}
+
+// HasTabs returns true if there are open terminal tabs
+func (t *Terminal) HasTabs() bool {
+	return len(t.tabs) > 0
+}
+
+// SetOnLastTabClosed sets the callback to invoke when the last tab is closed
+func (t *Terminal) SetOnLastTabClosed(handler func()) {
+	t.onLastTabClosed = handler
 }
 

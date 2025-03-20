@@ -46,9 +46,15 @@ func NewLayout(app *tview.Application) *Layout {
 	
 	// Set app reference
 	l.editor.SetApp(app)
+	l.terminal.SetApp(app)
 	
 	// Set callback for when last tab is closed
 	l.editor.SetOnLastTabClosed(func() {
+		l.focusFileManager()
+	})
+	
+	// Set callback for when last terminal tab is closed
+	l.terminal.SetOnLastTabClosed(func() {
 		l.focusFileManager()
 	})
 	
@@ -270,16 +276,29 @@ func (l *Layout) setupKeybindings() {
 			return nil
 		case tcell.KeyF2:
 			// F2 - Cycle focus between panels
-			// If no editor tabs, skip editor panel
-			if !l.editor.HasTabs() {
-				// Only cycle between file manager and terminal
+			// Skip panels that have no tabs
+			hasEditor := l.editor.HasTabs()
+			hasTerminal := l.terminal.HasTabs()
+			
+			if !hasEditor && !hasTerminal {
+				// Only file manager is available
+				l.focusFileManager()
+			} else if !hasEditor {
+				// Only file manager and terminal
 				if l.focusedPanel == 0 {
 					l.focusTerminal()
 				} else {
 					l.focusFileManager()
 				}
+			} else if !hasTerminal {
+				// Only file manager and editor
+				if l.focusedPanel == 0 {
+					l.focusEditor()
+				} else {
+					l.focusFileManager()
+				}
 			} else {
-				// Normal cycling through all three panels
+				// All three panels available
 				nextPanel := (l.focusedPanel + 1) % 3
 				switch nextPanel {
 				case 0:

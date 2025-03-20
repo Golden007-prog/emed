@@ -206,6 +206,11 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 // InputHandler handles keyboard input
 func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+		// Ignore input if not focused
+		if !e.hasFocus {
+			return
+		}
+		
 		if e.readOnly {
 			// Only allow navigation in read-only mode
 			switch event.Key() {
@@ -655,6 +660,53 @@ func (e *CodeEditor) HasFocus() bool {
 // Blur implements tview.Primitive
 func (e *CodeEditor) Blur() {
 	e.hasFocus = false
+}
+
+// MouseHandler handles mouse events
+func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		// Get the position of the click relative to the box
+		x, y := event.Position()
+		rectX, rectY, width, height := e.GetInnerRect()
+		
+		// Check if click is within the editor bounds
+		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
+			switch action {
+			case tview.MouseLeftClick:
+				// Request focus when clicked
+				setFocus(e)
+				
+				// TODO: Implement click-to-position cursor
+				// relativeX := x - rectX
+				// relativeY := y - rectY
+				// e.setCursorFromClick(relativeX, relativeY)
+				
+				return true, nil
+				
+			case tview.MouseLeftDoubleClick:
+				// TODO: Implement word selection
+				setFocus(e)
+				return true, nil
+				
+			case tview.MouseLeftDown:
+				// TODO: Start text selection
+				setFocus(e)
+				return true, e // Capture for drag selection
+				
+			case tview.MouseLeftUp:
+				// TODO: End text selection
+				return true, nil
+				
+			case tview.MouseMove:
+				// TODO: Update selection during drag
+				if e.hasFocus {
+					return true, nil
+				}
+			}
+		}
+		
+		return false, nil
+	}
 }
 
 // Getters
