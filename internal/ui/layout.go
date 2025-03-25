@@ -223,6 +223,10 @@ func (l *Layout) getHelpText() string {
   Ctrl+T         Focus/Create Terminal
   F2             Cycle Focus Between Panels
   
+[yellow]TERMINAL:[-]
+  F8             Toggle Terminal Mode (Passthrough/Application)
+  Ctrl+Esc       Toggle Terminal Mode (alternative)
+  
 [yellow]TABS:[-]
   Ctrl+Shift+←   Previous Tab (or F3)
   Ctrl+Shift+→   Next Tab (or F4)

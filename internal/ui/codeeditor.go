@@ -498,6 +498,26 @@ func (e *CodeEditor) ensureCursorVisible() {
 	}
 }
 
+// scrollUp scrolls the viewport up by the specified number of lines
+func (e *CodeEditor) scrollUp(lines int) {
+	e.offsetRow -= lines
+	if e.offsetRow < 0 {
+		e.offsetRow = 0
+	}
+}
+
+// scrollDown scrolls the viewport down by the specified number of lines
+func (e *CodeEditor) scrollDown(lines int) {
+	e.offsetRow += lines
+	maxOffset := len(e.buffer) - e.viewportHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if e.offsetRow > maxOffset {
+		e.offsetRow = maxOffset
+	}
+}
+
 func (e *CodeEditor) getVisualColumn(row, col int) int {
 	// For now, assume 1:1 mapping (no tab expansion)
 	// TODO: Handle tab width properly
@@ -669,9 +689,19 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 		x, y := event.Position()
 		rectX, rectY, width, height := e.GetInnerRect()
 		
-		// Check if click is within the editor bounds
+		// Check if event is within the editor bounds
 		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
 			switch action {
+			case tview.MouseScrollUp:
+				// Scroll up by 1 line (regardless of focus)
+				e.scrollUp(1)
+				return true, nil
+				
+			case tview.MouseScrollDown:
+				// Scroll down by 1 line (regardless of focus)
+				e.scrollDown(1)
+				return true, nil
+				
 			case tview.MouseLeftClick:
 				// Request focus when clicked
 				setFocus(e)
@@ -699,9 +729,8 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				
 			case tview.MouseMove:
 				// TODO: Update selection during drag
-				if e.hasFocus {
-					return true, nil
-				}
+				// Process mouse move regardless of focus for future features
+				return true, nil
 			}
 		}
 		

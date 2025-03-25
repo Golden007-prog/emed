@@ -36,7 +36,7 @@ func NewEditor() *Editor {
 	}
 	
 	// Create no documents view
-	helpText := `Help: ALt+H or F1
+	helpText := `[blue]Help: ALt+H or F1
 
 ███████╗███╗   ███╗███████╗██████╗ 
 ██╔════╝████╗ ████║██╔════╝██╔══██╗

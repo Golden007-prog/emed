@@ -5,11 +5,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 	
 	"github.com/creack/pty"
 	"github.com/gdamore/tcell/v2"
-	"github.com/hinshun/vt10x"
+	"github.com/laborin/emed/internal/vt10x"
 	"github.com/rivo/tview"
 )
 
@@ -39,6 +40,10 @@ type VT10XTerminal struct {
 	isRunning bool
 	app       *tview.Application
 	
+	// Mouse and screen state
+	mouseReporting   bool  // Whether the terminal app has requested mouse events
+	alternateScreen  bool  // Whether using alternate screen buffer (no scrollback)
+	
 	// Callbacks
 	onModeChange func(mode TerminalMode)
 	
@@ -48,16 +53,25 @@ type VT10XTerminal struct {
 	
 	// Refresh control
 	needsRedraw bool
+	
+	// Scrollback using cumulative buffer approach
+	allContent      [][]vt10x.Glyph  // All content ever displayed
+	maxScrollback   int              // Maximum scrollback lines (1000)  
+	viewportOffset  int              // Offset from bottom (0 = live view)
+	lastUpdateTime  time.Time        // Last time we updated the buffer
 }
 
 // NewVT10XTerminal creates a new VT10x-based terminal emulator
 func NewVT10XTerminal() *VT10XTerminal {
 	t := &VT10XTerminal{
-		Box:   tview.NewBox(),
-		shell: os.Getenv("SHELL"),
-		mode:  ModeApplication,
-		rows:  24,  // Default size, will be updated on first draw
-		cols:  80,  // Default size, will be updated on first draw
+		Box:           tview.NewBox(),
+		shell:         os.Getenv("SHELL"),
+		mode:          ModeApplication,
+		rows:          24,  // Default size, will be updated on first draw
+		cols:          80,  // Default size, will be updated on first draw
+		allContent:     make([][]vt10x.Glyph, 0),
+		maxScrollback:  1000,
+		viewportOffset:  0,
 	}
 	
 	if t.shell == "" {
@@ -118,12 +132,20 @@ func (t *VT10XTerminal) refreshLoop() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	
+	updateTicker := time.NewTicker(100 * time.Millisecond)
+	defer updateTicker.Stop()
+	
 	for t.isRunning {
 		select {
 		case <-ticker.C:
 			if t.needsRedraw && t.app != nil {
 				t.app.QueueUpdateDraw(func() {})
 				t.needsRedraw = false
+			}
+		case <-updateTicker.C:
+			// Periodically update the content buffer
+			if !t.alternateScreen && t.viewportOffset == 0 {
+				t.updateContentBuffer()
 			}
 		}
 	}
@@ -144,11 +166,42 @@ func (t *VT10XTerminal) readPTY() {
 		}
 		
 		if n > 0 {
+			// Scan for terminal control sequences before passing to vt10x
+			t.scanForControlSequences(buf[:n])
+			
 			// Pass data directly to vt10x
 			// Note: vt10x doesn't support RGB colors, so they will be ignored
 			t.vt.Write(buf[:n])
 			t.needsRedraw = true
 		}
+	}
+}
+
+// scanForControlSequences looks for mouse mode and alternate screen escape sequences
+func (t *VT10XTerminal) scanForControlSequences(data []byte) {
+	str := string(data)
+	
+	// Mouse reporting modes
+	if strings.Contains(str, "\x1b[?1000h") || strings.Contains(str, "\x1b[?1002h") || 
+	   strings.Contains(str, "\x1b[?1003h") || strings.Contains(str, "\x1b[?1006h") {
+		t.mouseReporting = true
+	}
+	if strings.Contains(str, "\x1b[?1000l") || strings.Contains(str, "\x1b[?1002l") || 
+	   strings.Contains(str, "\x1b[?1003l") || strings.Contains(str, "\x1b[?1006l") {
+		t.mouseReporting = false
+	}
+	
+	// Alternate screen buffer
+	if strings.Contains(str, "\x1b[?1049h") || strings.Contains(str, "\x1b[?47h") ||
+	   strings.Contains(str, "\x1b[?1047h") {
+		t.alternateScreen = true
+		// When entering alternate screen, reset scroll
+		t.viewportOffset = 0
+	}
+	if strings.Contains(str, "\x1b[?1049l") || strings.Contains(str, "\x1b[?47l") ||
+	   strings.Contains(str, "\x1b[?1047l") {
+		t.alternateScreen = false
+		// When leaving alternate screen, could restore scrollback
 	}
 }
 
@@ -201,6 +254,121 @@ func (t *VT10XTerminal) SetOnModeChange(handler func(TerminalMode)) {
 	t.onModeChange = handler
 }
 
+// updateContentBuffer maintains a cumulative buffer of all terminal content
+func (t *VT10XTerminal) updateContentBuffer() {
+	if t.vt == nil || t.alternateScreen {
+		return
+	}
+	
+	t.vt.Lock()
+	defer t.vt.Unlock()
+	
+	// Simply maintain all content in order
+	// The allContent buffer represents everything that has appeared on screen
+	
+	// If this is the first update, capture initial screen
+	if len(t.allContent) == 0 {
+		for row := 0; row < t.rows; row++ {
+			line := make([]vt10x.Glyph, t.cols)
+			for col := 0; col < t.cols; col++ {
+				line[col] = t.vt.Cell(col, row)
+			}
+			t.allContent = append(t.allContent, line)
+		}
+		t.lastUpdateTime = time.Now()
+		return
+	}
+	
+	// Update the last screen-height worth of lines with current content
+	// This keeps the buffer in sync with the terminal
+	startIdx := len(t.allContent) - t.rows
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	
+	// Check if content has changed significantly (indicates scrolling)
+	contentChanged := false
+	if startIdx < len(t.allContent) {
+		// Compare first line of current screen with what we have
+		for col := 0; col < t.cols; col++ {
+			current := t.vt.Cell(col, 0)
+			if startIdx < len(t.allContent) && col < len(t.allContent[startIdx]) {
+				if current.Char != t.allContent[startIdx][col].Char {
+					contentChanged = true
+					break
+				}
+			}
+		}
+	}
+	
+	// If content changed, append new screen to buffer
+	if contentChanged || time.Since(t.lastUpdateTime) > 500*time.Millisecond {
+		// Get cursor position to detect if we're at a prompt
+		cur := t.vt.Cursor()
+		
+		// If cursor is near bottom, likely new content was added
+		if cur.Y >= t.rows - 3 {
+			// Append current screen to content
+			for row := 0; row < t.rows; row++ {
+				line := make([]vt10x.Glyph, t.cols)
+				for col := 0; col < t.cols; col++ {
+					line[col] = t.vt.Cell(col, row)
+				}
+				t.allContent = append(t.allContent, line)
+			}
+		} else {
+			// Just update the last screen worth
+			for row := 0; row < t.rows; row++ {
+				idx := startIdx + row
+				if idx >= 0 && idx < len(t.allContent) {
+					for col := 0; col < t.cols; col++ {
+						t.allContent[idx][col] = t.vt.Cell(col, row)
+					}
+				}
+			}
+		}
+		
+		// Trim if exceeds max
+		maxTotal := t.maxScrollback + t.rows
+		if len(t.allContent) > maxTotal {
+			t.allContent = t.allContent[len(t.allContent) - maxTotal:]
+		}
+		
+		t.lastUpdateTime = time.Now()
+	}
+}
+
+
+// scrollUp scrolls the view up by n lines
+func (t *VT10XTerminal) scrollUp(lines int) {
+	// Make sure content buffer is up to date
+	t.updateContentBuffer()
+	
+	// Maximum scroll is total content minus screen height
+	maxScroll := len(t.allContent) - t.rows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	
+	t.viewportOffset += lines
+	if t.viewportOffset > maxScroll {
+		t.viewportOffset = maxScroll
+	}
+}
+
+// scrollDown scrolls the view down by n lines
+func (t *VT10XTerminal) scrollDown(lines int) {
+	t.viewportOffset -= lines
+	if t.viewportOffset < 0 {
+		t.viewportOffset = 0
+	}
+}
+
+// resetScroll returns to live view
+func (t *VT10XTerminal) resetScroll() {
+	t.viewportOffset = 0
+}
+
 // Draw draws the terminal
 func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 	t.Box.DrawForSubclass(screen, t)
@@ -243,12 +411,74 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		}
 	}
 	
+	// Draw scroll indicator if scrolled
+	if t.viewportOffset > 0 {
+		scrollText := fmt.Sprintf("[SCROLLED: -%d lines]", t.viewportOffset)
+		scrollX := x + width - len(scrollText)
+		scrollY := y + height - 1
+		if scrollX > x {
+			for i, ch := range scrollText {
+				screen.SetContent(scrollX+i, scrollY, ch, nil,
+					tcell.StyleDefault.Foreground(tcell.ColorAqua).Bold(true))
+			}
+		}
+	}
+	
 	// Draw terminal content
 	// Lock the vt10x terminal for reading
 	t.vt.Lock()
 	defer t.vt.Unlock()
 	
-	// Draw each cell from the terminal
+	// If scrolled, draw from content buffer
+	if t.viewportOffset > 0 {
+		// Make sure buffer is current
+		t.updateContentBuffer()
+		
+		// Calculate viewport
+		// viewportOffset 0 = show last 'height' lines (live view)
+		// viewportOffset N = show N lines up from bottom
+		viewEnd := len(t.allContent) - t.viewportOffset
+		viewStart := viewEnd - height
+		if viewStart < 0 {
+			viewStart = 0
+		}
+		if viewEnd > len(t.allContent) {
+			viewEnd = len(t.allContent)
+		}
+		
+		// Draw the viewport
+		screenRow := 0
+		for i := viewStart; i < viewEnd && screenRow < height; i++ {
+			if i >= 0 && i < len(t.allContent) {
+				line := t.allContent[i]
+				for col := 0; col < width && col < len(line); col++ {
+					glyph := line[col]
+					style := vt10xToTcellStyle(glyph)
+					ch := glyph.Char
+					if ch == 0 {
+						ch = ' '
+					}
+					screen.SetContent(x+col, y+screenRow, ch, nil, style)
+				}
+				// Clear rest of line
+				for col := len(line); col < width; col++ {
+					screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
+				}
+			}
+			screenRow++
+		}
+		
+		// Clear any remaining rows
+		for ; screenRow < height; screenRow++ {
+			for col := 0; col < width; col++ {
+				screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
+			}
+		}
+		
+		return // Don't draw live terminal when scrolled
+	}
+	
+	// Draw live terminal (when not scrolled)
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			// Get glyph from vt10x
@@ -519,45 +749,57 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		x, y := event.Position()
 		rectX, rectY, width, height := t.GetInnerRect()
 		
-		// Check if click is within the terminal bounds
+		// Check if event is within the terminal bounds
 		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
 			// Calculate terminal-relative coordinates (1-based for terminal)
 			termX := x - rectX + 1
 			termY := y - rectY + 1
 			
-			// In passthrough mode, send mouse events to the terminal
-			if t.mode == ModePassthrough && t.ptm != nil {
-				// Only set focus on click actions, not move
-				switch action {
-				case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick,
-					 tview.MouseRightClick, tview.MouseRightDown,
-					 tview.MouseMiddleClick, tview.MouseMiddleDown:
-					setFocus(t)
-				}
-				
+			// Handle focus on click actions
+			switch action {
+			case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick,
+				 tview.MouseRightClick, tview.MouseRightDown,
+				 tview.MouseMiddleClick, tview.MouseMiddleDown:
+				setFocus(t)
+			}
+			
+			// If the terminal application has requested mouse reporting, send events to it
+			if t.mouseReporting && t.ptm != nil {
 				// Convert mouse action to terminal escape sequences
-				// This supports applications like vim with mouse mode, htop, etc.
 				mouseSeq := t.generateMouseSequence(action, event, termX, termY)
 				if mouseSeq != "" {
 					t.ptm.Write([]byte(mouseSeq))
 				}
+				// Still consume the event to prevent propagation
 				return true, nil
 			}
 			
-			// In application mode, just handle focus
+			// Otherwise, handle mouse events locally
 			switch action {
+			case tview.MouseScrollUp:
+				// Only allow scrollback if not in alternate screen
+				if !t.alternateScreen {
+					t.scrollUp(1)  // Scroll 1 line at a time for precise control
+				}
+				return true, nil
+			case tview.MouseScrollDown:
+				// Only allow scrollback if not in alternate screen
+				if !t.alternateScreen {
+					t.scrollDown(1)  // Scroll 1 line at a time for precise control
+				}
+				return true, nil
 			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
 				 tview.MouseRightClick, tview.MouseMiddleClick:
-				// Request focus on click actions
-				setFocus(t)
-				// Consume the click to prevent propagation
+				// Clicks reset scroll position
+				if !t.alternateScreen {
+					t.resetScroll()
+				}
 				return true, nil
 			case tview.MouseLeftDown:
-				// Request focus and capture for potential drag operations
-				setFocus(t)
+				// Capture for potential drag operations
 				return true, t
 			case tview.MouseLeftUp, tview.MouseMove:
-				// Handle these to prevent unexpected behavior (but don't set focus)
+				// Consume these to prevent unexpected behavior
 				return true, nil
 			}
 		}
@@ -639,8 +881,14 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			return
 		}
 		
-		// Handle mode toggle
-		if event.Key() == tcell.KeyEsc && event.Modifiers() == tcell.ModCtrl {
+		// Reset scroll on any keyboard input (return to live view)
+		if t.viewportOffset > 0 {
+			t.resetScroll()
+		}
+		
+		// Handle mode toggle (Ctrl+Esc or F8)
+		if (event.Key() == tcell.KeyEsc && event.Modifiers() == tcell.ModCtrl) || 
+		   event.Key() == tcell.KeyF8 {
 			if t.mode == ModeApplication {
 				t.SetMode(ModePassthrough)
 			} else {
@@ -657,6 +905,9 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 				tcell.KeyCtrlW, tcell.KeyF1, tcell.KeyF2, tcell.KeyF3,
 				tcell.KeyF4, tcell.KeyF5, tcell.KeyF6, tcell.KeyF7:
 				// Pass to app
+				return
+			case tcell.KeyF8:
+				// F8 is used for mode toggle, don't pass to app
 				return
 			}
 			
