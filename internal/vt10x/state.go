@@ -101,12 +101,18 @@ type State struct {
 	tabs          []bool
 	title         string
 	colorOverride map[Color]Color
+	
+	// Scrollback buffer
+	scrollback    []line
+	maxScrollback int
 }
 
 func newState(w io.Writer) *State {
 	return &State{
 		w:             w,
 		colorOverride: make(map[Color]Color),
+		scrollback:    make([]line, 0),
+		maxScrollback: 1000, // Default to 1000 lines of scrollback
 	}
 }
 
@@ -476,6 +482,25 @@ func (t *State) scrollDown(orig, n int) {
 
 func (t *State) scrollUp(orig, n int) {
 	n = clamp(n, 0, t.bottom-orig+1)
+	
+	// Save the lines that will scroll off to scrollback buffer
+	// Only save if we're not in alternate screen mode
+	if t.mode&ModeAltScreen == 0 && orig == t.top {
+		for i := 0; i < n && orig+i < len(t.lines); i++ {
+			// Make a copy of the line that's about to scroll off
+			lineToSave := make(line, len(t.lines[orig+i]))
+			copy(lineToSave, t.lines[orig+i])
+			
+			// Add to scrollback
+			t.scrollback = append(t.scrollback, lineToSave)
+			
+			// Trim scrollback if it exceeds max
+			if len(t.scrollback) > t.maxScrollback {
+				t.scrollback = t.scrollback[len(t.scrollback)-t.maxScrollback:]
+			}
+		}
+	}
+	
 	t.clear(0, orig, t.cols-1, orig+n-1)
 	t.changed |= ChangedScreen
 	for i := orig; i <= t.bottom-n; i++ {
@@ -759,4 +784,39 @@ func (t *State) String() string {
 	}
 
 	return string(view)
+}
+
+// Scrollback returns the scrollback buffer
+func (t *State) Scrollback() []line {
+	return t.scrollback
+}
+
+// ScrollbackLines returns the number of lines in the scrollback buffer
+func (t *State) ScrollbackLines() int {
+	return len(t.scrollback)
+}
+
+// GetScrollbackLine returns a specific line from the scrollback buffer
+func (t *State) GetScrollbackLine(index int) []Glyph {
+	if index < 0 || index >= len(t.scrollback) {
+		return nil
+	}
+	// Return a copy to prevent modification
+	result := make([]Glyph, len(t.scrollback[index]))
+	copy(result, t.scrollback[index])
+	return result
+}
+
+// ClearScrollback clears the scrollback buffer
+func (t *State) ClearScrollback() {
+	t.scrollback = make([]line, 0)
+}
+
+// SetMaxScrollback sets the maximum scrollback buffer size
+func (t *State) SetMaxScrollback(max int) {
+	t.maxScrollback = max
+	// Trim existing scrollback if necessary
+	if len(t.scrollback) > t.maxScrollback {
+		t.scrollback = t.scrollback[len(t.scrollback)-t.maxScrollback:]
+	}
 }

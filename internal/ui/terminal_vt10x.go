@@ -54,11 +54,8 @@ type VT10XTerminal struct {
 	// Refresh control
 	needsRedraw bool
 	
-	// Scrollback using cumulative buffer approach
-	allContent      [][]vt10x.Glyph  // All content ever displayed
-	maxScrollback   int              // Maximum scrollback lines (1000)  
+	// Scrollback state
 	viewportOffset  int              // Offset from bottom (0 = live view)
-	lastUpdateTime  time.Time        // Last time we updated the buffer
 }
 
 // NewVT10XTerminal creates a new VT10x-based terminal emulator
@@ -69,8 +66,6 @@ func NewVT10XTerminal() *VT10XTerminal {
 		mode:          ModeApplication,
 		rows:          24,  // Default size, will be updated on first draw
 		cols:          80,  // Default size, will be updated on first draw
-		allContent:     make([][]vt10x.Glyph, 0),
-		maxScrollback:  1000,
 		viewportOffset:  0,
 	}
 	
@@ -118,6 +113,9 @@ func (t *VT10XTerminal) Start() error {
 		// Non-fatal
 	}
 	
+	// Configure scrollback buffer size
+	t.vt.SetMaxScrollback(1000)
+	
 	// Start reading from PTY
 	go t.readPTY()
 	
@@ -132,20 +130,12 @@ func (t *VT10XTerminal) refreshLoop() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	
-	updateTicker := time.NewTicker(100 * time.Millisecond)
-	defer updateTicker.Stop()
-	
 	for t.isRunning {
 		select {
 		case <-ticker.C:
 			if t.needsRedraw && t.app != nil {
 				t.app.QueueUpdateDraw(func() {})
 				t.needsRedraw = false
-			}
-		case <-updateTicker.C:
-			// Periodically update the content buffer
-			if !t.alternateScreen && t.viewportOffset == 0 {
-				t.updateContentBuffer()
 			}
 		}
 	}
@@ -254,98 +244,15 @@ func (t *VT10XTerminal) SetOnModeChange(handler func(TerminalMode)) {
 	t.onModeChange = handler
 }
 
-// updateContentBuffer maintains a cumulative buffer of all terminal content
-func (t *VT10XTerminal) updateContentBuffer() {
-	if t.vt == nil || t.alternateScreen {
-		return
-	}
-	
-	t.vt.Lock()
-	defer t.vt.Unlock()
-	
-	// Simply maintain all content in order
-	// The allContent buffer represents everything that has appeared on screen
-	
-	// If this is the first update, capture initial screen
-	if len(t.allContent) == 0 {
-		for row := 0; row < t.rows; row++ {
-			line := make([]vt10x.Glyph, t.cols)
-			for col := 0; col < t.cols; col++ {
-				line[col] = t.vt.Cell(col, row)
-			}
-			t.allContent = append(t.allContent, line)
-		}
-		t.lastUpdateTime = time.Now()
-		return
-	}
-	
-	// Update the last screen-height worth of lines with current content
-	// This keeps the buffer in sync with the terminal
-	startIdx := len(t.allContent) - t.rows
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	
-	// Check if content has changed significantly (indicates scrolling)
-	contentChanged := false
-	if startIdx < len(t.allContent) {
-		// Compare first line of current screen with what we have
-		for col := 0; col < t.cols; col++ {
-			current := t.vt.Cell(col, 0)
-			if startIdx < len(t.allContent) && col < len(t.allContent[startIdx]) {
-				if current.Char != t.allContent[startIdx][col].Char {
-					contentChanged = true
-					break
-				}
-			}
-		}
-	}
-	
-	// If content changed, append new screen to buffer
-	if contentChanged || time.Since(t.lastUpdateTime) > 500*time.Millisecond {
-		// Get cursor position to detect if we're at a prompt
-		cur := t.vt.Cursor()
-		
-		// If cursor is near bottom, likely new content was added
-		if cur.Y >= t.rows - 3 {
-			// Append current screen to content
-			for row := 0; row < t.rows; row++ {
-				line := make([]vt10x.Glyph, t.cols)
-				for col := 0; col < t.cols; col++ {
-					line[col] = t.vt.Cell(col, row)
-				}
-				t.allContent = append(t.allContent, line)
-			}
-		} else {
-			// Just update the last screen worth
-			for row := 0; row < t.rows; row++ {
-				idx := startIdx + row
-				if idx >= 0 && idx < len(t.allContent) {
-					for col := 0; col < t.cols; col++ {
-						t.allContent[idx][col] = t.vt.Cell(col, row)
-					}
-				}
-			}
-		}
-		
-		// Trim if exceeds max
-		maxTotal := t.maxScrollback + t.rows
-		if len(t.allContent) > maxTotal {
-			t.allContent = t.allContent[len(t.allContent) - maxTotal:]
-		}
-		
-		t.lastUpdateTime = time.Now()
-	}
-}
 
 
 // scrollUp scrolls the view up by n lines
 func (t *VT10XTerminal) scrollUp(lines int) {
-	// Make sure content buffer is up to date
-	t.updateContentBuffer()
+	// Get scrollback size from vt10x
+	scrollbackSize := t.vt.ScrollbackLines()
 	
-	// Maximum scroll is total content minus screen height
-	maxScroll := len(t.allContent) - t.rows
+	// Maximum scroll is scrollback + current screen - viewport height
+	maxScroll := scrollbackSize
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -429,40 +336,60 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 	t.vt.Lock()
 	defer t.vt.Unlock()
 	
-	// If scrolled, draw from content buffer
+	// If scrolled, draw from scrollback buffer
 	if t.viewportOffset > 0 {
-		// Make sure buffer is current
-		t.updateContentBuffer()
+		// Get total lines (scrollback + current screen)
+		scrollbackSize := t.vt.ScrollbackLines()
+		totalLines := scrollbackSize + t.rows
 		
 		// Calculate viewport
 		// viewportOffset 0 = show last 'height' lines (live view)
 		// viewportOffset N = show N lines up from bottom
-		viewEnd := len(t.allContent) - t.viewportOffset
+		viewEnd := totalLines - t.viewportOffset
 		viewStart := viewEnd - height
 		if viewStart < 0 {
 			viewStart = 0
 		}
-		if viewEnd > len(t.allContent) {
-			viewEnd = len(t.allContent)
+		if viewEnd > totalLines {
+			viewEnd = totalLines
 		}
 		
 		// Draw the viewport
 		screenRow := 0
+		scrollbackSize = t.vt.ScrollbackLines()
+		
 		for i := viewStart; i < viewEnd && screenRow < height; i++ {
-			if i >= 0 && i < len(t.allContent) {
-				line := t.allContent[i]
-				for col := 0; col < width && col < len(line); col++ {
-					glyph := line[col]
-					style := vt10xToTcellStyle(glyph)
-					ch := glyph.Char
-					if ch == 0 {
-						ch = ' '
+			if i >= 0 {
+				if i < scrollbackSize {
+					// Draw from scrollback
+					line := t.vt.GetScrollbackLine(i)
+					for col := 0; col < width && col < len(line); col++ {
+						glyph := line[col]
+						style := vt10xToTcellStyle(glyph)
+						ch := glyph.Char
+						if ch == 0 {
+							ch = ' '
+						}
+						screen.SetContent(x+col, y+screenRow, ch, nil, style)
 					}
-					screen.SetContent(x+col, y+screenRow, ch, nil, style)
-				}
-				// Clear rest of line
-				for col := len(line); col < width; col++ {
-					screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
+					// Clear rest of line
+					for col := len(line); col < width; col++ {
+						screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
+					}
+				} else {
+					// Draw from current screen
+					row := i - scrollbackSize
+					if row >= 0 && row < t.rows {
+						for col := 0; col < width; col++ {
+							glyph := t.vt.Cell(col, row)
+							style := vt10xToTcellStyle(glyph)
+							ch := glyph.Char
+							if ch == 0 {
+								ch = ' '
+							}
+							screen.SetContent(x+col, y+screenRow, ch, nil, style)
+						}
+					}
 				}
 			}
 			screenRow++
