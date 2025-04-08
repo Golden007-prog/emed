@@ -272,6 +272,13 @@ func (l *Layout) setupKeybindings() {
 			l.focusedPanel = 2
 		}
 		
+		// Check if terminal is in passthrough mode - if so, let it handle ALL input
+		if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
+			// In passthrough mode, ALL input goes to the terminal
+			// The terminal's input handler will only intercept the mode toggle (Ctrl+Esc or F8)
+			return event
+		}
+		
 		// Handle F-keys
 		switch event.Key() {
 		case tcell.KeyF1:

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	
 	"github.com/laborin/emed/internal/ui"
@@ -13,6 +14,59 @@ import (
 func main() {
 	// Enable true color support
 	os.Setenv("COLORTERM", "truecolor")
+	
+	// Determine the working directory
+	var workingDir string
+	
+	if len(os.Args) > 1 {
+		// Argument provided - use it
+		argPath := os.Args[1]
+		
+		// Check if it's a file or directory
+		info, err := os.Stat(argPath)
+		if err != nil {
+			// Path doesn't exist or can't be accessed
+			fmt.Fprintf(os.Stderr, "Error: Cannot access '%s': %v\n", argPath, err)
+			os.Exit(1)
+		}
+		
+		if info.IsDir() {
+			// It's a directory - use it directly
+			workingDir, err = filepath.Abs(argPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", argPath, err)
+				os.Exit(1)
+			}
+		} else {
+			// It's a file - use its parent directory
+			absPath, err := filepath.Abs(argPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", argPath, err)
+				os.Exit(1)
+			}
+			workingDir = filepath.Dir(absPath)
+		}
+	} else {
+		// No argument - use current working directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			// Can't get current directory - fall back to home directory
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Cannot determine working directory: %v\n", err)
+				os.Exit(1)
+			}
+			workingDir = homeDir
+		} else {
+			workingDir = cwd
+		}
+	}
+	
+	// Change to the working directory
+	if err := os.Chdir(workingDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Cannot change to directory '%s': %v\n", workingDir, err)
+		os.Exit(1)
+	}
 	
 	app := tview.NewApplication()
 	
@@ -31,7 +85,7 @@ func main() {
 		os.Exit(0)
 	}()
 	
-	// Create the main layout
+	// Create the main layout (working directory is already set via os.Chdir)
 	layout := ui.NewLayout(app)
 	
 	// Set up the application with panic recovery

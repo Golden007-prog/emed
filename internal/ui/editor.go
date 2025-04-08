@@ -21,7 +21,7 @@ type Editor struct {
 	contentArea      *tview.Pages
 	tabs             []*EditorTab
 	activeTab        int
-	noDocsView       *tview.TextView // View shown when no documents are open
+	noDocsView       tview.Primitive // View shown when no documents are open (now a Flex container)
 	app              *tview.Application
 	onLastTabClosed  func()          // Callback when last tab is closed
 }
@@ -35,20 +35,28 @@ func NewEditor() *Editor {
 		activeTab:   -1,
 	}
 	
-	// Create no documents view
-	helpText := `[blue]Help: ALt+H or F1
+	// Create no documents view with blue ASCII art
+	helpText := `[gray]Help: Alt+H or F1[-]
 
-███████╗███╗   ███╗███████╗██████╗ 
+
+[blue]███████╗███╗   ███╗███████╗██████╗ 
 ██╔════╝████╗ ████║██╔════╝██╔══██╗
 █████╗  ██╔████╔██║█████╗  ██║  ██║
 ██╔══╝  ██║╚██╔╝██║██╔══╝  ██║  ██║
 ███████╗██║ ╚═╝ ██║███████╗██████╔╝
-╚══════╝╚═╝     ╚═╝╚══════╝╚═════╝ 
+╚══════╝╚═╝     ╚═╝╚══════╝╚═════╝[-]
 `
 	
-	e.noDocsView = tview.NewTextView().
-		SetTextAlign(tview.AlignCenter).
-		SetText(helpText)
+	// Create a flex container to center vertically
+	centerFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).  // Top spacer
+		AddItem(tview.NewTextView().
+			SetTextAlign(tview.AlignCenter).
+			SetText(helpText).
+			SetDynamicColors(true), 10, 0, false).  // ASCII art (fixed height)
+		AddItem(nil, 0, 1, false)  // Bottom spacer
+	
+	e.noDocsView = centerFlex
 	
 	// Add the no docs view as a page
 	e.contentArea.AddPage("no-docs", e.noDocsView, true, false)

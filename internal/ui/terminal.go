@@ -303,3 +303,13 @@ func (t *Terminal) SetOnLastTabClosed(handler func()) {
 	t.onLastTabClosed = handler
 }
 
+// IsInPassthroughMode returns true if the active terminal is in passthrough mode
+func (t *Terminal) IsInPassthroughMode() bool {
+	if t.activeTab >= 0 && t.activeTab < len(t.tabs) {
+		if t.tabs[t.activeTab].emulator != nil {
+			return t.tabs[t.activeTab].emulator.GetMode() == ModePassthrough
+		}
+	}
+	return false
+}
+

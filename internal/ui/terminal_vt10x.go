@@ -42,6 +42,7 @@ type VT10XTerminal struct {
 	
 	// Mouse and screen state
 	mouseReporting   bool  // Whether the terminal app has requested mouse events
+	mouseSGRMode     bool  // Whether using SGR (1006) extended mouse reporting
 	alternateScreen  bool  // Whether using alternate screen buffer (no scrollback)
 	
 	// Callbacks
@@ -172,13 +173,33 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	str := string(data)
 	
 	// Mouse reporting modes
-	if strings.Contains(str, "\x1b[?1000h") || strings.Contains(str, "\x1b[?1002h") || 
-	   strings.Contains(str, "\x1b[?1003h") || strings.Contains(str, "\x1b[?1006h") {
+	// 1000 = report button press
+	// 1002 = report motion on button press  
+	// 1003 = report all mouse motions
+	// 1006 = SGR extended reporting mode
+	if strings.Contains(str, "\x1b[?1000h") {
 		t.mouseReporting = true
+		t.mouseSGRMode = false  // Normal mode
+	}
+	if strings.Contains(str, "\x1b[?1002h") {
+		t.mouseReporting = true
+		// Keep existing SGR mode setting
+	}
+	if strings.Contains(str, "\x1b[?1003h") {
+		t.mouseReporting = true
+		// Keep existing SGR mode setting
+	}
+	if strings.Contains(str, "\x1b[?1006h") {
+		t.mouseReporting = true
+		t.mouseSGRMode = true  // SGR mode
 	}
 	if strings.Contains(str, "\x1b[?1000l") || strings.Contains(str, "\x1b[?1002l") || 
-	   strings.Contains(str, "\x1b[?1003l") || strings.Contains(str, "\x1b[?1006l") {
+	   strings.Contains(str, "\x1b[?1003l") {
 		t.mouseReporting = false
+		// Keep SGR mode setting in case it's re-enabled
+	}
+	if strings.Contains(str, "\x1b[?1006l") {
+		t.mouseSGRMode = false  // Disable SGR mode
 	}
 	
 	// Alternate screen buffer
@@ -690,18 +711,18 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				setFocus(t)
 			}
 			
-			// If the terminal application has requested mouse reporting, send events to it
+			// If the terminal application has requested mouse reporting, send ALL events to it
 			if t.mouseReporting && t.ptm != nil {
 				// Convert mouse action to terminal escape sequences
 				mouseSeq := t.generateMouseSequence(action, event, termX, termY)
 				if mouseSeq != "" {
 					t.ptm.Write([]byte(mouseSeq))
 				}
-				// Still consume the event to prevent propagation
+				// Consume the event to prevent propagation
 				return true, nil
 			}
 			
-			// Otherwise, handle mouse events locally
+			// Otherwise, handle mouse events locally (when mouse reporting is off)
 			switch action {
 			case tview.MouseScrollUp:
 				// Only allow scrollback if not in alternate screen
@@ -737,37 +758,35 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 
 // generateMouseSequence generates terminal mouse escape sequences
 func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *tcell.EventMouse, x, y int) string {
-	// Most terminals use SGR (1006) or normal (1000) mouse tracking
-	// We'll use SGR format: ESC[<button;x;y;M (press) or m (release)
-	
 	var button int
-	var suffix string
+	var isRelease bool
 	
+	// Determine button code
 	switch action {
 	case tview.MouseLeftClick, tview.MouseLeftDown:
 		button = 0
-		suffix = "M"
+		isRelease = false
 	case tview.MouseLeftUp:
 		button = 0
-		suffix = "m"
+		isRelease = true
 	case tview.MouseMiddleClick, tview.MouseMiddleDown:
 		button = 1
-		suffix = "M"
+		isRelease = false
 	case tview.MouseMiddleUp:
 		button = 1
-		suffix = "m"
+		isRelease = true
 	case tview.MouseRightClick, tview.MouseRightDown:
 		button = 2
-		suffix = "M"
+		isRelease = false
 	case tview.MouseRightUp:
 		button = 2
-		suffix = "m"
+		isRelease = true
 	case tview.MouseScrollUp:
-		button = 64
-		suffix = "M"
+		button = 64  // Scroll up (button 4)
+		isRelease = false
 	case tview.MouseScrollDown:
-		button = 65
-		suffix = "M"
+		button = 65  // Scroll down (button 5)
+		isRelease = false
 	case tview.MouseMove:
 		// Movement with button held
 		buttons := event.Buttons()
@@ -780,7 +799,7 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		} else {
 			return "" // No button pressed during movement
 		}
-		suffix = "M"
+		isRelease = false
 	default:
 		return ""
 	}
@@ -797,8 +816,35 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		button += 16
 	}
 	
-	// Return SGR mouse sequence
-	return fmt.Sprintf("\x1b[<%d;%d;%d%s", button, x, y, suffix)
+	// Generate sequence based on mode
+	if t.mouseSGRMode {
+		// SGR mode (1006): ESC[<button;x;y;M (press) or m (release)
+		suffix := "M"
+		if isRelease {
+			suffix = "m"
+		}
+		return fmt.Sprintf("\x1b[<%d;%d;%d%s", button, x, y, suffix)
+	} else {
+		// Normal mode (1000/1002/1003): ESC[Mbxy
+		// Normal mode uses a different encoding:
+		// - Button code + 32 (space) to make it printable
+		// - x and y coordinates + 32 to make them printable
+		// - Release adds 3 to the button code
+		if isRelease {
+			button += 3
+		}
+		
+		// Ensure coordinates are within valid range (1-223 after adding 32)
+		if x > 223 {
+			x = 223
+		}
+		if y > 223 {
+			y = 223
+		}
+		
+		// In normal mode, button code and coordinates are offset by 32 to be printable
+		return fmt.Sprintf("\x1b[M%c%c%c", byte(button+32), byte(x+32), byte(y+32))
+	}
 }
 
 // InputHandler handles input events
@@ -824,23 +870,27 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			return
 		}
 		
-		// In application mode, let some keys through to the app
-		if t.mode == ModeApplication {
-			// Let app handle navigation and control keys
+		// In Passthrough mode, ALL input goes to terminal except mode toggle
+		if t.mode == ModePassthrough {
+			// Everything goes to the terminal in passthrough mode
+			// Mode toggle is already handled above
+		} else if t.mode == ModeApplication {
+			// In application mode, only block specific emed shortcuts
+			// Only intercept emed-specific shortcuts, let everything else through to terminal
 			switch event.Key() {
 			case tcell.KeyCtrlA, tcell.KeyCtrlE, tcell.KeyCtrlT,
 				tcell.KeyCtrlW, tcell.KeyF1, tcell.KeyF2, tcell.KeyF3,
 				tcell.KeyF4, tcell.KeyF5, tcell.KeyF6, tcell.KeyF7:
-				// Pass to app
+				// These are emed shortcuts - pass back to app
 				return
 			case tcell.KeyF8:
-				// F8 is used for mode toggle, don't pass to app
+				// F8 is used for mode toggle, already handled above
 				return
 			}
 			
-			// Also check for Ctrl+Shift combinations
+			// Also check for Ctrl+Shift combinations (emed shortcuts)
 			if event.Modifiers()&tcell.ModCtrl != 0 && event.Modifiers()&tcell.ModShift != 0 {
-				return // Pass to app
+				return // Pass to app for emed handling
 			}
 		}
 		
@@ -859,17 +909,42 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 		case tcell.KeyEscape:
 			data = []byte("\x1b")
 		case tcell.KeyUp:
-			data = []byte("\x1b[A")
+			// Check if we're in application cursor mode
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOA") // Application mode
+			} else {
+				data = []byte("\x1b[A") // Normal mode
+			}
 		case tcell.KeyDown:
-			data = []byte("\x1b[B")
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOB")
+			} else {
+				data = []byte("\x1b[B")
+			}
 		case tcell.KeyRight:
-			data = []byte("\x1b[C")
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOC")
+			} else {
+				data = []byte("\x1b[C")
+			}
 		case tcell.KeyLeft:
-			data = []byte("\x1b[D")
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOD")
+			} else {
+				data = []byte("\x1b[D")
+			}
 		case tcell.KeyHome:
-			data = []byte("\x1b[H")
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOH") // Application mode
+			} else {
+				data = []byte("\x1b[H") // Normal mode
+			}
 		case tcell.KeyEnd:
-			data = []byte("\x1b[F")
+			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+				data = []byte("\x1bOF") // Application mode
+			} else {
+				data = []byte("\x1b[F") // Normal mode
+			}
 		case tcell.KeyPgUp:
 			data = []byte("\x1b[5~")
 		case tcell.KeyPgDn:
@@ -888,6 +963,30 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			data = []byte("\x15")
 		case tcell.KeyCtrlK:
 			data = []byte("\x0b")
+		case tcell.KeyF1:
+			data = []byte("\x1bOP")  // F1
+		case tcell.KeyF2:
+			data = []byte("\x1bOQ")  // F2
+		case tcell.KeyF3:
+			data = []byte("\x1bOR")  // F3
+		case tcell.KeyF4:
+			data = []byte("\x1bOS")  // F4
+		case tcell.KeyF5:
+			data = []byte("\x1b[15~") // F5
+		case tcell.KeyF6:
+			data = []byte("\x1b[17~") // F6
+		case tcell.KeyF7:
+			data = []byte("\x1b[18~") // F7
+		case tcell.KeyF8:
+			data = []byte("\x1b[19~") // F8
+		case tcell.KeyF9:
+			data = []byte("\x1b[20~") // F9
+		case tcell.KeyF10:
+			data = []byte("\x1b[21~") // F10
+		case tcell.KeyF11:
+			data = []byte("\x1b[23~") // F11
+		case tcell.KeyF12:
+			data = []byte("\x1b[24~") // F12
 		}
 		
 		if len(data) > 0 {
