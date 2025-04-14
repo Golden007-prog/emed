@@ -10,7 +10,7 @@ import (
 	
 	"github.com/creack/pty"
 	"github.com/gdamore/tcell/v2"
-	"github.com/laborin/emed/internal/vt10x"
+	"github.com/laborin/vt10x"
 	"github.com/rivo/tview"
 )
 
