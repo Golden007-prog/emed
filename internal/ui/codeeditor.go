@@ -150,12 +150,15 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	x, y, width, height := e.GetInnerRect()
 	
 	e.viewportHeight = height
-	e.viewportWidth = width
+	e.viewportWidth = width - 1  // Reserve 1 column for scrollbar
 	
-	// Draw visible lines
+	// Draw visible lines (leave space for scrollbar)
 	for row := 0; row < height && row+e.offsetRow < len(e.buffer); row++ {
-		e.drawLine(screen, row+e.offsetRow, x, y+row, width)
+		e.drawLine(screen, row+e.offsetRow, x, y+row, width-1)
 	}
+	
+	// Draw vertical scrollbar
+	e.drawScrollbar(screen, x+width-1, y, height)
 	
 	// Show cursor only when focused
 	if e.hasFocus {
@@ -163,7 +166,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 			cursorX := x + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
 			cursorY := y + e.cursorRow - e.offsetRow
 			
-			if cursorX >= x && cursorX < x+width {
+			if cursorX >= x && cursorX < x+width-1 {
 				screen.ShowCursor(cursorX, cursorY)
 			}
 		}
@@ -189,16 +192,67 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 	}
 	
 	// Draw tokens
-	currentX := x - e.offsetCol
+	screenX := x  // Position on screen
+	charPos := 0  // Position in the line
+	
 	for _, token := range tokens {
 		for _, ch := range token.Text {
-			if currentX >= x && currentX < x+maxWidth {
-				screen.SetContent(currentX, y, ch, nil, token.Style)
+			// Check if this character is visible (after horizontal scroll)
+			if charPos >= e.offsetCol && screenX < x+maxWidth {
+				screen.SetContent(screenX, y, ch, nil, token.Style)
+				screenX++
 			}
-			currentX++
-			if currentX >= x+maxWidth {
+			charPos++
+			
+			// Stop if we've filled the line
+			if screenX >= x+maxWidth {
 				return
 			}
+		}
+	}
+}
+
+// drawScrollbar draws the vertical scrollbar
+func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
+	totalLines := len(e.buffer)
+	if totalLines == 0 {
+		totalLines = 1
+	}
+	
+	// Calculate scrollbar metrics
+	visibleRatio := float64(height) / float64(totalLines)
+	if visibleRatio >= 1.0 {
+		// No scrollbar needed if all content fits
+		for i := 0; i < height; i++ {
+			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
+		}
+		return
+	}
+	
+	// Calculate thumb size and position
+	thumbHeight := int(float64(height) * visibleRatio)
+	if thumbHeight < 1 {
+		thumbHeight = 1
+	}
+	
+	scrollPosition := float64(e.offsetRow) / float64(totalLines-height)
+	if scrollPosition < 0 {
+		scrollPosition = 0
+	}
+	if scrollPosition > 1 {
+		scrollPosition = 1
+	}
+	
+	thumbPosition := int(scrollPosition * float64(height-thumbHeight))
+	
+	// Draw scrollbar track and thumb
+	for i := 0; i < height; i++ {
+		if i >= thumbPosition && i < thumbPosition+thumbHeight {
+			// Draw thumb
+			screen.SetContent(x, y+i, '█', nil, tcell.StyleDefault.Foreground(tcell.ColorWhite))
+		} else {
+			// Draw track
+			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
 		}
 	}
 }
@@ -518,6 +572,33 @@ func (e *CodeEditor) scrollDown(lines int) {
 	}
 }
 
+// scrollLeft scrolls the viewport left by the specified number of columns
+func (e *CodeEditor) scrollLeft(cols int) {
+	e.offsetCol -= cols
+	if e.offsetCol < 0 {
+		e.offsetCol = 0
+	}
+}
+
+// scrollRight scrolls the viewport right by the specified number of columns
+func (e *CodeEditor) scrollRight(cols int) {
+	e.offsetCol += cols
+	// Find the longest line to determine max offset
+	maxLineLength := 0
+	for _, line := range e.buffer {
+		if len(line) > maxLineLength {
+			maxLineLength = len(line)
+		}
+	}
+	maxOffset := maxLineLength - e.viewportWidth
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if e.offsetCol > maxOffset {
+		e.offsetCol = maxOffset
+	}
+}
+
 func (e *CodeEditor) getVisualColumn(row, col int) int {
 	// For now, assume 1:1 mapping (no tab expansion)
 	// TODO: Handle tab width properly
@@ -691,15 +772,65 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 		
 		// Check if event is within the editor bounds
 		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
+			// Check if mouse is on scrollbar column and button is pressed
+			if x == rectX+width-1 {
+				buttons := event.Buttons()
+				if buttons&tcell.Button1 != 0 {
+					// Mouse button is pressed on scrollbar - update scroll position
+					relativeY := y - rectY
+					if relativeY >= 0 && relativeY < height {
+						totalLines := len(e.buffer)
+						if totalLines > height {
+							targetRow := (relativeY * totalLines) / height
+							e.offsetRow = targetRow
+							
+							maxOffset := totalLines - height
+							if e.offsetRow > maxOffset {
+								e.offsetRow = maxOffset
+							}
+							if e.offsetRow < 0 {
+								e.offsetRow = 0
+							}
+						}
+					}
+				}
+				return true, nil // Consume all scrollbar events
+			}
+			
+			// Handle regular editor area events
 			switch action {
 			case tview.MouseScrollUp:
-				// Scroll up by 1 line (regardless of focus)
-				e.scrollUp(1)
+				// Check if Alt is held for horizontal scrolling (Shift often doesn't work with scroll)
+				modifiers := event.Modifiers()
+				if modifiers&tcell.ModAlt != 0 {
+					// Horizontal scroll left
+					e.scrollLeft(5)
+				} else {
+					// Vertical scroll up
+					e.scrollUp(1)
+				}
 				return true, nil
 				
 			case tview.MouseScrollDown:
-				// Scroll down by 1 line (regardless of focus)
-				e.scrollDown(1)
+				// Check if Alt is held for horizontal scrolling
+				modifiers := event.Modifiers()
+				if modifiers&tcell.ModAlt != 0 {
+					// Horizontal scroll right
+					e.scrollRight(5)
+				} else {
+					// Vertical scroll down
+					e.scrollDown(1)
+				}
+				return true, nil
+				
+			case tview.MouseScrollLeft:
+				// Native horizontal scroll left (if supported by terminal)
+				e.scrollLeft(5)
+				return true, nil
+				
+			case tview.MouseScrollRight:
+				// Native horizontal scroll right (if supported by terminal)
+				e.scrollRight(5)
 				return true, nil
 				
 			case tview.MouseLeftClick:
