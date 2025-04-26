@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"io/ioutil"
 	"strings"
 	
@@ -149,12 +150,20 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.Box.DrawForSubclass(screen, e)
 	x, y, width, height := e.GetInnerRect()
 	
-	e.viewportHeight = height
-	e.viewportWidth = width - 1  // Reserve 1 column for scrollbar
+	// Calculate line number width (digits + 1 space padding)
+	lineNumWidth := e.getLineNumberWidth() + 1
 	
-	// Draw visible lines (leave space for scrollbar)
+	// Adjust viewport and content area
+	e.viewportHeight = height
+	e.viewportWidth = width - lineNumWidth - 1  // Reserve space for line numbers and scrollbar
+	
+	// Draw line numbers and content
 	for row := 0; row < height && row+e.offsetRow < len(e.buffer); row++ {
-		e.drawLine(screen, row+e.offsetRow, x, y+row, width-1)
+		// Draw line number
+		e.drawLineNumber(screen, row+e.offsetRow+1, x, y+row, lineNumWidth-1)
+		
+		// Draw line content
+		e.drawLine(screen, row+e.offsetRow, x+lineNumWidth, y+row, width-lineNumWidth-1)
 	}
 	
 	// Draw vertical scrollbar
@@ -163,10 +172,10 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	// Show cursor only when focused
 	if e.hasFocus {
 		if e.cursorRow >= e.offsetRow && e.cursorRow < e.offsetRow+height {
-			cursorX := x + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
+			cursorX := x + lineNumWidth + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
 			cursorY := y + e.cursorRow - e.offsetRow
 			
-			if cursorX >= x && cursorX < x+width-1 {
+			if cursorX >= x+lineNumWidth && cursorX < x+width-1 {
 				screen.ShowCursor(cursorX, cursorY)
 			}
 		}
@@ -866,6 +875,36 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 		}
 		
 		return false, nil
+	}
+}
+
+// getLineNumberWidth calculates the number of digits needed for line numbers
+func (e *CodeEditor) getLineNumberWidth() int {
+	totalLines := len(e.buffer)
+	if totalLines == 0 {
+		totalLines = 1
+	}
+	
+	// Calculate number of digits needed
+	digits := 0
+	for n := totalLines; n > 0; n /= 10 {
+		digits++
+	}
+	
+	return digits
+}
+
+// drawLineNumber draws a line number at the specified position
+func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, width int) {
+	// Format the line number with right alignment
+	numStr := fmt.Sprintf("%*d", width, lineNum)
+	
+	// Draw each character with gray text on very dark gray background
+	style := tcell.StyleDefault.Foreground(tcell.ColorGray).Background(tcell.NewRGBColor(40, 40, 40))
+	for i, ch := range numStr {
+		if i < width {
+			screen.SetContent(x+i, y, ch, nil, style)
+		}
 	}
 }
 
