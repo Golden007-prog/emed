@@ -55,7 +55,14 @@ func NewLayout(app *tview.Application) *Layout {
 	
 	// Set callback for when last terminal tab is closed
 	l.terminal.SetOnLastTabClosed(func() {
-		l.focusFileManager()
+		// Rebuild layout to collapse terminal
+		l.rebuildLayout()
+		// Focus file manager or editor
+		if l.editor.HasTabs() {
+			l.focusEditor()
+		} else {
+			l.focusFileManager()
+		}
 	})
 	
 	// No longer need pages for modals
@@ -134,33 +141,44 @@ func (l *Layout) rebuildLayout() {
 	// Clear main area
 	l.mainArea.Clear()
 	
-	// Get proportions based on index
-	proportions := [][2]int{
-		{8, 2}, // 80/20 - editor large
-		{7, 3}, // 70/30
-		{6, 4}, // 60/40
-		{5, 5}, // 50/50 - equal
-		{4, 6}, // 40/60
-		{3, 7}, // 30/70
-		{2, 8}, // 20/80 - terminal large
-	}
+	// Check if terminal has tabs
+	hasTerminalTabs := l.terminal.HasTabs()
 	
-	editorProp := proportions[l.proportionIndex][0]
-	terminalProp := proportions[l.proportionIndex][1]
-	
-	// Configure right side based on terminal position
-	if l.terminalPosition == "bottom" {
-		// Terminal at bottom (vertical split)
+	if !hasTerminalTabs {
+		// No terminal tabs - editor takes all space
 		l.rightSide.SetDirection(tview.FlexRow).
 			Clear().
-			AddItem(l.editor.GetView(), 0, editorProp, false).
-			AddItem(l.terminal.GetView(), 0, terminalProp, false)
+			AddItem(l.editor.GetView(), 0, 1, false)
 	} else {
-		// Terminal at right (horizontal split)
-		l.rightSide.SetDirection(tview.FlexColumn).
-			Clear().
-			AddItem(l.editor.GetView(), 0, editorProp, false).
-			AddItem(l.terminal.GetView(), 0, terminalProp, false)
+		// Terminal has tabs - use proportion system
+		// Get proportions based on index
+		proportions := [][2]int{
+			{8, 2}, // 80/20 - editor large
+			{7, 3}, // 70/30
+			{6, 4}, // 60/40
+			{5, 5}, // 50/50 - equal
+			{4, 6}, // 40/60
+			{3, 7}, // 30/70
+			{2, 8}, // 20/80 - terminal large
+		}
+		
+		editorProp := proportions[l.proportionIndex][0]
+		terminalProp := proportions[l.proportionIndex][1]
+		
+		// Configure right side based on terminal position
+		if l.terminalPosition == "bottom" {
+			// Terminal at bottom (vertical split)
+			l.rightSide.SetDirection(tview.FlexRow).
+				Clear().
+				AddItem(l.editor.GetView(), 0, editorProp, false).
+				AddItem(l.terminal.GetView(), 0, terminalProp, false)
+		} else {
+			// Terminal at right (horizontal split)
+			l.rightSide.SetDirection(tview.FlexColumn).
+				Clear().
+				AddItem(l.editor.GetView(), 0, editorProp, false).
+				AddItem(l.terminal.GetView(), 0, terminalProp, false)
+		}
 	}
 	
 	// Rebuild main area
@@ -172,6 +190,11 @@ func (l *Layout) rebuildLayout() {
 // cycleProportion cycles through proportions in a back-and-forth pattern
 // 80/20 -> 70/30 -> 60/40 -> 50/50 -> 40/60 -> 30/70 -> 20/80 -> 30/70 -> ...
 func (l *Layout) cycleProportion() {
+	// Only cycle proportions if terminal has tabs
+	if !l.terminal.HasTabs() {
+		return
+	}
+	
 	// Move in current direction
 	l.proportionIndex += l.proportionDir
 	
@@ -189,6 +212,11 @@ func (l *Layout) cycleProportion() {
 
 // togglePosition toggles between bottom and right terminal position
 func (l *Layout) togglePosition() {
+	// Only toggle position if terminal has tabs
+	if !l.terminal.HasTabs() {
+		return
+	}
+	
 	if l.terminalPosition == "bottom" {
 		l.terminalPosition = "right"
 	} else {
@@ -344,12 +372,16 @@ func (l *Layout) setupKeybindings() {
 			}
 			return nil
 		case tcell.KeyF6:
-			// F6 - Toggle terminal position
-			l.togglePosition()
+			// F6 - Toggle terminal position (only if terminal has tabs)
+			if l.terminal.HasTabs() {
+				l.togglePosition()
+			}
 			return nil
 		case tcell.KeyF7:
-			// F7 - Cycle proportions
-			l.cycleProportion()
+			// F7 - Cycle proportions (only if terminal has tabs)
+			if l.terminal.HasTabs() {
+				l.cycleProportion()
+			}
 			return nil
 		}
 		
@@ -395,8 +427,10 @@ func (l *Layout) setupKeybindings() {
 				} else {
 					// Otherwise focus terminal
 					// If there are no terminals, create one first
-					if len(l.terminal.tabs) == 0 {
+					if !l.terminal.HasTabs() {
 						l.terminal.NewTab()
+						// Rebuild layout to show terminal
+						l.rebuildLayout()
 					}
 					l.focusTerminal()
 				}
@@ -479,12 +513,16 @@ func (l *Layout) setupKeybindings() {
 				// TODO: Implement redo in editor
 				return nil
 			case tcell.KeyCtrlL:
-				// Cycle through proportions
-				l.cycleProportion()
+				// Cycle through proportions (only if terminal has tabs)
+				if l.terminal.HasTabs() {
+					l.cycleProportion()
+				}
 				return nil
 			case tcell.KeyCtrlP:
-				// Toggle terminal position
-				l.togglePosition()
+				// Toggle terminal position (only if terminal has tabs)
+				if l.terminal.HasTabs() {
+					l.togglePosition()
+				}
 				return nil
 			case tcell.KeyCtrlQ:
 				// Quit
