@@ -53,7 +53,8 @@ func NewFileManager() *FileManager {
 		SetRoot(fm.root).
 		SetCurrentNode(fm.root).
 		SetBorder(true).
-		SetTitle(fmt.Sprintf(" %s v%s ", config.AppName, config.Version)).
+		//SetTitle(fmt.Sprintf(" %s v%s ", config.AppName, config.Version)).
+		SetTitle("Project").
 		SetTitleAlign(tview.AlignLeft)
 	
 	// Load directory structure

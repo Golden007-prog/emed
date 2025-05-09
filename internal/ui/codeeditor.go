@@ -17,6 +17,7 @@ type CodeEditor struct {
 	buffer       [][]rune          // The actual text content (2D array of runes for Unicode support)
 	lineEndings  string            // Line ending type (\n, \r\n, etc.)
 	hasFocus     bool              // Track focus state
+	tabSize      int               // Tab width in spaces (default 4)
 	
 	// Cursor position
 	cursorRow    int
@@ -60,6 +61,7 @@ func NewCodeEditor() *CodeEditor {
 		Box:         tview.NewBox(),
 		buffer:      [][]rune{{}},  // Start with one empty line
 		lineEndings: "\n",
+		tabSize:     4,              // Default tab size
 		highlighter: NewChromaHighlighter(), // Default to Chroma
 		highlighted: [][]Token{},
 		readOnly:    false,
@@ -185,7 +187,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	}
 }
 
-// drawLine draws a single line with syntax highlighting
+// drawLine draws a single line with syntax highlighting and tab expansion
 func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int) {
 	if lineNum >= len(e.buffer) {
 		return
@@ -200,18 +202,33 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		tokens = []Token{{Text: string(e.buffer[lineNum]), Style: tcell.StyleDefault}}
 	}
 	
-	// Draw tokens
-	screenX := x  // Position on screen
-	charPos := 0  // Position in the line
+	// Draw tokens with tab expansion
+	screenX := x     // Position on screen
+	visualCol := 0   // Visual column position (accounting for tabs)
 	
 	for _, token := range tokens {
 		for _, ch := range token.Text {
-			// Check if this character is visible (after horizontal scroll)
-			if charPos >= e.offsetCol && screenX < x+maxWidth {
-				screen.SetContent(screenX, y, ch, nil, token.Style)
-				screenX++
+			if ch == '\t' {
+				// Calculate spaces to next tab stop
+				nextTabStop := ((visualCol / e.tabSize) + 1) * e.tabSize
+				spacesToAdd := nextTabStop - visualCol
+				
+				// Draw spaces for the tab
+				for i := 0; i < spacesToAdd; i++ {
+					if visualCol >= e.offsetCol && screenX < x+maxWidth {
+						screen.SetContent(screenX, y, ' ', nil, token.Style)
+						screenX++
+					}
+					visualCol++
+				}
+			} else {
+				// Regular character
+				if visualCol >= e.offsetCol && screenX < x+maxWidth {
+					screen.SetContent(screenX, y, ch, nil, token.Style)
+					screenX++
+				}
+				visualCol++
 			}
-			charPos++
 			
 			// Stop if we've filled the line
 			if screenX >= x+maxWidth {
@@ -505,12 +522,20 @@ func (e *CodeEditor) handleNavigation(key tcell.Key) {
 	switch key {
 	case tcell.KeyUp:
 		if e.cursorRow > 0 {
+			// Remember visual column for vertical movement
+			visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
 			e.cursorRow--
+			// Convert visual column back to real column on new line
+			e.cursorCol = e.getRealColumn(e.cursorRow, visualCol)
 			e.adjustCursorColumn()
 		}
 	case tcell.KeyDown:
 		if e.cursorRow < len(e.buffer)-1 {
+			// Remember visual column for vertical movement
+			visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
 			e.cursorRow++
+			// Convert visual column back to real column on new line
+			e.cursorCol = e.getRealColumn(e.cursorRow, visualCol)
 			e.adjustCursorColumn()
 		}
 	case tcell.KeyLeft:
@@ -552,7 +577,7 @@ func (e *CodeEditor) ensureCursorVisible() {
 		e.offsetRow = e.cursorRow - e.viewportHeight + 1
 	}
 	
-	// Horizontal scrolling
+	// Horizontal scrolling with tab support
 	visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
 	if visualCol < e.offsetCol {
 		e.offsetCol = visualCol
@@ -592,14 +617,15 @@ func (e *CodeEditor) scrollLeft(cols int) {
 // scrollRight scrolls the viewport right by the specified number of columns
 func (e *CodeEditor) scrollRight(cols int) {
 	e.offsetCol += cols
-	// Find the longest line to determine max offset
-	maxLineLength := 0
-	for _, line := range e.buffer {
-		if len(line) > maxLineLength {
-			maxLineLength = len(line)
+	// Find the longest visual line to determine max offset
+	maxVisualLength := 0
+	for i, line := range e.buffer {
+		visualLength := e.getVisualColumn(i, len(line))
+		if visualLength > maxVisualLength {
+			maxVisualLength = visualLength
 		}
 	}
-	maxOffset := maxLineLength - e.viewportWidth
+	maxOffset := maxVisualLength - e.viewportWidth
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -608,10 +634,52 @@ func (e *CodeEditor) scrollRight(cols int) {
 	}
 }
 
+// getVisualColumn calculates the visual column position accounting for tabs
 func (e *CodeEditor) getVisualColumn(row, col int) int {
-	// For now, assume 1:1 mapping (no tab expansion)
-	// TODO: Handle tab width properly
-	return col
+	if row >= len(e.buffer) {
+		return col
+	}
+	
+	line := e.buffer[row]
+	visualCol := 0
+	
+	for i := 0; i < col && i < len(line); i++ {
+		if line[i] == '\t' {
+			// Tab advances to next tab stop
+			visualCol = ((visualCol / e.tabSize) + 1) * e.tabSize
+		} else {
+			visualCol++
+		}
+	}
+	
+	return visualCol
+}
+
+// getRealColumn converts a visual column to a real buffer column
+func (e *CodeEditor) getRealColumn(row, targetVisualCol int) int {
+	if row >= len(e.buffer) {
+		return targetVisualCol
+	}
+	
+	line := e.buffer[row]
+	visualCol := 0
+	realCol := 0
+	
+	for realCol < len(line) && visualCol < targetVisualCol {
+		if line[realCol] == '\t' {
+			// Tab advances to next tab stop
+			nextTabStop := ((visualCol / e.tabSize) + 1) * e.tabSize
+			if nextTabStop > targetVisualCol {
+				break
+			}
+			visualCol = nextTabStop
+		} else {
+			visualCol++
+		}
+		realCol++
+	}
+	
+	return realCol
 }
 
 func (e *CodeEditor) setModified(modified bool) {
@@ -701,12 +769,10 @@ func (e *CodeEditor) rehighlightRange(start, end int) {
 	}
 }
 
-// Stub methods for missing functionality
+// insertTab inserts a tab character
 func (e *CodeEditor) insertTab() {
-	// Insert 4 spaces for now
-	for i := 0; i < 4; i++ {
-		e.insertRune(' ')
-	}
+	// Insert actual tab character
+	e.insertRune('\t')
 }
 
 func (e *CodeEditor) moveCursorToLineStart() {
@@ -846,10 +912,11 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				// Request focus when clicked
 				setFocus(e)
 				
-				// TODO: Implement click-to-position cursor
-				// relativeX := x - rectX
-				// relativeY := y - rectY
-				// e.setCursorFromClick(relativeX, relativeY)
+				// Set cursor position from click
+				lineNumWidth := e.getLineNumberWidth() + 1
+				relativeX := x - rectX - lineNumWidth
+				relativeY := y - rectY
+				e.setCursorFromClick(relativeX, relativeY)
 				
 				return true, nil
 				
@@ -935,4 +1002,37 @@ func (e *CodeEditor) SetOnModified(handler func(modified bool)) *CodeEditor {
 func (e *CodeEditor) SetOnCursorMove(handler func(row, col int)) *CodeEditor {
 	e.onCursorMove = handler
 	return e
+}
+
+// setCursorFromClick sets the cursor position based on a mouse click
+func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
+	// Calculate target row
+	targetRow := e.offsetRow + relativeY
+	if targetRow < 0 {
+		targetRow = 0
+	}
+	if targetRow >= len(e.buffer) {
+		targetRow = len(e.buffer) - 1
+	}
+	
+	// Calculate target visual column
+	targetVisualCol := e.offsetCol + relativeX
+	if targetVisualCol < 0 {
+		targetVisualCol = 0
+	}
+	
+	// Convert visual column to real column
+	if targetRow >= 0 && targetRow < len(e.buffer) {
+		e.cursorRow = targetRow
+		e.cursorCol = e.getRealColumn(targetRow, targetVisualCol)
+		
+		// Ensure cursor doesn't go past end of line
+		if e.cursorCol > len(e.buffer[e.cursorRow]) {
+			e.cursorCol = len(e.buffer[e.cursorRow])
+		}
+	}
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
 }
