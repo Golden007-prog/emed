@@ -31,7 +31,7 @@ func NewStatusBar() *StatusBar {
 	sb.view.
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignLeft).
-		SetBackgroundColor(tcell.ColorDarkGray)
+		SetBackgroundColor(tcell.NewRGBColor(40, 40, 40))
 	
 	// Get current project path
 	cwd, err := os.Getwd()
@@ -73,37 +73,27 @@ func (sb *StatusBar) update() {
 	var parts []string
 	
 	// Project path
-	parts = append(parts, fmt.Sprintf(" 📁 %s", sb.projectPath))
+	parts = append(parts, fmt.Sprintf("project: %s", sb.projectPath))
 	
 	// Git branch if available
 	if sb.gitBranch != "" {
-		parts = append(parts, fmt.Sprintf("🌿 %s", sb.gitBranch))
+		parts = append(parts, fmt.Sprintf("git: %s", sb.gitBranch))
 	}
 	
 	// Clipboard status
 	if sb.clipboardPath != "" {
 		clipboardName := filepath.Base(sb.clipboardPath)
 		if sb.clipboardCut {
-			parts = append(parts, fmt.Sprintf("[red]✂ %s[-]", clipboardName))
+			parts = append(parts, fmt.Sprintf("file operation: [red]cut[-] (%s)", clipboardName))
 		} else {
-			parts = append(parts, fmt.Sprintf("[green]📋 %s[-]", clipboardName))
+			parts = append(parts, fmt.Sprintf("file operation: [green]copy[-] (%s)", clipboardName))
 		}
 	}
 	
 	// Help hint
-	parts = append(parts, "[yellow]Help: Alt+H[-]")
-	
-	// Current time (aligned to right)
-	timeStr := time.Now().Format("15:04")
-	
-	// Calculate spacing
-	leftText := strings.Join(parts, " | ")
-	
-	// Get terminal width (approximate)
-	// Since we can't get exact width here, we'll just add some spacing
-	spacing := strings.Repeat(" ", 20) // This will push time somewhat to the right
-	
-	fullText := fmt.Sprintf("%s%s%s ", leftText, spacing, timeStr)
+	parts = append(parts, "[yellow]Alt+H or F1 for help[-]")
+
+	fullText := strings.Join(parts, " | ")
 	
 	sb.view.SetText(fullText)
 }

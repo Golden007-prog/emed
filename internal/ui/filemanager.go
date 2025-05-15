@@ -8,7 +8,6 @@ import (
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
-	"github.com/laborin/emed/internal/config"
 	"github.com/rivo/tview"
 )
 
@@ -54,7 +53,7 @@ func NewFileManager() *FileManager {
 		SetCurrentNode(fm.root).
 		SetBorder(true).
 		//SetTitle(fmt.Sprintf(" %s v%s ", config.AppName, config.Version)).
-		SetTitle("Project").
+		SetTitle(" Project ").
 		SetTitleAlign(tview.AlignLeft)
 	
 	// Load directory structure
