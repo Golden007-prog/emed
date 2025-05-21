@@ -44,7 +44,7 @@ func NewFileManager() *FileManager {
 	
 	// Create root node
 	fm.root = tview.NewTreeNode(filepath.Base(cwd)).
-		SetColor(tcell.ColorYellow).
+		SetColor(tcell.ColorBlue).
 		SetReference(cwd)
 	
 	// Set up tree view
@@ -52,9 +52,15 @@ func NewFileManager() *FileManager {
 		SetRoot(fm.root).
 		SetCurrentNode(fm.root).
 		SetBorder(true).
+		SetBorderColor(tcell.ColorGray).
 		//SetTitle(fmt.Sprintf(" %s v%s ", config.AppName, config.Version)).
 		SetTitle(" Project ").
+		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
+	
+	// Customize tree graphics
+	fm.tree.SetGraphics(true).
+		SetGraphicsColor(tcell.NewRGBColor(60, 60, 60))  // Set tree lines to darker gray
 	
 	// Load directory structure
 	fm.loadDirectory(fm.root, cwd)
@@ -91,6 +97,30 @@ func NewFileManager() *FileManager {
 	return fm
 }
 
+// isCodeFile checks if a file is a code file based on its extension
+func isCodeFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	codeExtensions := []string{
+		".go", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp",
+		".java", ".kt", ".scala", ".groovy",
+		".py", ".rb", ".php", ".pl", ".lua",
+		".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+		".html", ".css", ".scss", ".sass", ".less",
+		".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat",
+		".sql", ".r", ".m", ".swift", ".vb", ".cs",
+		".clj", ".elm", ".ex", ".exs", ".erl", ".hrl",
+		".hs", ".ml", ".fs", ".nim", ".cr", ".d",
+		".zig", ".v", ".dart", ".julia", ".asm", ".s",
+	}
+	
+	for _, codeExt := range codeExtensions {
+		if ext == codeExt {
+			return true
+		}
+	}
+	return false
+}
+
 // loadDirectory loads the contents of a directory into the tree
 func (fm *FileManager) loadDirectory(node *tview.TreeNode, path string) {
 	// Clear existing children
@@ -102,22 +132,34 @@ func (fm *FileManager) loadDirectory(node *tview.TreeNode, path string) {
 	}
 	
 	for _, file := range files {
-		// Skip hidden files
-		if file.Name()[0] == '.' {
-			continue
-		}
 		
 		childPath := filepath.Join(path, file.Name())
-		childNode := tview.NewTreeNode(file.Name()).
+		
+		// Prepare display name
+		displayName := file.Name()
+		
+		childNode := tview.NewTreeNode(displayName).
 			SetReference(childPath)
 		
-		if file.IsDir() {
-			childNode.SetColor(tcell.ColorYellow)
+		if file.Name()[0] == '.' {
+			// Hidden files and directories: very dark gray
+			childNode.SetColor(tcell.NewRGBColor(80, 80, 80))
+			if file.IsDir() {
+				childNode.SetSelectable(true)
+				childNode.SetExpanded(false)
+			}
+		} else if file.IsDir() {
+			// Regular directories: blue
+			childNode.SetColor(tcell.ColorBlue)
 			childNode.SetSelectable(true)
 			// Explicitly set directories as collapsed by default
 			childNode.SetExpanded(false)
+		} else if isCodeFile(file.Name()) {
+			// Code files: sky blue
+			childNode.SetColor(tcell.ColorSkyblue)
 		} else {
-			childNode.SetColor(tcell.ColorWhite)
+			// All other files: silver
+			childNode.SetColor(tcell.ColorSilver)
 		}
 		
 		node.AddChild(childNode)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/config"
 	"github.com/rivo/tview"
 )
 
@@ -19,6 +20,7 @@ type StatusBar struct {
 	gitBranch     string
 	clipboardPath string
 	clipboardCut  bool
+	app           *tview.Application
 }
 
 // NewStatusBar creates a new status bar
@@ -43,9 +45,15 @@ func NewStatusBar() *StatusBar {
 	// Get git branch if in git repository
 	sb.updateGitBranch()
 	
-	// Start updating the status bar
-	sb.update()
-	go sb.startUpdater()
+	// Initial update with basic text (without alignment)
+	sb.view.SetText(fmt.Sprintf("project: %s | [yellow]Alt+H or F1 for help[-]", sb.projectPath))
+	
+	// Start updating the status bar with proper alignment after a brief delay
+	go func() {
+		time.Sleep(100 * time.Millisecond)  // Wait for UI to be fully initialized
+		sb.update()
+		sb.startUpdater()
+	}()
 	
 	return sb
 }
@@ -69,7 +77,7 @@ func (sb *StatusBar) updateGitBranch() {
 
 // update refreshes the status bar content
 func (sb *StatusBar) update() {
-	// Build status text
+	// Build left side text
 	var parts []string
 	
 	// Project path
@@ -93,19 +101,55 @@ func (sb *StatusBar) update() {
 	// Help hint
 	parts = append(parts, "[yellow]Alt+H or F1 for help[-]")
 
-	fullText := strings.Join(parts, " | ")
+	leftText := strings.Join(parts, " | ")
+	
+	// Build right side text (app name and version)
+	rightText := fmt.Sprintf("%s v%s", config.AppName, config.Version)
+	
+	// Get terminal width from the view's inner rect
+	_, _, width, _ := sb.view.GetInnerRect()
+	if width <= 0 {
+		width = 80  // Default fallback
+	}
+	
+	// Calculate the visible length of text (without color tags)
+	leftLen := tview.TaggedStringWidth(leftText)
+	rightLen := len(rightText)
+	
+	// Calculate spacing needed
+	spacingNeeded := width - leftLen - rightLen - 1  // -1 for safety margin
+	
+	var fullText string
+	if spacingNeeded > 0 {
+		// We have enough space
+		spacing := strings.Repeat(" ", spacingNeeded)
+		fullText = leftText + spacing + rightText
+	} else {
+		// Not enough space, need to handle truncation carefully
+		// For now, just show what fits with a simple space
+		if width > rightLen + 1 {
+			// Show as much of left text as possible
+			fullText = leftText + " " + rightText
+			// If it's still too long, tview will handle the truncation
+		} else {
+			// Very small terminal, just show the app info
+			fullText = rightText
+		}
+	}
 	
 	sb.view.SetText(fullText)
 }
 
-// startUpdater starts a goroutine to update the clock
+// startUpdater starts a goroutine to update the status bar periodically
 func (sb *StatusBar) startUpdater() {
-	ticker := time.NewTicker(30 * time.Second) // Update every 30 seconds
+	ticker := time.NewTicker(1 * time.Second) // Update every second to handle resizes
 	defer ticker.Stop()
 	
 	for range ticker.C {
 		sb.update()
-		// Note: In a real app, we'd need to trigger a redraw
+		if sb.app != nil {
+			sb.app.Draw()
+		}
 	}
 }
 
@@ -131,4 +175,9 @@ func (sb *StatusBar) SetClipboard(path string, isCut bool) {
 	sb.clipboardPath = path
 	sb.clipboardCut = isCut
 	sb.update()
+}
+
+// SetApp sets the application reference for getting terminal dimensions
+func (sb *StatusBar) SetApp(app *tview.Application) {
+	sb.app = app
 }

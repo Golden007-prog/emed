@@ -47,6 +47,7 @@ func NewLayout(app *tview.Application) *Layout {
 	// Set app reference
 	l.editor.SetApp(app)
 	l.terminal.SetApp(app)
+	l.statusBar.SetApp(app)
 	
 	// Set callback for when last tab is closed
 	l.editor.SetOnLastTabClosed(func() {

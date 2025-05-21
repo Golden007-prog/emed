@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -65,7 +66,9 @@ func NewEditor() *Editor {
 	e.container.
 		AddItem(e.contentArea, 0, 1, true).  // Content takes all space
 		SetBorder(true).
+		SetBorderColor(tcell.ColorGray).
 		SetTitle(" Editor ").
+		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
 	
 	// Show no docs view initially
@@ -77,7 +80,7 @@ func NewEditor() *Editor {
 // showNoDocsView shows the "no documents" message
 func (e *Editor) showNoDocsView() {
 	e.contentArea.SwitchToPage("no-docs")
-	e.container.SetTitle(" Editor ")
+	e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 	e.activeTab = -1
 }
 
@@ -211,7 +214,7 @@ func (e *Editor) switchToTab(index int) {
 // updateTabBar updates the title with tab information
 func (e *Editor) updateTabBar() {
 	if len(e.tabs) == 0 {
-		e.container.SetTitle(" Editor ")
+		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 		return
 	}
 	
@@ -310,10 +313,10 @@ func (e *Editor) updateTabBar() {
 		// Debug: write to a temp file what we're setting
 		// ioutil.WriteFile("/tmp/emed-debug.txt", []byte(fmt.Sprintf("Tabs: %d, Active: %d, Title: '%s', TabTexts: %v\n", len(e.tabs), e.activeTab, title, tabTexts)), 0644)
 		
-		e.container.SetTitle(title)
+		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
 	} else {
 		// Fallback - should never happen now
-		e.container.SetTitle(" Editor ")
+		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 	}
 }
 

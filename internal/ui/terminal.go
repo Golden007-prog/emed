@@ -48,7 +48,9 @@ func NewTerminal() *Terminal {
 	t.container.
 		AddItem(t.contentArea, 0, 1, true).  // Content takes all space
 		SetBorder(true).
+		SetBorderColor(tcell.ColorGray).
 		SetTitle(" Terminal ").
+		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
 	// Show no terminals view initially
 	t.showNoTermsView()
@@ -122,7 +124,7 @@ func (t *Terminal) switchToTab(index int) {
 // updateTabBar updates the title with tab information
 func (t *Terminal) updateTabBar() {
 	if len(t.tabs) == 0 {
-		t.container.SetTitle(" Terminal ")
+		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
 		return
 	}
 	
@@ -183,8 +185,8 @@ func (t *Terminal) updateTabBar() {
 			if t.tabs[i].emulator != nil && t.tabs[i].emulator.GetMode() == ModePassthrough {
 				modeIndicator = "[yellow]*[-]"
 			}
-			// Highlight active tab with green color and brackets
-			tabTexts = append(tabTexts, fmt.Sprintf("[green][%s][-]%s", name, modeIndicator))
+			// Highlight active tab with brackets (no color, matching editor style)
+			tabTexts = append(tabTexts, fmt.Sprintf("[%s[]%s", name, modeIndicator))
 		} else {
 			tabTexts = append(tabTexts, name)
 		}
@@ -197,7 +199,7 @@ func (t *Terminal) updateTabBar() {
 	
 	// Set title with tabs
 	title := fmt.Sprintf(" %s ", strings.Join(tabTexts, " | "))
-	t.container.SetTitle(title)
+	t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
 }
 
 // NextTab switches to the next tab
