@@ -50,8 +50,11 @@ func NewStatusBar() *StatusBar {
 	
 	// Start updating the status bar with proper alignment after a brief delay
 	go func() {
-		time.Sleep(100 * time.Millisecond)  // Wait for UI to be fully initialized
+		time.Sleep(50 * time.Millisecond)  // Quick initial update
 		sb.update()
+		if sb.app != nil {
+			sb.app.Draw()
+		}
 		sb.startUpdater()
 	}()
 	

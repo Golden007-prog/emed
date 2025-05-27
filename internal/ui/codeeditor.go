@@ -294,8 +294,35 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		if e.readOnly {
 			// Only allow navigation in read-only mode
 			switch event.Key() {
-			case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight,
-			     tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn:
+			case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
+				modifiers := event.Modifiers()
+				// Support both Ctrl and Cmd (Meta) for macOS compatibility
+				if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
+					// Ctrl/Cmd+arrow navigation
+					switch event.Key() {
+					case tcell.KeyLeft:
+						e.ctrlLeft()
+					case tcell.KeyRight:
+						e.ctrlRight()
+					case tcell.KeyUp:
+						e.ctrlUp()
+					case tcell.KeyDown:
+						e.ctrlDown()
+					}
+				} else if modifiers&tcell.ModAlt != 0 {
+					// Alt+arrow word navigation
+					switch event.Key() {
+					case tcell.KeyLeft:
+						e.wordLeft()
+					case tcell.KeyRight:
+						e.wordRight()
+					default:
+						e.handleNavigation(event.Key())
+					}
+				} else {
+					e.handleNavigation(event.Key())
+				}
+			case tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn:
 				e.handleNavigation(event.Key())
 			}
 			return
@@ -318,7 +345,37 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			e.insertTab()
 			
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
-			e.handleNavigation(event.Key())
+			modifiers := event.Modifiers()
+			// Debug: Log what modifiers we're receiving
+			// fmt.Fprintf(os.Stderr, "Key: %v, Modifiers: %v\n", event.Key(), modifiers)
+			
+			// Support both Ctrl and Cmd (Meta) for macOS compatibility
+			if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
+				// Ctrl/Cmd+arrow navigation
+				switch event.Key() {
+				case tcell.KeyLeft:
+					e.ctrlLeft()
+				case tcell.KeyRight:
+					e.ctrlRight()
+				case tcell.KeyUp:
+					e.ctrlUp()
+				case tcell.KeyDown:
+					e.ctrlDown()
+				}
+			} else if modifiers&tcell.ModAlt != 0 {
+				// Alt+arrow word navigation
+				switch event.Key() {
+				case tcell.KeyLeft:
+					e.wordLeft()
+				case tcell.KeyRight:
+					e.wordRight()
+				default:
+					e.handleNavigation(event.Key())
+				}
+			} else {
+				// Regular navigation
+				e.handleNavigation(event.Key())
+			}
 			
 		case tcell.KeyHome:
 			e.moveCursorToLineStart()
@@ -819,6 +876,150 @@ func (e *CodeEditor) paste() {
 
 func (e *CodeEditor) selectAll() {
 	// TODO: Implement select all
+}
+
+// ctrlLeft moves cursor to first non-whitespace char or toggle to column 0
+func (e *CodeEditor) ctrlLeft() {
+	if e.cursorRow >= len(e.buffer) {
+		return
+	}
+	
+	line := e.buffer[e.cursorRow]
+	
+	// Find first non-whitespace character
+	firstNonSpace := 0
+	for i, ch := range line {
+		if ch != ' ' && ch != '\t' {
+			firstNonSpace = i
+			break
+		}
+	}
+	
+	if e.cursorCol == 0 {
+		// At column 0, move to first non-space
+		e.cursorCol = firstNonSpace
+	} else if e.cursorCol == firstNonSpace {
+		// At first non-space, move to column 0
+		e.cursorCol = 0
+	} else {
+		// Anywhere else, move to first non-space
+		e.cursorCol = firstNonSpace
+	}
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
+}
+
+// ctrlRight moves cursor to end of line
+func (e *CodeEditor) ctrlRight() {
+	if e.cursorRow >= len(e.buffer) {
+		return
+	}
+	
+	e.cursorCol = len(e.buffer[e.cursorRow])
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
+}
+
+// ctrlUp moves cursor to beginning of document
+func (e *CodeEditor) ctrlUp() {
+	e.cursorRow = 0
+	e.cursorCol = 0
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
+}
+
+// ctrlDown moves cursor to end of document
+func (e *CodeEditor) ctrlDown() {
+	if len(e.buffer) > 0 {
+		e.cursorRow = len(e.buffer) - 1
+		e.cursorCol = len(e.buffer[e.cursorRow])
+	}
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
+}
+
+// isWordChar checks if a rune is a word character
+func isWordChar(ch rune) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9') || ch == '_'
+}
+
+// wordLeft moves cursor to beginning of current/previous word
+func (e *CodeEditor) wordLeft() {
+	if e.cursorRow >= len(e.buffer) {
+		return
+	}
+	
+	line := e.buffer[e.cursorRow]
+	
+	// If we're past the line end, move to line end
+	if e.cursorCol > len(line) {
+		e.cursorCol = len(line)
+	}
+	
+	// If at beginning of line, move to previous line
+	if e.cursorCol == 0 {
+		if e.cursorRow > 0 {
+			e.cursorRow--
+			e.cursorCol = len(e.buffer[e.cursorRow])
+		}
+	} else {
+		// Move left one position first
+		e.cursorCol--
+		
+		// Skip any non-word characters
+		for e.cursorCol > 0 && !isWordChar(line[e.cursorCol]) {
+			e.cursorCol--
+		}
+		
+		// Skip word characters to find beginning of word
+		for e.cursorCol > 0 && isWordChar(line[e.cursorCol-1]) {
+			e.cursorCol--
+		}
+	}
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
+}
+
+// wordRight moves cursor to end of current/next word
+func (e *CodeEditor) wordRight() {
+	if e.cursorRow >= len(e.buffer) {
+		return
+	}
+	
+	line := e.buffer[e.cursorRow]
+	
+	// If at end of line, move to next line
+	if e.cursorCol >= len(line) {
+		if e.cursorRow < len(e.buffer)-1 {
+			e.cursorRow++
+			e.cursorCol = 0
+		}
+	} else {
+		// Skip current word if we're in one
+		for e.cursorCol < len(line) && isWordChar(line[e.cursorCol]) {
+			e.cursorCol++
+		}
+		
+		// Skip any non-word characters
+		for e.cursorCol < len(line) && !isWordChar(line[e.cursorCol]) {
+			e.cursorCol++
+		}
+	}
+	
+	if e.onCursorMove != nil {
+		e.onCursorMove(e.cursorRow, e.cursorCol)
+	}
 }
 
 // Focus implements tview.Primitive

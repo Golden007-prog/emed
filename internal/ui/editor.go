@@ -2,9 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"strings"
-	
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -35,19 +35,60 @@ func NewEditor() *Editor {
 		tabs:        make([]*EditorTab, 0),
 		activeTab:   -1,
 	}
+
+	var emedTaglines = []string{
+	"Efficiently Manage, Elegantly Develop.",
+	"Edit More, Endlessly Debug.",
+	"Every Method, Elegantly Documented.",
+	"Effortlessly Merge, Easily Diff.",
+	"Escape Mainframe, Enter DOS.",
+	"Edit. Modify. Enhance. Deploy.",
+	"Even More Errors Detected.",
+
+	"Emmanuel's Masterfully Engineered Distraction.",
+	"Eventually, My Editor Dominates.",
+	"Erase My Endless Despair.",
+	"Every Mistake, Eventually Discovered.",
+	"Exists Mainly Expecting Donations.",
+	"Emed Means Emed, Duh.",
+
+	"Eating Many Electric Donuts.",
+	"Existential Machine, Endless Dread.",
+	"Every Macro Evokes Destiny.",
+	"Entertaining My Electric Duck.",
+	"Even My Editor Dreams.",
+	"Exploding Monkeys, Every Day.",
+	"Enter My Elegant Dungeon.",
+
+	// Spanglish mix
+	"Editor Magnífico, Excelente Diseño.",
+	"Edita Más, Escribe Doble.",
+	"El Mundo Es Digital.",
+	"Error Mayor, Error Digital.",
+	"Este Modo Es Diferente.",
+	"El Mejor Editor, Definitivo.",
+	"Escribe Más, Extra Despacio.",
+	"Emmanuel's Muy Especial Device.",
+	"Entra, Modifica, Elimina, Done.",
+	"El Macho Editor Definitivo.",
+}
 	
 	// Create no documents view with blue ASCII art
-	helpText := `[gray]Help: Alt+H or F1[-]
-
-
-[blue]███████╗███╗   ███╗███████╗██████╗ 
+	helpText := `[blue]███████╗███╗   ███╗███████╗██████╗ 
 ██╔════╝████╗ ████║██╔════╝██╔══██╗
 █████╗  ██╔████╔██║█████╗  ██║  ██║
 ██╔══╝  ██║╚██╔╝██║██╔══╝  ██║  ██║
 ███████╗██║ ╚═╝ ██║███████╗██████╔╝
 ╚══════╝╚═╝     ╚═╝╚══════╝╚═════╝[-]
+[darkgray]{tagline}
+made with ♥ in Sonora[-]
+
+[gray]Ayuda / Help: Alt+H / F1[-]
 `
-	
+	// Replace {tagline} with a random tagline
+	tagline := emedTaglines[rand.Intn(len(emedTaglines))]
+	helpText = strings.ReplaceAll(helpText, "{tagline}", tagline)
+
 	// Create a flex container to center vertically
 	centerFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).  // Top spacer
@@ -467,6 +508,16 @@ func (e *Editor) SetOnLastTabClosed(handler func()) {
 // HasTabs returns true if there are open tabs
 func (e *Editor) HasTabs() bool {
 	return len(e.tabs) > 0
+}
+
+// HasUnsavedChanges returns whether any tabs have unsaved changes
+func (e *Editor) HasUnsavedChanges() bool {
+	for _, tab := range e.tabs {
+		if tab.modified {
+			return true
+		}
+	}
+	return false
 }
 
 // CloseFileTab closes a tab by file path (for deletions)

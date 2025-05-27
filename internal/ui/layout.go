@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 	
 	"github.com/gdamore/tcell/v2"
@@ -308,6 +309,13 @@ func (l *Layout) setupKeybindings() {
 			return event
 		}
 		
+		// Handle Q key for quit when file manager is focused
+		if l.focusedPanel == 0 && event.Key() == tcell.KeyRune && event.Rune() == 'q' && event.Modifiers() == 0 {
+			// Q pressed with no modifiers in file manager
+			l.tryQuit()
+			return nil
+		}
+		
 		// Handle F-keys
 		switch event.Key() {
 		case tcell.KeyF1:
@@ -526,8 +534,8 @@ func (l *Layout) setupKeybindings() {
 				}
 				return nil
 			case tcell.KeyCtrlQ:
-				// Quit
-				l.app.Stop()
+				// Quit with confirmation
+				l.tryQuit()
 				return nil
 			}
 		}
@@ -584,4 +592,40 @@ func (l *Layout) focusTerminal() {
 func (l *Layout) OpenFile(path string) {
 	l.editor.OpenFile(path)
 	l.focusEditor()
+}
+
+// tryQuit attempts to quit the application with confirmation if needed
+func (l *Layout) tryQuit() {
+	// Check for unsaved changes in editor
+	hasUnsaved := l.editor.HasUnsavedChanges()
+	
+	// Check for open terminal tabs
+	hasTerminals := l.terminal.HasTabs()
+	
+	if hasUnsaved || hasTerminals {
+		// Build confirmation message
+		var messages []string
+		if hasUnsaved {
+			messages = append(messages, "You have unsaved changes in the editor.")
+		}
+		if hasTerminals {
+			messages = append(messages, "You have open terminal sessions.")
+		}
+		messages = append(messages, "\n\nAre you sure you want to quit?")
+		
+		message := strings.Join(messages, " ")
+		
+		// Show confirmation dialog
+		ShowConfirmModal(l.app, "Confirm Quit", message, 
+			func() {
+				// Yes callback - quit the app
+				l.app.Stop()
+			}, 
+			func() {
+				// No callback - do nothing, just close modal
+			})
+	} else {
+		// No unsaved changes or terminals, quit directly
+		l.app.Stop()
+	}
 }
