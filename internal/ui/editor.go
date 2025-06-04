@@ -85,8 +85,14 @@ made with ♥ in Sonora[-]
 
 [gray]Ayuda / Help: Alt+H / F1[-]
 `
-	// Replace {tagline} with a random tagline
-	tagline := emedTaglines[rand.Intn(len(emedTaglines))]
+	tagline := "Emmanuel's Editor"
+
+	// Use a fun tagline instead most of the time
+	if rand.Intn(10) > 0 {
+		tagline = emedTaglines[rand.Intn(len(emedTaglines))]
+	}
+
+	// Replace {tagline} with actual tagline
 	helpText = strings.ReplaceAll(helpText, "{tagline}", tagline)
 
 	// Create a flex container to center vertically
@@ -386,6 +392,33 @@ func (e *Editor) PreviousTab() {
 
 // CloseCurrentTab closes the current tab
 func (e *Editor) CloseCurrentTab() {
+	if e.activeTab < 0 || e.activeTab >= len(e.tabs) {
+		return
+	}
+	
+	// Check if the tab has unsaved changes
+	tab := e.tabs[e.activeTab]
+	if tab.modified {
+		// Show confirmation dialog
+		fileName := filepath.Base(tab.path)
+		message := fmt.Sprintf("'%s' has unsaved changes.\n\nDo you want to close it anyway?", fileName)
+		
+		ShowConfirmModal(e.app, "Unsaved Changes", message,
+			func() {
+				// Yes - close the tab
+				e.doCloseCurrentTab()
+			},
+			func() {
+				// No - do nothing, just close modal
+			})
+	} else {
+		// No unsaved changes, close directly
+		e.doCloseCurrentTab()
+	}
+}
+
+// doCloseCurrentTab performs the actual tab closing
+func (e *Editor) doCloseCurrentTab() {
 	if e.activeTab < 0 || e.activeTab >= len(e.tabs) {
 		return
 	}
