@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	
 	"github.com/laborin/emed/internal/ui"
@@ -94,7 +95,12 @@ func main() {
 			// Reset terminal on panic
 			fmt.Print("\033[?1049l") // Exit alternate screen
 			fmt.Print("\033[?25h")   // Show cursor
+			fmt.Print("\033[0m")     // Reset colors
 			fmt.Printf("Application error: %v\n", r)
+			// Print stack trace
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			fmt.Printf("Stack trace:\n%s\n", buf[:n])
 		}
 	}()
 	

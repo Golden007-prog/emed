@@ -232,12 +232,7 @@ func (l *Layout) getHelpText() string {
 	return `[::b]KEYBOARD SHORTCUTS[-::-]
 
 [yellow]FILE MANAGER (when focused):[-]
-  Ctrl+N         New File (creates untitled in selected dir)
-  Ctrl+M         Rename File/Directory
-  Ctrl+R         Delete File/Directory
-  Ctrl+C         Copy File/Directory
-  Ctrl+X         Cut File/Directory
-  Ctrl+V         Paste File/Directory
+  i              File actions (info, copy, rename, delete, etc.)
   Enter          Open File / Toggle Directory
   
 [yellow]EDITOR:[-]
@@ -444,13 +439,6 @@ func (l *Layout) setupKeybindings() {
 					l.focusTerminal()
 				}
 				return nil
-			case tcell.KeyCtrlN:
-				// New document in selected directory
-				if l.focusedPanel == 0 {
-					// Call directly - the method will handle queueing UI updates
-					l.fileManager.CreateNewFile()
-				}
-				return nil
 			case tcell.KeyCtrlS:
 				// Save file
 				if l.focusedPanel == 1 {
@@ -473,44 +461,6 @@ func (l *Layout) setupKeybindings() {
 					l.editor.CloseCurrentTab()
 				} else if l.focusedPanel == 2 {
 					l.terminal.CloseCurrentTab()
-				}
-				return nil
-			case tcell.KeyCtrlC:
-				if l.focusedPanel == 0 {
-					// Copy in file manager
-					l.fileManager.CopySelected()
-				} else if l.focusedPanel == 1 {
-					// Copy in editor (TODO)
-				}
-				return nil
-			case tcell.KeyCtrlV:
-				if l.focusedPanel == 0 {
-					// Paste in file manager
-					l.fileManager.PasteClipboard()
-				} else if l.focusedPanel == 1 {
-					// Paste in editor (TODO)
-				}
-				return nil
-			case tcell.KeyCtrlX:
-				if l.focusedPanel == 0 {
-					// Cut in file manager
-					l.fileManager.CutSelected()
-				} else if l.focusedPanel == 1 {
-					// Cut in editor (TODO)
-				}
-				return nil
-			case tcell.KeyRune:
-				if event.Modifiers() == tcell.ModCtrl && event.Rune() == 'm' {
-					if l.focusedPanel == 0 {
-						// Rename in file manager
-						l.fileManager.RenameSelected()
-					}
-					return nil
-				}
-			case tcell.KeyCtrlR:
-				if l.focusedPanel == 0 {
-					// Delete in file manager
-					l.fileManager.DeleteSelected()
 				}
 				return nil
 			case tcell.KeyCtrlZ:

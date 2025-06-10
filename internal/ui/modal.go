@@ -15,13 +15,14 @@ var (
 // EmModal represents a modal dialog with a transparent full-screen background
 type EmModal struct {
 	*tview.Box
-	app         *tview.Application
-	container   *tview.Box       // Transparent full-screen container
-	content     tview.Primitive  // The actual modal content
-	cancellable bool
-	onCancel    func()
-	onClose     func()
+	app          *tview.Application
+	container    *tview.Box       // Transparent full-screen container
+	content      tview.Primitive  // The actual modal content
+	cancellable  bool
+	onCancel     func()
+	onClose      func()
 	previousRoot tview.Primitive
+	savedFocus   tview.Primitive  // Store the focus that was active before modal
 }
 
 // SetPreviousRoot sets the previous root to restore when modal closes
@@ -59,7 +60,8 @@ func (m *EmModal) SetOnClose(handler func()) *EmModal {
 // Show displays the modal
 func (m *EmModal) Show() {
 	// Store the currently focused element before showing modal
-	previousFocus = m.app.GetFocus()
+	m.savedFocus = m.app.GetFocus()
+	previousFocus = m.savedFocus  // Keep for compatibility
 	
 	// Mark that a modal is open
 	modalIsOpen = true
@@ -86,8 +88,11 @@ func (m *EmModal) Close() {
 		m.app.SetRoot(mainAppRoot, true)
 	}
 	
-	// Restore the previous focus
-	if previousFocus != nil {
+	// Restore the focus that was saved when modal was shown (not current focus)
+	if m.savedFocus != nil {
+		m.app.SetFocus(m.savedFocus)
+	} else if previousFocus != nil {
+		// Fallback for compatibility
 		m.app.SetFocus(previousFocus)
 	}
 }
@@ -151,6 +156,56 @@ func (m *EmModal) HasFocus() bool {
 func (m *EmModal) GetRect() (int, int, int, int) {
 	return m.container.GetRect()
 }
+
+// Forward all necessary methods to the wrapped modal
+func (w *modalWrapper) SetPreviousRoot(root tview.Primitive) {
+	w.modal.SetPreviousRoot(root)
+}
+
+func (w *modalWrapper) Show() {
+	w.modal.Show()
+}
+
+func (w *modalWrapper) Close() {
+	w.modal.Close()
+}
+
+func (w *modalWrapper) Cancel() {
+	w.modal.Cancel()
+}
+
+func (w *modalWrapper) Focus(delegate func(p tview.Primitive)) {
+	w.modal.Focus(delegate)
+}
+
+func (w *modalWrapper) HasFocus() bool {
+	return w.modal.HasFocus()
+}
+
+func (w *modalWrapper) GetRect() (int, int, int, int) {
+	return w.modal.GetRect()
+}
+
+func (w *modalWrapper) SetRect(x, y, width, height int) {
+	w.modal.SetRect(x, y, width, height)
+}
+
+func (w *modalWrapper) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+	return w.modal.InputHandler()
+}
+
+func (w *modalWrapper) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return w.modal.MouseHandler()
+}
+
+func (w *modalWrapper) Blur() {
+	w.modal.Blur()
+}
+
+func (w *modalWrapper) PasteHandler() func(pastedText string, setFocus func(p tview.Primitive)) {
+	return w.modal.PasteHandler()
+}
+
 
 // SetRect sets the container's rect
 func (m *EmModal) SetRect(x, y, width, height int) {
@@ -220,68 +275,85 @@ type EmModalConfig struct {
 
 // NewConfiguredModal creates a modal with specific configuration
 func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellable bool) (*modalWrapper, *tview.Flex) {
-	// Create a flex container for the modal content
-	modalContent := tview.NewFlex().SetDirection(tview.FlexRow)
+	// Create the content flex that will hold user content
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
 	
-	// Set up the modal box styling
-	modalContent.SetBorder(true).
+	// Create a Box that will provide the border and solid background
+	backgroundBox := tview.NewBox().
+		SetBorder(true).
 		SetTitle(config.Title).
 		SetTitleAlign(config.TitleAlign).
-		SetBackgroundColor(config.BackgroundColor).
+		SetBackgroundColor(tcell.ColorBlack).
 		SetBorderColor(config.BorderColor).
 		SetTitleColor(config.TitleColor)
 	
-	// Create the modal with the styled content
+	// Create a custom primitive that combines background and content
+	modalContent := &backgroundWithContent{
+		Box:        tview.NewBox(),
+		background: backgroundBox,
+		content:    contentFlex,
+	}
+	
+	// Create the modal with the combined content
 	modal := NewEmModal(app, modalContent, cancellable)
 	
 	// Create a wrapper that overrides Draw to use custom sizing
 	wrapper := &modalWrapper{
-		EmModal: modal,
-		config:  config,
+		modal:  modal,
+		config: config,
 	}
 	
-	return wrapper, modalContent
+	return wrapper, contentFlex
 }
 
 // modalWrapper wraps EmModal to provide custom drawing
 type modalWrapper struct {
-	*EmModal
+	modal  *EmModal  // Don't embed, use composition
 	config EmModalConfig
+	// Cache the calculated rect to prevent resizing
+	cachedRect struct {
+		x, y, width, height int
+		isSet bool
+	}
 }
 
 // Draw draws the modal with custom sizing
 func (w *modalWrapper) Draw(screen tcell.Screen) {
 	// First draw the main application content behind the modal
-	if w.previousRoot != nil {
-		w.previousRoot.Draw(screen)
+	if w.modal.previousRoot != nil {
+		w.modal.previousRoot.Draw(screen)
 	} else if mainAppRoot != nil {
 		mainAppRoot.Draw(screen)
 	}
 	
-	screenWidth, screenHeight := screen.Size()
-	
-	// Use configured size or defaults
-	width := w.config.Width
-	height := w.config.Height
-	if width <= 0 || width > 100 {
-		width = 60 // Default 60%
+	// Calculate rect only once and cache it
+	if !w.cachedRect.isSet {
+		screenWidth, screenHeight := screen.Size()
+		
+		// Use configured size or defaults
+		width := w.config.Width
+		height := w.config.Height
+		if width <= 0 || width > 100 {
+			width = 60 // Default 60%
+		}
+		if height <= 0 || height > 100 {
+			height = 40 // Default 40%
+		}
+		
+		w.cachedRect.width = screenWidth * width / 100
+		w.cachedRect.height = screenHeight * height / 100
+		
+		// Center the content
+		w.cachedRect.x = (screenWidth - w.cachedRect.width) / 2
+		w.cachedRect.y = (screenHeight - w.cachedRect.height) / 2
+		w.cachedRect.isSet = true
 	}
-	if height <= 0 || height > 100 {
-		height = 40 // Default 40%
-	}
 	
-	contentWidth := screenWidth * width / 100
-	contentHeight := screenHeight * height / 100
-	
-	// Center the content
-	x := (screenWidth - contentWidth) / 2
-	y := (screenHeight - contentHeight) / 2
-	
-	// Set the content's position and size
-	w.content.SetRect(x, y, contentWidth, contentHeight)
+	// Use cached position and size
+	w.modal.content.SetRect(w.cachedRect.x, w.cachedRect.y, w.cachedRect.width, w.cachedRect.height)
 	
 	// Draw the modal content on top
-	w.content.Draw(screen)
+	w.modal.content.Draw(screen)
 }
 
 // SetMainAppRoot sets the main application root for modal restoration

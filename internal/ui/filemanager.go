@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
@@ -13,8 +15,8 @@ import (
 
 // FileManager represents the file tree panel
 type FileManager struct {
-	tree           *tview.TreeView
-	root           *tview.TreeNode
+	tree           *HTree
+	root           *HTreeNode
 	rootPath       string
 	onFileSelected func(path string)
 	app            *tview.Application
@@ -32,7 +34,7 @@ type FileManager struct {
 // NewFileManager creates a new file manager panel
 func NewFileManager() *FileManager {
 	fm := &FileManager{
-		tree: tview.NewTreeView(),
+		tree: NewHTree(),
 	}
 	
 	// Get current working directory
@@ -43,9 +45,13 @@ func NewFileManager() *FileManager {
 	fm.rootPath = cwd
 	
 	// Create root node
-	fm.root = tview.NewTreeNode(filepath.Base(cwd)).
-		SetColor(tcell.ColorBlue).
-		SetReference(cwd)
+	fm.root = &HTreeNode{
+		Text:       filepath.Base(cwd),
+		Path:       cwd,
+		IsDir:      true,
+		IsExpanded: true,
+		Color:      tcell.ColorBlue,
+	}
 	
 	// Set up tree view
 	fm.tree.
@@ -53,45 +59,23 @@ func NewFileManager() *FileManager {
 		SetCurrentNode(fm.root).
 		SetBorder(true).
 		SetBorderColor(tcell.ColorGray).
-		//SetTitle(fmt.Sprintf(" %s v%s ", config.AppName, config.Version)).
 		SetTitle(" Project ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
 	
-	// Customize tree graphics
-	fm.tree.SetGraphics(true).
-		SetGraphicsColor(tcell.NewRGBColor(60, 60, 60))  // Set tree lines to darker gray
-	
-	// Load directory structure
-	fm.loadDirectory(fm.root, cwd)
+	// Load initial directory structure
+	fm.tree.loadChildren(fm.root)
 	
 	// Set up selection handler
-	fm.tree.SetSelectedFunc(func(node *tview.TreeNode) {
-		reference := node.GetReference()
-		if reference == nil {
-			return
+	fm.tree.SetSelectedFunc(func(node *HTreeNode) {
+		if !node.IsDir && fm.onFileSelected != nil {
+			fm.onFileSelected(node.Path)
 		}
-		
-		path := reference.(string)
-		fileInfo, err := os.Stat(path)
-		if err != nil {
-			return
-		}
-		
-		if fileInfo.IsDir() {
-			// Toggle directory expansion
-			if node.IsExpanded() {
-				node.SetExpanded(false)
-			} else {
-				node.SetExpanded(true)
-				fm.loadDirectory(node, path)
-			}
-		} else {
-			// File selected - notify listener
-			if fm.onFileSelected != nil {
-				fm.onFileSelected(path)
-			}
-		}
+	})
+	
+	// Set up info handler
+	fm.tree.SetInfoFunc(func(node *HTreeNode) {
+		fm.showInfoModal(node)
 	})
 	
 	return fm
@@ -121,101 +105,14 @@ func isCodeFile(name string) bool {
 	return false
 }
 
-// loadDirectory loads the contents of a directory into the tree
-func (fm *FileManager) loadDirectory(node *tview.TreeNode, path string) {
-	// Clear existing children
-	node.ClearChildren()
-	
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		return
-	}
-	
-	for _, file := range files {
-		
-		childPath := filepath.Join(path, file.Name())
-		
-		// Prepare display name
-		displayName := file.Name()
-		
-		childNode := tview.NewTreeNode(displayName).
-			SetReference(childPath)
-		
-		if file.Name()[0] == '.' {
-			// Hidden files and directories: very dark gray
-			childNode.SetColor(tcell.NewRGBColor(80, 80, 80))
-			if file.IsDir() {
-				childNode.SetSelectable(true)
-				childNode.SetExpanded(false)
-			}
-		} else if file.IsDir() {
-			// Regular directories: blue
-			childNode.SetColor(tcell.ColorBlue)
-			childNode.SetSelectable(true)
-			// Explicitly set directories as collapsed by default
-			childNode.SetExpanded(false)
-		} else if isCodeFile(file.Name()) {
-			// Code files: sky blue
-			childNode.SetColor(tcell.ColorSkyblue)
-		} else {
-			// All other files: silver
-			childNode.SetColor(tcell.ColorSilver)
-		}
-		
-		node.AddChild(childNode)
-	}
-}
 
 // refreshDirectory refreshes a directory while preserving expansion state
-func (fm *FileManager) refreshDirectory(node *tview.TreeNode, path string) {
-	// Save the entire tree's expansion state recursively
-	expandedPaths := make(map[string]bool)
-	fm.saveTreeExpansion(node, expandedPaths)
-	
-	// Reload the directory (this clears and recreates all children)
-	fm.loadDirectory(node, path)
-	
-	// Restore the entire tree's expansion state recursively
-	fm.restoreTreeExpansion(node, expandedPaths)
-}
-
-// saveTreeExpansion recursively saves the expansion state of all directories
-func (fm *FileManager) saveTreeExpansion(node *tview.TreeNode, expandedPaths map[string]bool) {
-	for _, child := range node.GetChildren() {
-		if child.GetReference() != nil {
-			childPath := child.GetReference().(string)
-			info, err := os.Stat(childPath)
-			if err == nil && info.IsDir() {
-				if child.IsExpanded() {
-					expandedPaths[childPath] = true
-					// Recursively save the expansion state of this directory's children
-					fm.saveTreeExpansion(child, expandedPaths)
-				}
-			}
-		}
+func (fm *FileManager) refreshDirectory(node *HTreeNode) {
+	if node != nil {
+		fm.tree.RefreshNode(node)
 	}
 }
 
-// restoreTreeExpansion recursively restores the expansion state of all directories
-func (fm *FileManager) restoreTreeExpansion(node *tview.TreeNode, expandedPaths map[string]bool) {
-	for _, child := range node.GetChildren() {
-		if child.GetReference() != nil {
-			childPath := child.GetReference().(string)
-			info, err := os.Stat(childPath)
-			if err == nil && info.IsDir() {
-				if expandedPaths[childPath] {
-					// This directory was expanded before
-					child.SetExpanded(true)
-					// Load its contents
-					fm.loadDirectory(child, childPath)
-					// Recursively restore its children's expansion state
-					fm.restoreTreeExpansion(child, expandedPaths)
-				}
-				// Otherwise leave it collapsed (which is the default from loadDirectory)
-			}
-		}
-	}
-}
 
 
 // GetView returns the primitive for the file manager
@@ -247,34 +144,23 @@ func (fm *FileManager) RefreshCurrentDirectory() {
 		return
 	}
 	
-	selectedPath := node.GetReference().(string)
-	info, err := os.Stat(selectedPath)
-	if err != nil {
-		return
-	}
-	
 	// Get the directory node to refresh
-	var dirNode *tview.TreeNode
-	var dirPath string
-	if info.IsDir() {
+	var dirNode *HTreeNode
+	if node.IsDir {
 		dirNode = node
-		dirPath = selectedPath
+	} else if node.Parent != nil {
+		dirNode = node.Parent
 	} else {
-		// Need to find parent - for now just return
 		return
 	}
 	
-	// Toggle expansion to force refresh
-	if dirNode.IsExpanded() {
-		dirNode.SetExpanded(false)
-		dirNode.SetExpanded(true)
-		fm.loadDirectory(dirNode, dirPath)
-	}
+	fm.tree.RefreshNode(dirNode)
 }
 
 // SetApp sets the application reference
 func (fm *FileManager) SetApp(app *tview.Application) {
 	fm.app = app
+	fm.tree.SetApp(app)
 }
 
 // SetClipboardChangeHandler sets the callback for clipboard changes
@@ -308,18 +194,12 @@ func (fm *FileManager) CreateNewFile() {
 		return
 	}
 	
-	selectedPath := node.GetReference().(string)
-	info, err := os.Stat(selectedPath)
-	if err != nil {
-		return
-	}
-	
 	// Get target directory
 	var targetDir string
-	if info.IsDir() {
-		targetDir = selectedPath
+	if node.IsDir {
+		targetDir = node.Path
 	} else {
-		targetDir = filepath.Dir(selectedPath)
+		targetDir = filepath.Dir(node.Path)
 	}
 	
 	// Find unique filename and create file
@@ -351,29 +231,21 @@ func (fm *FileManager) CreateNewFile() {
 		go func() {
 			fm.app.QueueUpdateDraw(func() {
 				// Find the target directory node
-				targetNode := fm.findNodeByPath(fm.root, capturedTargetDir)
+				targetNode := fm.tree.FindNodeByPath(capturedTargetDir)
 				
 				if targetNode != nil {
-					// Special case for root node - it's always "expanded"
-					// but we still want to preserve child expansion state
-					if targetNode == fm.root {
-						fm.refreshDirectory(targetNode, capturedTargetDir)
-					} else if !targetNode.IsExpanded() {
-						// Directory wasn't expanded, expand and load it
-						targetNode.SetExpanded(true)
-						fm.loadDirectory(targetNode, capturedTargetDir)
-					} else {
-						// Directory was expanded, refresh while preserving state
-						fm.refreshDirectory(targetNode, capturedTargetDir)
+					// Expand the directory if not already expanded
+					if !targetNode.IsExpanded {
+						targetNode.IsExpanded = true
 					}
 					
-					// Select the new file - but only set current node, don't trigger expansion
-					// The file is in the already loaded directory
-					for _, child := range targetNode.GetChildren() {
-						if child.GetReference().(string) == capturedFullPath {
-							fm.tree.SetCurrentNode(child)
-							break
-						}
+					// Refresh the directory
+					fm.tree.RefreshNode(targetNode)
+					
+					// Select the new file
+					newNode := fm.tree.FindNodeByPath(capturedFullPath)
+					if newNode != nil {
+						fm.tree.SetCurrentNode(newNode)
 					}
 				}
 			})
@@ -388,7 +260,7 @@ func (fm *FileManager) CopySelected() {
 		return
 	}
 	
-	fm.clipboardPath = node.GetReference().(string)
+	fm.clipboardPath = node.Path
 	fm.clipboardIsCut = false
 	
 	if fm.onClipboardChange != nil {
@@ -403,7 +275,7 @@ func (fm *FileManager) CutSelected() {
 		return
 	}
 	
-	fm.clipboardPath = node.GetReference().(string)
+	fm.clipboardPath = node.Path
 	fm.clipboardIsCut = true
 	
 	if fm.onClipboardChange != nil {
@@ -422,18 +294,12 @@ func (fm *FileManager) PasteClipboard() {
 		return
 	}
 	
-	selectedPath := node.GetReference().(string)
-	info, err := os.Stat(selectedPath)
-	if err != nil {
-		return
-	}
-	
 	// Get target directory
 	var targetDir string
-	if info.IsDir() {
-		targetDir = selectedPath
+	if node.IsDir {
+		targetDir = node.Path
 	} else {
-		targetDir = filepath.Dir(selectedPath)
+		targetDir = filepath.Dir(node.Path)
 	}
 	
 	// Store source directory for cut operations
@@ -466,6 +332,7 @@ func (fm *FileManager) PasteClipboard() {
 	}
 	
 	// Perform file operation
+	var err error
 	if fm.clipboardIsCut {
 		// Move file
 		err = os.Rename(fm.clipboardPath, targetPath)
@@ -497,31 +364,27 @@ func (fm *FileManager) PasteClipboard() {
 				// For cut operations, refresh both source and target directories
 				if wasCut && capturedSourceDir != "" && capturedSourceDir != capturedTargetDir {
 					// Refresh source directory
-					sourceNode := fm.findNodeByPath(fm.root, capturedSourceDir)
-					if sourceNode != nil && sourceNode.IsExpanded() {
-						fm.refreshDirectory(sourceNode, capturedSourceDir)
+					sourceNode := fm.tree.FindNodeByPath(capturedSourceDir)
+					if sourceNode != nil && sourceNode.IsExpanded {
+						fm.tree.RefreshNode(sourceNode)
 					}
 				}
 				
 				// Find and refresh target directory
-				targetNode := fm.findNodeByPath(fm.root, capturedTargetDir)
+				targetNode := fm.tree.FindNodeByPath(capturedTargetDir)
 				if targetNode != nil {
 					// Make sure it's expanded
-					if !targetNode.IsExpanded() {
-						targetNode.SetExpanded(true)
-						// First load since it wasn't expanded
-						fm.loadDirectory(targetNode, capturedTargetDir)
-					} else {
-						// Refresh while preserving expansion state
-						fm.refreshDirectory(targetNode, capturedTargetDir)
+					if !targetNode.IsExpanded {
+						targetNode.IsExpanded = true
 					}
 					
+					// Refresh the directory
+					fm.tree.RefreshNode(targetNode)
+					
 					// Find and select the pasted item
-					for _, child := range targetNode.GetChildren() {
-						if child.GetReference().(string) == capturedTargetPath {
-							fm.tree.SetCurrentNode(child)
-							break
-						}
+					pastedNode := fm.tree.FindNodeByPath(capturedTargetPath)
+					if pastedNode != nil {
+						fm.tree.SetCurrentNode(pastedNode)
 					}
 				}
 			})
@@ -530,19 +393,20 @@ func (fm *FileManager) PasteClipboard() {
 }
 
 // RenameSelected shows rename dialog for selected file/directory
-func (fm *FileManager) RenameSelected() {
+// parentModal is optional - if provided, the rename modal will be shown on top of it
+func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 	node := fm.tree.GetCurrentNode()
 	if node == nil || node == fm.root {
 		return
 	}
 	
-	oldPath := node.GetReference().(string)
+	oldPath := node.Path
 	oldName := filepath.Base(oldPath)
 	
-	// Create modal configuration
+	// Create modal configuration - compact size for single input
 	config := EmModalConfig{
 		Width:           50,
-		Height:          20,
+		Height:          8,   // Very compact - just enough for border, label, input
 		BackgroundColor: tcell.ColorDefault,
 		BorderColor:     tcell.ColorBlue,
 		TitleColor:      tcell.ColorBlue,
@@ -551,7 +415,19 @@ func (fm *FileManager) RenameSelected() {
 	}
 	
 	modal, content := NewConfiguredModal(fm.app, config, true)
-	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Set appropriate previous root
+	if parentModal != nil {
+		modal.SetPreviousRoot(parentModal)
+	} else {
+		modal.SetPreviousRoot(mainAppRoot)
+	}
+	
+	// Store parent modal for closing later if needed
+	var parentModalWrapper *modalWrapper
+	if pm, ok := parentModal.(*modalWrapper); ok {
+		parentModalWrapper = pm
+	}
 	
 	// Create input field
 	inputField := tview.NewInputField().
@@ -559,14 +435,14 @@ func (fm *FileManager) RenameSelected() {
 		SetText(oldName).
 		SetFieldWidth(40)
 	
-	// Add input field to modal content
+	// Add input field to modal content with minimal padding
 	content.
-		AddItem(nil, 0, 1, false).
+		AddItem(nil, 1, 0, false).  // Small top padding
 		AddItem(tview.NewFlex().
 			AddItem(nil, 0, 1, false).
 			AddItem(inputField, 50, 1, true).
-			AddItem(nil, 0, 1, false), 3, 1, true).
-		AddItem(nil, 0, 1, false)
+			AddItem(nil, 0, 1, false), 1, 0, true).
+		AddItem(nil, 1, 0, false)  // Small bottom padding
 	
 	// Handle input
 	inputField.SetDoneFunc(func(key tcell.Key) {
@@ -585,31 +461,43 @@ func (fm *FileManager) RenameSelected() {
 							fm.onFileRenamed(oldPath, newPath)
 						}
 						
+						// Close both modals if rename was successful and we have a parent
+						modal.Close()
+						if parentModalWrapper != nil {
+							parentModalWrapper.Close()
+						}
+						
 						// Schedule the UI update from a goroutine
 						if fm.app != nil {
 							go func() {
 								fm.app.QueueUpdateDraw(func() {
 									// Find parent node and refresh it
 									parentPath := filepath.Dir(newPath)
-									parentNode := fm.findNodeByPath(fm.root, parentPath)
+									parentNode := fm.tree.FindNodeByPath(parentPath)
 									if parentNode != nil {
-										// Refresh parent's children while preserving expansion state
-										fm.refreshDirectory(parentNode, parentPath)
+										// Refresh parent's children
+										fm.tree.RefreshNode(parentNode)
 										// Find and select the renamed item
-										for _, child := range parentNode.GetChildren() {
-											if child.GetReference().(string) == newPath {
-												fm.tree.SetCurrentNode(child)
-												break
-											}
+										renamedNode := fm.tree.FindNodeByPath(newPath)
+										if renamedNode != nil {
+											fm.tree.SetCurrentNode(renamedNode)
 										}
 									}
 								})
 							}()
 						}
+					} else {
+						// Rename failed, just close rename modal
+						modal.Close()
 					}
+				} else {
+					// File already exists, just close rename modal
+					modal.Close()
 				}
+			} else {
+				// No change or empty name, just close rename modal
+				modal.Close()
 			}
-			modal.Close()
 		} else if key == tcell.KeyEscape {
 			modal.Cancel()
 		}
@@ -620,37 +508,33 @@ func (fm *FileManager) RenameSelected() {
 }
 
 // DeleteSelected shows delete confirmation for selected file/directory
-func (fm *FileManager) DeleteSelected() {
+// parentModal is optional - if provided, the delete confirmation will be shown on top of it
+func (fm *FileManager) DeleteSelected(parentModal tview.Primitive) {
 	node := fm.tree.GetCurrentNode()
 	if node == nil || node == fm.root {
 		return
 	}
 	
-	path := node.GetReference().(string)
+	path := node.Path
 	fileName := filepath.Base(path)
 	parentPath := filepath.Dir(path)
 	
 	// Check if it's a directory
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	
 	itemType := "file"
-	if info.IsDir() {
+	if node.IsDir {
 		itemType = "directory"
 	}
 	
 	// Find the parent node and current index before deletion
-	parentNode := fm.findNodeByPath(fm.root, parentPath)
+	parentNode := fm.tree.FindNodeByPath(parentPath)
 	var currentIndex int = -1
 	var siblingCount int = 0
 	
 	if parentNode != nil {
-		children := parentNode.GetChildren()
+		children := parentNode.Children
 		siblingCount = len(children)
 		for i, child := range children {
-			if child.GetReference().(string) == path {
+			if child.Path == path {
 				currentIndex = i
 				break
 			}
@@ -659,11 +543,33 @@ func (fm *FileManager) DeleteSelected() {
 	
 	// Show confirmation dialog
 	message := fmt.Sprintf("Are you sure you want to delete the %s:\n\n%s\n\nThis action cannot be undone.\n(unless you know about code versioning =))", itemType, fileName)
-	ShowConfirmModal(fm.app, "Delete Confirmation", message,
-		func() {
-			fm.performDelete(path, parentPath, currentIndex, siblingCount)
-		},
-		nil)
+	
+	// If we have a parent modal, use the custom confirm modal
+	if parentModal != nil {
+		if parentModalWrapper, ok := parentModal.(*modalWrapper); ok {
+			fm.showConfirmModalWithParent(parentModalWrapper, "Delete Confirmation", message,
+				func() {
+					// User confirmed - perform delete and close parent modal
+					fm.performDelete(path, parentPath, currentIndex, siblingCount)
+					parentModalWrapper.Close()
+				},
+				nil) // Cancel just closes the confirm modal, keeping parent open
+		} else {
+			// Parent modal is not a modalWrapper, use regular confirm
+			ShowConfirmModal(fm.app, "Delete Confirmation", message,
+				func() {
+					fm.performDelete(path, parentPath, currentIndex, siblingCount)
+				},
+				nil)
+		}
+	} else {
+		// No parent modal, use regular confirm
+		ShowConfirmModal(fm.app, "Delete Confirmation", message,
+			func() {
+				fm.performDelete(path, parentPath, currentIndex, siblingCount)
+			},
+			nil)
+	}
 }
 
 // performDelete actually performs the file deletion and UI update
@@ -689,13 +595,13 @@ func (fm *FileManager) performDelete(path, parentPath string, currentIndex, sibl
 		go func() {
 			fm.app.QueueUpdateDraw(func() {
 				// Find parent node again after deletion
-				parentNode := fm.findNodeByPath(fm.root, capturedParentPath)
+				parentNode := fm.tree.FindNodeByPath(capturedParentPath)
 				if parentNode != nil {
-					// Refresh parent's children while preserving expansion state
-					fm.refreshDirectory(parentNode, capturedParentPath)
+					// Refresh parent's children
+					fm.tree.RefreshNode(parentNode)
 					
 					// Smart selection logic
-					children := parentNode.GetChildren()
+					children := parentNode.Children
 					newChildCount := len(children)
 					
 					if newChildCount == 0 {
@@ -703,7 +609,7 @@ func (fm *FileManager) performDelete(path, parentPath string, currentIndex, sibl
 						fm.tree.SetCurrentNode(parentNode)
 					} else if capturedIndex >= 0 && capturedSiblingCount > 1 {
 						// There were siblings, select the appropriate one
-						var nodeToSelect *tview.TreeNode
+						var nodeToSelect *HTreeNode
 						
 						if capturedIndex < newChildCount {
 							// Select the item at the same index (item that moved up)
@@ -729,112 +635,8 @@ func (fm *FileManager) performDelete(path, parentPath string, currentIndex, sibl
 	}
 }
 
-// refreshNode refreshes a node's children
-func (fm *FileManager) refreshNode(node *tview.TreeNode) {
-	if node == nil {
-		return
-	}
-	
-	path := node.GetReference().(string)
-	fm.loadDirectory(node, path)
-	
-	// Trigger redraw
-	if fm.app != nil {
-		fm.app.Draw()
-	}
-}
 
 
-// findNodeByPath recursively searches for a node with the given path
-func (fm *FileManager) findNodeByPath(node *tview.TreeNode, targetPath string) *tview.TreeNode {
-	if node == nil {
-		return nil
-	}
-	
-	// Check if this is the target node
-	if node.GetReference() != nil && node.GetReference().(string) == targetPath {
-		return node
-	}
-	
-	// Only search through already-loaded children
-	// Don't load new directories - that's what was causing the expansion
-	children := node.GetChildren()
-	for _, child := range children {
-		if found := fm.findNodeByPath(child, targetPath); found != nil {
-			return found
-		}
-	}
-	
-	return nil
-}
-
-// selectPath recursively searches for and selects a node with the given path
-func (fm *FileManager) selectPath(node *tview.TreeNode, targetPath string) bool {
-	if node == nil {
-		return false
-	}
-	
-	// Check if this is the target node
-	if node.GetReference() != nil && node.GetReference().(string) == targetPath {
-		fm.tree.SetCurrentNode(node)
-		return true
-	}
-	
-	// Search children
-	children := node.GetChildren()
-	for _, child := range children {
-		if fm.selectPath(child, targetPath) {
-			return true
-		}
-	}
-	
-	return false
-}
-
-// expandPath recursively searches for and expands a directory node
-func (fm *FileManager) expandPath(node *tview.TreeNode, targetPath string) bool {
-	if node == nil {
-		return false
-	}
-	
-	// Check if this is the target node
-	if node.GetReference() != nil && node.GetReference().(string) == targetPath {
-		node.SetExpanded(true)
-		// Load its children if not already loaded
-		fm.loadDirectory(node, targetPath)
-		return true
-	}
-	
-	// Check if target path is a child of this node
-	nodePath := ""
-	if node.GetReference() != nil {
-		nodePath = node.GetReference().(string)
-	}
-	
-	// If the target path starts with this node's path, expand this node and search children
-	if nodePath != "" && strings.HasPrefix(targetPath, nodePath+string(filepath.Separator)) {
-		node.SetExpanded(true)
-		fm.loadDirectory(node, nodePath)
-		
-		// Search children
-		children := node.GetChildren()
-		for _, child := range children {
-			if fm.expandPath(child, targetPath) {
-				return true
-			}
-		}
-	}
-	
-	// Search children without expanding this node
-	children := node.GetChildren()
-	for _, child := range children {
-		if fm.expandPath(child, targetPath) {
-			return true
-		}
-	}
-	
-	return false
-}
 
 // copyPath recursively copies a file or directory
 func (fm *FileManager) copyPath(src, dst string) error {
@@ -878,4 +680,342 @@ func (fm *FileManager) copyPath(src, dst string) error {
 	}
 	
 	return nil
+}
+
+// copyToSystemClipboard copies text to system clipboard
+func copyToSystemClipboard(text string) error {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		// Try xclip first, then xsel
+		if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		} else {
+			return fmt.Errorf("no clipboard utility found")
+		}
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "clip")
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+	
+	pipe, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	
+	if _, err := pipe.Write([]byte(text)); err != nil {
+		return err
+	}
+	
+	if err := pipe.Close(); err != nil {
+		return err
+	}
+	
+	return cmd.Wait()
+}
+
+// getFileSize returns formatted file size
+func getFileSize(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "unknown"
+	}
+	
+	size := info.Size()
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+
+
+// showConfirmModalWithParent shows a confirmation dialog with a specific parent modal
+func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, title, message string, onConfirm, onCancel func()) {
+	// Create outer flex (borderless, titleless)
+	outerFlex := tview.NewFlex()
+	
+	// Create a Box that will fill the entire area with black background
+	backgroundBox := tview.NewBox().
+		SetBorder(true).
+		SetTitle(" " + title + " ").
+		SetTitleAlign(tview.AlignCenter).
+		SetBackgroundColor(tcell.ColorBlack).
+		SetBorderColor(tcell.ColorYellow).
+		SetTitleColor(tcell.ColorYellow)
+	
+	// Create content flex for message and buttons
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	
+	// Create message text
+	messageView := tview.NewTextView().
+		SetText(message).
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+	
+	// Create buttons
+	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
+	
+	yesButton := tview.NewButton("YES")
+	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	noButton := tview.NewButton("NO")
+	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	buttonsFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(yesButton, 10, 0, true).
+		AddItem(nil, 2, 0, false).
+		AddItem(noButton, 10, 0, false).
+		AddItem(nil, 0, 1, false)
+	
+	// Add message and buttons to content flex
+	contentFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(messageView, 0, 2, false).
+		AddItem(buttonsFlex, 3, 0, true).
+		AddItem(nil, 0, 1, false)
+	
+	// Create a custom primitive that combines background and content
+	modalContent := &backgroundWithContent{
+		Box:        tview.NewBox(),
+		background: backgroundBox,
+		content:    contentFlex,
+	}
+	
+	// Add the combined primitive to outer flex
+	outerFlex.AddItem(modalContent, 0, 1, true)
+	
+	// Create the modal with the outer flex
+	modal := NewEmModal(fm.app, outerFlex, true)
+	modal.SetPreviousRoot(parentModal) // Set parent modal, not mainAppRoot
+	
+	// Set button handlers with access to modal
+	yesButton.SetSelectedFunc(func() {
+		modal.Close()
+		if onConfirm != nil {
+			onConfirm()
+		}
+	})
+	
+	noButton.SetSelectedFunc(func() {
+		modal.Cancel()
+	})
+	
+	// Set up button navigation
+	yesButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			fm.app.SetFocus(noButton)
+			return nil
+		case tcell.KeyLeft:
+			fm.app.SetFocus(noButton)
+			return nil
+		}
+		return event
+	})
+	
+	noButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			fm.app.SetFocus(yesButton)
+			return nil
+		case tcell.KeyLeft:
+			fm.app.SetFocus(yesButton)
+			return nil
+		}
+		return event
+	})
+	
+	modal.SetOnCancel(onCancel)
+	modal.Show()
+	fm.app.SetFocus(yesButton)
+}
+
+// showInfoModal shows the info modal for a file/directory
+func (fm *FileManager) showInfoModal(node *HTreeNode) {
+	if fm.app == nil || node == nil {
+		return
+	}
+	
+	// Check if file exists
+	_, err := os.Stat(node.Path)
+	if err != nil {
+		return
+	}
+	
+	// Build relative path
+	relativePath := fm.tree.GetRelativePath(node)
+	
+	// Determine type
+	fileType := "File"
+	if node.IsDir {
+		fileType = "Directory"
+	}
+	
+	// Get size (only for files)
+	sizeStr := "N/A"
+	if !node.IsDir {
+		sizeStr = getFileSize(node.Path)
+	}
+	
+	// Create modal configuration
+	config := EmModalConfig{
+		Width:           60,
+		Height:          25,
+		BackgroundColor: tcell.ColorDefault,
+		BorderColor:     tcell.ColorBlue,
+		TitleColor:      tcell.ColorBlue,
+		Title:           " File Information ",
+		TitleAlign:      tview.AlignCenter,
+	}
+	
+	modal, content := NewConfiguredModal(fm.app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Create flex layout for content
+	flex := tview.NewFlex().SetDirection(tview.FlexRow)
+	
+	// Create info text
+	infoText := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(fmt.Sprintf("[yellow]Name:[-] %s\n[yellow]Type:[-] %s\n[yellow]Size:[-] %s\n\n[yellow]Relative Path:[-]\n%s\n",
+			node.Text,
+			fileType,
+			sizeStr,
+			relativePath))
+	
+	// Add info text to flex
+	flex.AddItem(infoText, 0, 1, false)
+	
+	// Create button list as a flex container
+	buttonList := tview.NewFlex().SetDirection(tview.FlexRow)
+	
+	// Store all buttons for navigation
+	var buttons []*tview.Button
+	var currentButtonIndex int
+	
+	// Helper to create styled buttons with navigation
+	createButton := func(label string, handler func()) *tview.Button {
+		btn := tview.NewButton(label).SetSelectedFunc(handler)
+		btn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+		btn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+		
+		// Add to buttons array
+		buttons = append(buttons, btn)
+		btnIndex := len(buttons) - 1
+		
+		// Set up keyboard navigation
+		btn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyTab, tcell.KeyDown, tcell.KeyRight:
+				currentButtonIndex = (btnIndex + 1) % len(buttons)
+				fm.app.SetFocus(buttons[currentButtonIndex])
+				return nil
+			case tcell.KeyBacktab, tcell.KeyUp, tcell.KeyLeft:
+				currentButtonIndex = btnIndex - 1
+				if currentButtonIndex < 0 {
+					currentButtonIndex = len(buttons) - 1
+				}
+				fm.app.SetFocus(buttons[currentButtonIndex])
+				return nil
+			}
+			return event
+		})
+		
+		return btn
+	}
+	
+	// Add buttons to list
+	buttonList.AddItem(createButton("Copy Name", func() {
+		copyToSystemClipboard(node.Text)
+		modal.Close()
+	}), 1, 0, true)
+	
+	buttonList.AddItem(createButton("Copy Relative Path", func() {
+		copyToSystemClipboard(relativePath)
+		modal.Close()
+	}), 1, 0, false)
+	
+	buttonList.AddItem(createButton("Copy Full Path", func() {
+		copyToSystemClipboard(node.Path)
+		modal.Close()
+	}), 1, 0, false)
+	
+	// Add separator (empty space)
+	buttonList.AddItem(nil, 1, 0, false)
+	
+	// Add Create New File button - only show if current node is a directory
+	// or if it's a file (we'll create in the parent directory)
+	buttonList.AddItem(createButton("Create New File", func() {
+		fm.CreateNewFile()
+		modal.Close()
+	}), 1, 0, false)
+	
+	buttonList.AddItem(createButton("Copy", func() {
+		fm.CopySelected()
+		modal.Close()
+	}), 1, 0, false)
+	
+	buttonList.AddItem(createButton("Cut", func() {
+		fm.CutSelected()
+		modal.Close()
+	}), 1, 0, false)
+	
+	if fm.clipboardPath != "" {
+		buttonList.AddItem(createButton("Paste", func() {
+			fm.PasteClipboard()
+			modal.Close()
+		}), 1, 0, false)
+	}
+	
+	buttonList.AddItem(createButton("Rename", func() {
+		// Show rename modal on top of info modal
+		// The rename modal will close both if successful
+		fm.RenameSelected(modal)
+	}), 1, 0, false)
+	
+	buttonList.AddItem(createButton("Delete", func() {
+		// Show delete confirmation on top of info modal
+		// Only close info modal if user confirms deletion
+		fm.DeleteSelected(modal)
+	}), 1, 0, false)
+	
+	// Add separator before cancel
+	buttonList.AddItem(nil, 1, 0, false)
+	
+	buttonList.AddItem(createButton("Cancel", func() {
+		modal.Close()
+	}), 1, 0, false)
+	
+	// Add button list to flex
+	flex.AddItem(buttonList, 0, 1, true)
+	
+	// Add flex to modal content
+	content.AddItem(flex, 0, 1, true)
+	
+	// Show modal and focus first button
+	modal.Show()
+	if len(buttons) > 0 {
+		fm.app.SetFocus(buttons[0])
+		currentButtonIndex = 0
+	}
 }
