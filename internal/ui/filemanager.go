@@ -187,6 +187,71 @@ func (fm *FileManager) ClearClipboard() {
 	}
 }
 
+// CreateNewDirectory creates a new folder in the selected directory
+func (fm *FileManager) CreateNewDirectory() {
+	node := fm.tree.GetCurrentNode()
+	if node == nil {
+		return
+	}
+	
+	// Get target directory
+	var targetDir string
+	if node.IsDir {
+		targetDir = node.Path
+	} else {
+		targetDir = filepath.Dir(node.Path)
+	}
+	
+	// Find unique directory name and create directory
+	baseName := "new_folder"
+	dirName := baseName
+	counter := 1
+	var fullPath string
+	for {
+		fullPath = filepath.Join(targetDir, dirName)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			// Create the directory
+			err := os.Mkdir(fullPath, 0755)
+			if err != nil {
+				return
+			}
+			break
+		}
+		dirName = fmt.Sprintf("%s%d", baseName, counter)
+		counter++
+	}
+	
+	// Schedule the UI update from a goroutine
+	if fm.app != nil {
+		// Capture the values before the goroutine
+		capturedTargetDir := targetDir
+		capturedFullPath := fullPath
+		
+		go func() {
+			fm.app.QueueUpdateDraw(func() {
+				// Find the target directory node
+				targetNode := fm.tree.FindNodeByPath(capturedTargetDir)
+				
+				if targetNode != nil {
+					// Expand the directory if not already expanded
+					if !targetNode.IsExpanded {
+						targetNode.IsExpanded = true
+					}
+					
+					// Refresh the directory
+					fm.tree.RefreshNode(targetNode)
+					
+					// Select the new directory
+					newNode := fm.tree.FindNodeByPath(capturedFullPath)
+					if newNode != nil {
+						fm.tree.SetCurrentNode(newNode)
+					}
+				}
+			})
+		}()
+	}
+}
+
 // CreateNewFile creates a new untitled file in the selected directory
 func (fm *FileManager) CreateNewFile() {
 	node := fm.tree.GetCurrentNode()
@@ -306,6 +371,13 @@ func (fm *FileManager) PasteClipboard() {
 	var sourceDir string
 	if fm.clipboardIsCut {
 		sourceDir = filepath.Dir(fm.clipboardPath)
+		
+		// If cutting and pasting to the same directory, it's a no-op
+		if sourceDir == targetDir {
+			// Just clear clipboard and return
+			fm.ClearClipboard()
+			return
+		}
 	}
 	
 	// Get source name
@@ -403,10 +475,11 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 	oldPath := node.Path
 	oldName := filepath.Base(oldPath)
 	
-	// Create modal configuration - compact size for single input
+	// Create modal configuration - use fixed size for compact modal
 	config := EmModalConfig{
-		Width:           50,
-		Height:          8,   // Very compact - just enough for border, label, input
+		UseFixedSize:    true,
+		FixedWidth:      50,  // 50 characters wide
+		FixedHeight:     7,   // 7 lines tall
 		BackgroundColor: tcell.ColorDefault,
 		BorderColor:     tcell.ColorBlue,
 		TitleColor:      tcell.ColorBlue,
@@ -429,20 +502,27 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 		parentModalWrapper = pm
 	}
 	
-	// Create input field
-	inputField := tview.NewInputField().
-		SetLabel("New name: ").
-		SetText(oldName).
-		SetFieldWidth(40)
+	// Create label and input field separately
+	label := tview.NewTextView().
+		SetText("New name:").
+		SetTextAlign(tview.AlignLeft)
 	
-	// Add input field to modal content with minimal padding
+	inputField := tview.NewInputField().
+		SetText(oldName).
+		SetFieldWidth(45)  // Wider since we have more space without inline label
+	
+	// Add label and input field to modal content
 	content.
-		AddItem(nil, 1, 0, false).  // Small top padding
+		AddItem(nil, 1, 0, false).  // Top padding
 		AddItem(tview.NewFlex().
-			AddItem(nil, 0, 1, false).
-			AddItem(inputField, 50, 1, true).
-			AddItem(nil, 0, 1, false), 1, 0, true).
-		AddItem(nil, 1, 0, false)  // Small bottom padding
+			AddItem(nil, 2, 0, false).  // Left padding
+			AddItem(label, 0, 1, false).  // Label
+			AddItem(nil, 2, 0, false), 1, 0, false).  // Label row
+		AddItem(tview.NewFlex().
+			AddItem(nil, 2, 0, false).  // Left padding
+			AddItem(inputField, 0, 1, true).  // Input field
+			AddItem(nil, 2, 0, false), 1, 0, true).  // Input row
+		AddItem(nil, 1, 0, false)  // Bottom padding
 	
 	// Handle input
 	inputField.SetDoneFunc(func(key tcell.Key) {
@@ -877,10 +957,11 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 		sizeStr = getFileSize(node.Path)
 	}
 	
-	// Create modal configuration
+	// Create modal configuration - use fixed size for consistent appearance
 	config := EmModalConfig{
-		Width:           60,
-		Height:          25,
+		UseFixedSize:    true,
+		FixedWidth:      65,   // 65 characters wide
+		FixedHeight:     20,   // 20 lines tall (enough for info + all buttons)
 		BackgroundColor: tcell.ColorDefault,
 		BorderColor:     tcell.ColorBlue,
 		TitleColor:      tcell.ColorBlue,
@@ -897,14 +978,14 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 	// Create info text
 	infoText := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText(fmt.Sprintf("[yellow]Name:[-] %s\n[yellow]Type:[-] %s\n[yellow]Size:[-] %s\n\n[yellow]Relative Path:[-]\n%s\n",
+		SetText(fmt.Sprintf("[yellow]Name:[-] %s\n[yellow]Type:[-] %s\n[yellow]Size:[-] %s\n[yellow]Relative Path:[-]\n%s\n",
 			node.Text,
 			fileType,
 			sizeStr,
 			relativePath))
 	
-	// Add info text to flex
-	flex.AddItem(infoText, 0, 1, false)
+	// Add info text to flex - fixed height of 6 lines for the text
+	flex.AddItem(infoText, 6, 0, false)
 	
 	// Create button list as a flex container
 	buttonList := tview.NewFlex().SetDirection(tview.FlexRow)
@@ -963,10 +1044,14 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 	// Add separator (empty space)
 	buttonList.AddItem(nil, 1, 0, false)
 	
-	// Add Create New File button - only show if current node is a directory
-	// or if it's a file (we'll create in the parent directory)
+	// Add Create New File button
 	buttonList.AddItem(createButton("Create New File", func() {
 		fm.CreateNewFile()
+		modal.Close()
+	}), 1, 0, false)
+	
+	buttonList.AddItem(createButton("Create New Directory", func() {
+		fm.CreateNewDirectory()
 		modal.Close()
 	}), 1, 0, false)
 	
@@ -1006,7 +1091,7 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 		modal.Close()
 	}), 1, 0, false)
 	
-	// Add button list to flex
+	// Add button list to flex - takes remaining space
 	flex.AddItem(buttonList, 0, 1, true)
 	
 	// Add flex to modal content

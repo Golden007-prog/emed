@@ -23,6 +23,7 @@ type EmModal struct {
 	onClose      func()
 	previousRoot tview.Primitive
 	savedFocus   tview.Primitive  // Store the focus that was active before modal
+	isWrapped    bool            // If true, don't resize content in Draw (modalWrapper handles it)
 }
 
 // SetPreviousRoot sets the previous root to restore when modal closes
@@ -116,7 +117,15 @@ func (m *EmModal) Draw(screen tcell.Screen) {
 		mainAppRoot.Draw(screen)
 	}
 	
-	// Get screen dimensions
+	// If this modal is wrapped by modalWrapper, don't resize content
+	// The wrapper will handle sizing
+	if m.isWrapped {
+		// Just draw the content as-is, the wrapper has already set its position
+		m.content.Draw(screen)
+		return
+	}
+	
+	// For unwrapped modals, use default sizing
 	screenWidth, screenHeight := screen.Size()
 	
 	// Get content's preferred size
@@ -163,7 +172,17 @@ func (w *modalWrapper) SetPreviousRoot(root tview.Primitive) {
 }
 
 func (w *modalWrapper) Show() {
-	w.modal.Show()
+	// Store the currently focused element before showing modal
+	w.modal.savedFocus = w.modal.app.GetFocus()
+	previousFocus = w.modal.savedFocus  // Keep for compatibility
+	
+	// Mark that a modal is open
+	modalIsOpen = true
+	
+	// IMPORTANT: Set the root to the wrapper itself, not the inner modal
+	// This ensures our custom Draw method is called
+	w.modal.app.SetRoot(w, true)
+	w.modal.app.SetFocus(w.modal.content)
 }
 
 func (w *modalWrapper) Close() {
@@ -271,6 +290,10 @@ type EmModalConfig struct {
 	TitleColor      tcell.Color
 	Title           string
 	TitleAlign      int
+	// For compact modals, use these fixed pixel dimensions instead
+	UseFixedSize    bool
+	FixedWidth      int
+	FixedHeight     int
 }
 
 // NewConfiguredModal creates a modal with specific configuration
@@ -278,24 +301,42 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 	// Create the content flex that will hold user content
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
 	
-	// Create a Box that will provide the border and solid background
-	backgroundBox := tview.NewBox().
-		SetBorder(true).
-		SetTitle(config.Title).
-		SetTitleAlign(config.TitleAlign).
-		SetBackgroundColor(tcell.ColorBlack).
-		SetBorderColor(config.BorderColor).
-		SetTitleColor(config.TitleColor)
+	var modalContent tview.Primitive
 	
-	// Create a custom primitive that combines background and content
-	modalContent := &backgroundWithContent{
-		Box:        tview.NewBox(),
-		background: backgroundBox,
-		content:    contentFlex,
+	if config.UseFixedSize {
+		// For fixed size modals, create a simple bordered box without backgroundWithContent
+		// This prevents the content from expanding to fill allocated space
+		bordered := tview.NewFlex().SetDirection(tview.FlexRow)
+		bordered.SetBorder(true).
+			SetTitle(config.Title).
+			SetTitleAlign(config.TitleAlign).
+			SetBackgroundColor(tcell.ColorBlack).
+			SetBorderColor(config.BorderColor).
+			SetTitleColor(config.TitleColor)
+		
+		// Add the content directly to the bordered flex
+		bordered.AddItem(contentFlex, 0, 1, true)
+		modalContent = bordered
+	} else {
+		// For percentage-based modals, use the backgroundWithContent for solid fill
+		backgroundBox := tview.NewBox().
+			SetBorder(true).
+			SetTitle(config.Title).
+			SetTitleAlign(config.TitleAlign).
+			SetBackgroundColor(tcell.ColorBlack).
+			SetBorderColor(config.BorderColor).
+			SetTitleColor(config.TitleColor)
+		
+		modalContent = &backgroundWithContent{
+			Box:        tview.NewBox(),
+			background: backgroundBox,
+			content:    contentFlex,
+		}
 	}
 	
-	// Create the modal with the combined content
+	// Create the modal with the content
 	modal := NewEmModal(app, modalContent, cancellable)
+	modal.isWrapped = true  // Tell the modal it's wrapped, so it won't resize content
 	
 	// Create a wrapper that overrides Draw to use custom sizing
 	wrapper := &modalWrapper{
@@ -310,11 +351,6 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 type modalWrapper struct {
 	modal  *EmModal  // Don't embed, use composition
 	config EmModalConfig
-	// Cache the calculated rect to prevent resizing
-	cachedRect struct {
-		x, y, width, height int
-		isSet bool
-	}
 }
 
 // Draw draws the modal with custom sizing
@@ -326,31 +362,82 @@ func (w *modalWrapper) Draw(screen tcell.Screen) {
 		mainAppRoot.Draw(screen)
 	}
 	
-	// Calculate rect only once and cache it
-	if !w.cachedRect.isSet {
-		screenWidth, screenHeight := screen.Size()
-		
-		// Use configured size or defaults
+	// Now draw THIS modal with its configured dimensions
+	w.drawWithOwnDimensions(screen)
+}
+
+// drawWithOwnDimensions draws this modal with its configured dimensions
+func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
+	screenWidth, screenHeight := screen.Size()
+	
+	// Safety check for screen dimensions
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return
+	}
+	
+	var contentWidth, contentHeight int
+	
+	if w.config.UseFixedSize {
+		// Use explicit fixed dimensions
+		contentWidth = w.config.FixedWidth
+		contentHeight = w.config.FixedHeight
+	} else {
+		// Calculate width (always percentage)
 		width := w.config.Width
-		height := w.config.Height
 		if width <= 0 || width > 100 {
 			width = 60 // Default 60%
 		}
+		contentWidth = screenWidth * width / 100
+		
+		// Calculate height as percentage
+		height := w.config.Height
 		if height <= 0 || height > 100 {
 			height = 40 // Default 40%
 		}
-		
-		w.cachedRect.width = screenWidth * width / 100
-		w.cachedRect.height = screenHeight * height / 100
-		
-		// Center the content
-		w.cachedRect.x = (screenWidth - w.cachedRect.width) / 2
-		w.cachedRect.y = (screenHeight - w.cachedRect.height) / 2
-		w.cachedRect.isSet = true
+		contentHeight = screenHeight * height / 100
 	}
 	
-	// Use cached position and size
-	w.modal.content.SetRect(w.cachedRect.x, w.cachedRect.y, w.cachedRect.width, w.cachedRect.height)
+	// For fixed size modals, don't apply minimum size constraints
+	if !w.config.UseFixedSize {
+		// Make sure dimensions are reasonable for percentage-based modals
+		if contentHeight < 5 {
+			contentHeight = 5  // Minimum 5 lines
+		}
+		if contentHeight > screenHeight-4 {
+			contentHeight = screenHeight - 4  // Leave some margin
+		}
+		if contentWidth < 20 {
+			contentWidth = 20  // Minimum width
+		}
+		if contentWidth > screenWidth-4 {
+			contentWidth = screenWidth - 4  // Leave some margin
+		}
+	}
+	
+	// Center the content
+	x := (screenWidth - contentWidth) / 2
+	y := (screenHeight - contentHeight) / 2
+	
+	// Ensure position is valid
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	
+	// Set the content's position and size
+	w.modal.content.SetRect(x, y, contentWidth, contentHeight)
+	
+	// If this is a fixed-size modal with a Flex, we need to fill the background
+	if w.config.UseFixedSize {
+		// Fill the background with black before drawing the content
+		for row := y; row < y+contentHeight; row++ {
+			for col := x; col < x+contentWidth; col++ {
+				screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
+			}
+		}
+	}
 	
 	// Draw the modal content on top
 	w.modal.content.Draw(screen)
@@ -526,6 +613,11 @@ type backgroundWithContent struct {
 func (b *backgroundWithContent) Draw(screen tcell.Screen) {
 	x, y, width, height := b.GetRect()
 	
+	// Safety check - if we haven't been given a proper rect, don't draw
+	if width <= 0 || height <= 0 {
+		return
+	}
+	
 	// Set the background box to fill the entire area
 	b.background.SetRect(x, y, width, height)
 	
@@ -555,6 +647,10 @@ func (b *backgroundWithContent) GetRect() (int, int, int, int) {
 // SetRect sets the rect
 func (b *backgroundWithContent) SetRect(x, y, width, height int) {
 	b.Box.SetRect(x, y, width, height)
+	// Also set the background box rect to match
+	if b.background != nil {
+		b.background.SetRect(x, y, width, height)
+	}
 }
 
 // Focus passes focus to the content
