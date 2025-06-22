@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	
@@ -18,6 +20,7 @@ type Layout struct {
 	editor      *Editor
 	terminal    *Terminal
 	statusBar   *StatusBar
+	fileWatcher *FileWatcher // File system watcher
 	// No longer need pages or modal tracking
 	
 	// Track which panel is currently focused
@@ -118,6 +121,9 @@ func NewLayout(app *tview.Application) *Layout {
 	
 	// Set up keybindings
 	l.setupKeybindings()
+	
+	// Set up file watcher
+	l.setupFileWatcher()
 	
 	// Focus the file manager initially after a brief delay to ensure UI is ready
 	go func() {
@@ -544,6 +550,65 @@ func (l *Layout) OpenFile(path string) {
 	l.focusEditor()
 }
 
+// setupFileWatcher sets up the file system watcher
+func (l *Layout) setupFileWatcher() {
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	
+	// Create file watcher
+	l.fileWatcher = NewFileWatcher(cwd)
+	
+	// Set up change handler
+	l.fileWatcher.SetOnChange(func(changes []FileChange) {
+		// Handle changes in the UI thread
+		l.app.QueueUpdateDraw(func() {
+			l.handleFileChanges(changes)
+		})
+	})
+	
+	// Start watching
+	l.fileWatcher.Start()
+}
+
+// handleFileChanges processes file system changes
+func (l *Layout) handleFileChanges(changes []FileChange) {
+	// Track which directories need refresh
+	dirsToRefresh := make(map[string]bool)
+	
+	// Track which files were modified
+	modifiedFiles := make(map[string]bool)
+	
+	for _, change := range changes {
+		// Get the directory of the changed file
+		dir := filepath.Dir(change.Path)
+		dirsToRefresh[dir] = true
+		
+		switch change.Type {
+		case FileModified:
+			if !strings.HasSuffix(change.Path, "/") {
+				// It's a file, not a directory
+				modifiedFiles[change.Path] = true
+			}
+		case FileDeleted:
+			// Check if any editor tabs have this file open
+			l.editor.HandleFileDeleted(change.Path)
+		}
+	}
+	
+	// Refresh affected directories in file manager
+	for dir := range dirsToRefresh {
+		l.fileManager.RefreshDirectory(dir)
+	}
+	
+	// Handle modified files in editor
+	for filePath := range modifiedFiles {
+		l.editor.HandleFileModified(filePath)
+	}
+}
+
 // tryQuit attempts to quit the application with confirmation if needed
 func (l *Layout) tryQuit() {
 	// Check for unsaved changes in editor
@@ -577,5 +642,12 @@ func (l *Layout) tryQuit() {
 	} else {
 		// No unsaved changes or terminals, quit directly
 		l.app.Stop()
+	}
+}
+
+// Stop stops the layout and cleans up resources
+func (l *Layout) Stop() {
+	if l.fileWatcher != nil {
+		l.fileWatcher.Stop()
 	}
 }

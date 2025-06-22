@@ -118,6 +118,38 @@ func (e *CodeEditor) LoadFile(path string) error {
 	return nil
 }
 
+// SetContent replaces the editor content with new text
+func (e *CodeEditor) SetContent(content string) {
+	// Detect line endings
+	e.detectLineEndings(content)
+	
+	// Split into lines
+	lines := strings.Split(content, e.lineEndings)
+	
+	// Convert to buffer
+	e.buffer = make([][]rune, len(lines))
+	for i, line := range lines {
+		e.buffer[i] = []rune(line)
+	}
+	
+	// Reset cursor position
+	e.cursorRow = 0
+	e.cursorCol = 0
+	e.offsetRow = 0
+	e.offsetCol = 0
+	
+	// Re-highlight if we have a highlighter
+	if e.highlighter != nil {
+		e.rehighlightAll()
+	}
+	
+	// Mark as not modified since this is a fresh load
+	e.modified = false
+	if e.onModified != nil {
+		e.onModified(false)
+	}
+}
+
 // SaveFile saves the editor content to a file
 func (e *CodeEditor) SaveFile(path string) error {
 	if path == "" {

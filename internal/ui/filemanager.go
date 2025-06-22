@@ -157,6 +157,18 @@ func (fm *FileManager) RefreshCurrentDirectory() {
 	fm.tree.RefreshNode(dirNode)
 }
 
+// RefreshDirectory refreshes a specific directory path in the tree
+func (fm *FileManager) RefreshDirectory(dirPath string) {
+	// Find the directory node
+	dirNode := fm.tree.FindNodeByPath(dirPath)
+	if dirNode != nil && dirNode.IsDir {
+		// Only refresh if the directory is expanded (visible)
+		if dirNode.IsExpanded {
+			fm.tree.RefreshNode(dirNode)
+		}
+	}
+}
+
 // SetApp sets the application reference
 func (fm *FileManager) SetApp(app *tview.Application) {
 	fm.app = app

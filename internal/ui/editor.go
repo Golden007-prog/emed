@@ -3,17 +3,21 @@ package ui
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 // EditorTab represents a single open file
 type EditorTab struct {
-	path       string
-	modified   bool
-	codeEditor *CodeEditor
+	path               string
+	modified           bool
+	codeEditor         *CodeEditor
+	externallyModified bool
+	lastModTime        time.Time
 }
 
 // Editor represents the main editor panel with tabs
@@ -168,10 +172,18 @@ func (e *Editor) OpenFile(path string) {
 		}
 	})
 	
+	// Get file modification time
+	var lastModTime time.Time
+	if info, err := os.Stat(path); err == nil {
+		lastModTime = info.ModTime()
+	}
+	
 	tab := &EditorTab{
-		path:       path,
-		modified:   false,
-		codeEditor: codeEditor,
+		path:               path,
+		modified:           false,
+		codeEditor:         codeEditor,
+		externallyModified: false,
+		lastModTime:        lastModTime,
 	}
 	
 	e.tabs = append(e.tabs, tab)
@@ -225,9 +237,11 @@ func (e *Editor) NewDocument() {
 	})
 	
 	tab := &EditorTab{
-		path:       untitledName,
-		modified:   false,
-		codeEditor: codeEditor,
+		path:               untitledName,
+		modified:           false,
+		codeEditor:         codeEditor,
+		externallyModified: false,
+		lastModTime:        time.Time{}, // No mod time for new files
 	}
 	
 	e.tabs = append(e.tabs, tab)
@@ -474,10 +488,28 @@ func (e *Editor) SaveCurrentFile() {
 			return
 		}
 		
+		// Check if file was modified or deleted externally
+		if tab.externallyModified {
+			// Check if file still exists
+			if _, err := os.Stat(tab.path); os.IsNotExist(err) {
+				// File was deleted externally
+				e.showDeletedFileDialog(tab)
+			} else {
+				// File was modified externally
+				e.showSaveConflictDialog(tab)
+			}
+			return
+		}
+		
 		err := tab.codeEditor.SaveFile(tab.path)
 		if err != nil {
 			// TODO: Show error
 			return
+		}
+		
+		// Update modification time
+		if info, err := os.Stat(tab.path); err == nil {
+			tab.lastModTime = info.ModTime()
 		}
 		
 		// Update modified state in tab
@@ -584,5 +616,367 @@ func (e *Editor) CloseFileTab(path string) {
 			return
 		}
 	}
+}
+
+// showSaveConflictDialog shows a dialog when trying to save an externally modified file
+func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
+	if e.app == nil {
+		return
+	}
+	
+	// Create modal configuration
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      60,
+		FixedHeight:     12,
+		BackgroundColor: tcell.ColorDefault,
+		BorderColor:     tcell.ColorYellow,
+		TitleColor:      tcell.ColorYellow,
+		Title:           " File Conflict ",
+		TitleAlign:      tview.AlignCenter,
+	}
+	
+	modal, content := NewConfiguredModal(e.app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Create message
+	messageText := fmt.Sprintf(
+		"The file '%s' has been modified externally.\n\n" +
+		"Saving will overwrite the external changes.\n\n" +
+		"What would you like to do?",
+		filepath.Base(tab.path))
+	
+	message := tview.NewTextView().
+		SetText(messageText).
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+	
+	// Create buttons
+	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
+	
+	// Overwrite button
+	overwriteBtn := tview.NewButton("Overwrite").
+		SetSelectedFunc(func() {
+			// Save the file, overwriting external changes
+			tab.externallyModified = false
+			err := tab.codeEditor.SaveFile(tab.path)
+			if err == nil {
+				// Update modification time
+				if info, err := os.Stat(tab.path); err == nil {
+					tab.lastModTime = info.ModTime()
+				}
+				tab.modified = false
+				e.updateTabBar()
+			}
+			modal.Close()
+		})
+	overwriteBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	overwriteBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Save as Copy button
+	saveCopyBtn := tview.NewButton("Save as Copy").
+		SetSelectedFunc(func() {
+			// Save with _copy suffix
+			base := strings.TrimSuffix(tab.path, filepath.Ext(tab.path))
+			ext := filepath.Ext(tab.path)
+			copyPath := base + "_copy" + ext
+			
+			// Find unique name
+			counter := 1
+			for {
+				if _, err := os.Stat(copyPath); os.IsNotExist(err) {
+					break
+				}
+				copyPath = fmt.Sprintf("%s_copy%d%s", base, counter, ext)
+				counter++
+			}
+			
+			// Save to the copy path
+			err := tab.codeEditor.SaveFile(copyPath)
+			if err == nil {
+				// Update tab to point to the new file
+				tab.path = copyPath
+				tab.externallyModified = false
+				tab.modified = false
+				if info, err := os.Stat(copyPath); err == nil {
+					tab.lastModTime = info.ModTime()
+				}
+				e.updateTabBar()
+			}
+			modal.Close()
+		})
+	saveCopyBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	saveCopyBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Cancel button
+	cancelBtn := tview.NewButton("Cancel").
+		SetSelectedFunc(func() {
+			modal.Close()
+		})
+	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Add buttons to flex
+	buttonsFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(overwriteBtn, 12, 0, true).
+		AddItem(nil, 2, 0, false).
+		AddItem(saveCopyBtn, 14, 0, false).
+		AddItem(nil, 2, 0, false).
+		AddItem(cancelBtn, 10, 0, false).
+		AddItem(nil, 0, 1, false)
+	
+	// Set up button navigation
+	overwriteBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(saveCopyBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(cancelBtn)
+			return nil
+		}
+		return event
+	})
+	
+	saveCopyBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(cancelBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(overwriteBtn)
+			return nil
+		}
+		return event
+	})
+	
+	cancelBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(overwriteBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(saveCopyBtn)
+			return nil
+		}
+		return event
+	})
+	
+	// Add to content
+	content.
+		AddItem(nil, 1, 0, false).
+		AddItem(message, 0, 1, false).
+		AddItem(buttonsFlex, 3, 0, true).
+		AddItem(nil, 1, 0, false)
+	
+	// Show modal
+	modal.Show()
+	e.app.SetFocus(overwriteBtn)
+}
+
+// HandleFileModified handles when a file is modified externally
+func (e *Editor) HandleFileModified(filePath string) {
+	// Check each tab
+	for _, tab := range e.tabs {
+		if tab.path == filePath {
+			// Check if the file has unsaved changes
+			if tab.modified {
+				// Mark as externally modified, will warn on save
+				tab.externallyModified = true
+			} else {
+				// No unsaved changes, reload the file
+				e.reloadTab(tab)
+			}
+			break
+		}
+	}
+}
+
+// HandleFileDeleted handles when a file is deleted externally
+func (e *Editor) HandleFileDeleted(filePath string) {
+	// Find and mark the tab
+	for i, tab := range e.tabs {
+		if tab.path == filePath {
+			// If the file has unsaved changes, keep the tab but mark it
+			if tab.modified {
+				// Mark as deleted externally
+				tab.externallyModified = true
+			} else {
+				// No unsaved changes, close the tab
+				e.activeTab = i
+				e.CloseCurrentTab()
+			}
+			break
+		}
+	}
+}
+
+// reloadTab reloads the content of a tab from disk
+func (e *Editor) reloadTab(tab *EditorTab) {
+	// Read the file
+	content, err := os.ReadFile(tab.path)
+	if err != nil {
+		return
+	}
+	
+	// Update the code editor
+	tab.codeEditor.SetContent(string(content))
+	tab.modified = false
+	tab.externallyModified = false
+	
+	// Update last mod time
+	if info, err := os.Stat(tab.path); err == nil {
+		tab.lastModTime = info.ModTime()
+	}
+	
+	// Redraw if this is the active tab
+	for i, t := range e.tabs {
+		if t == tab && i == e.activeTab {
+			e.updateTabBar()
+			break
+		}
+	}
+}
+
+// showDeletedFileDialog shows a dialog when trying to save a file that was deleted externally
+func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
+	if e.app == nil {
+		return
+	}
+	
+	// Create modal configuration
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      60,
+		FixedHeight:     12,
+		BackgroundColor: tcell.ColorDefault,
+		BorderColor:     tcell.ColorRed,
+		TitleColor:      tcell.ColorRed,
+		Title:           " File Deleted ",
+		TitleAlign:      tview.AlignCenter,
+	}
+	
+	modal, content := NewConfiguredModal(e.app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+	
+	// Create message
+	messageText := fmt.Sprintf(
+		"The file '%s' was deleted externally.\n\n" +
+		"If you save, you will recreate the file.\n\n" +
+		"What would you like to do?",
+		filepath.Base(tab.path))
+	
+	message := tview.NewTextView().
+		SetText(messageText).
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+	
+	// Create buttons
+	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
+	
+	// Create button
+	createBtn := tview.NewButton("Create").
+		SetSelectedFunc(func() {
+			// Save the file, recreating it
+			tab.externallyModified = false
+			err := tab.codeEditor.SaveFile(tab.path)
+			if err == nil {
+				// Update modification time
+				if info, err := os.Stat(tab.path); err == nil {
+					tab.lastModTime = info.ModTime()
+				}
+				tab.modified = false
+				e.updateTabBar()
+			}
+			modal.Close()
+		})
+	createBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	createBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Discard button
+	discardBtn := tview.NewButton("Discard").
+		SetSelectedFunc(func() {
+			// Close the tab directly, discarding all changes
+			for i, t := range e.tabs {
+				if t == tab {
+					e.activeTab = i
+					// Force close without confirmation
+					e.doCloseCurrentTab()
+					break
+				}
+			}
+			modal.Close()
+		})
+	discardBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	discardBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Cancel button
+	cancelBtn := tview.NewButton("Cancel").
+		SetSelectedFunc(func() {
+			// Keep the tab open with unsaved changes
+			// User can try to save again later
+			modal.Close()
+		})
+	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	
+	// Add buttons to flex
+	buttonsFlex.
+		AddItem(nil, 0, 1, false).
+		AddItem(createBtn, 10, 0, true).
+		AddItem(nil, 2, 0, false).
+		AddItem(discardBtn, 10, 0, false).
+		AddItem(nil, 2, 0, false).
+		AddItem(cancelBtn, 10, 0, false).
+		AddItem(nil, 0, 1, false)
+	
+	// Set up button navigation
+	createBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(discardBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(cancelBtn)
+			return nil
+		}
+		return event
+	})
+	
+	discardBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(cancelBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(createBtn)
+			return nil
+		}
+		return event
+	})
+	
+	cancelBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			e.app.SetFocus(createBtn)
+			return nil
+		case tcell.KeyLeft:
+			e.app.SetFocus(discardBtn)
+			return nil
+		}
+		return event
+	})
+	
+	// Add to content
+	content.
+		AddItem(nil, 1, 0, false).
+		AddItem(message, 0, 1, false).
+		AddItem(buttonsFlex, 3, 0, true).
+		AddItem(nil, 1, 0, false)
+	
+	// Show modal
+	modal.Show()
+	e.app.SetFocus(createBtn)
 }
 
