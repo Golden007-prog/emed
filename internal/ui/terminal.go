@@ -78,6 +78,23 @@ func (t *Terminal) NewTab() {
 		t.updateTabBar() // Refresh to show mode indicator
 	})
 	
+	// Set exit callback to auto-close tab when shell exits
+	tabID := t.nextID // Capture the ID before it's incremented
+	emulator.SetOnExit(func() {
+		// Find and close the tab with this emulator
+		if t.app != nil {
+			t.app.QueueUpdateDraw(func() {
+				for i, tab := range t.tabs {
+					if tab.id == tabID {
+						t.activeTab = i
+						t.CloseCurrentTab()
+						break
+					}
+				}
+			})
+		}
+	})
+	
 	// Start the terminal
 	if err := emulator.Start(); err != nil {
 		// Fall back to a text view with error message

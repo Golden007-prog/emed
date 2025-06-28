@@ -47,6 +47,7 @@ type VT10XTerminal struct {
 	
 	// Callbacks
 	onModeChange func(mode TerminalMode)
+	onExit       func() // Called when shell exits
 	
 	// Terminal size
 	rows int
@@ -153,6 +154,10 @@ func (t *VT10XTerminal) readPTY() {
 				// Terminal closed
 			}
 			t.isRunning = false
+			// Notify that the shell has exited
+			if t.onExit != nil {
+				go t.onExit() // Call in goroutine to avoid blocking
+			}
 			return
 		}
 		
@@ -174,12 +179,19 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	
 	// Mouse reporting modes
 	// 1000 = report button press
+	// 1001 = highlight tracking (not supported but enable mouse)
 	// 1002 = report motion on button press  
 	// 1003 = report all mouse motions
+	// 1005 = UTF-8 mode (deprecated, but still used by some apps)
 	// 1006 = SGR extended reporting mode
+	// 1015 = URXVT mode (not fully supported but enable mouse)
 	if strings.Contains(str, "\x1b[?1000h") {
 		t.mouseReporting = true
 		t.mouseSGRMode = false  // Normal mode
+	}
+	if strings.Contains(str, "\x1b[?1001h") {
+		t.mouseReporting = true  // Highlight tracking
+		// Keep existing SGR mode setting
 	}
 	if strings.Contains(str, "\x1b[?1002h") {
 		t.mouseReporting = true
@@ -189,12 +201,21 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 		t.mouseReporting = true
 		// Keep existing SGR mode setting
 	}
+	if strings.Contains(str, "\x1b[?1005h") {
+		t.mouseReporting = true  // UTF-8 mode (deprecated)
+		// Keep existing SGR mode setting
+	}
 	if strings.Contains(str, "\x1b[?1006h") {
 		t.mouseReporting = true
 		t.mouseSGRMode = true  // SGR mode
 	}
-	if strings.Contains(str, "\x1b[?1000l") || strings.Contains(str, "\x1b[?1002l") || 
-	   strings.Contains(str, "\x1b[?1003l") {
+	if strings.Contains(str, "\x1b[?1015h") {
+		t.mouseReporting = true  // URXVT mode
+		// Keep existing SGR mode setting
+	}
+	if strings.Contains(str, "\x1b[?1000l") || strings.Contains(str, "\x1b[?1001l") ||
+	   strings.Contains(str, "\x1b[?1002l") || strings.Contains(str, "\x1b[?1003l") ||
+	   strings.Contains(str, "\x1b[?1005l") || strings.Contains(str, "\x1b[?1015l") {
 		t.mouseReporting = false
 		// Keep SGR mode setting in case it's re-enabled
 	}
@@ -263,6 +284,11 @@ func (t *VT10XTerminal) SetMode(mode TerminalMode) {
 // SetOnModeChange sets the mode change callback
 func (t *VT10XTerminal) SetOnModeChange(handler func(TerminalMode)) {
 	t.onModeChange = handler
+}
+
+// SetOnExit sets the exit callback
+func (t *VT10XTerminal) SetOnExit(handler func()) {
+	t.onExit = handler
 }
 
 
@@ -711,7 +737,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				setFocus(t)
 			}
 			
-			// If the terminal application has requested mouse reporting, send ALL events to it
+			// If the terminal application has requested mouse reporting, send events to it
 			if t.mouseReporting && t.ptm != nil {
 				// Convert mouse action to terminal escape sequences
 				mouseSeq := t.generateMouseSequence(action, event, termX, termY)
@@ -859,9 +885,10 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			t.resetScroll()
 		}
 		
-		// Handle mode toggle (Ctrl+Esc or F8)
-		if (event.Key() == tcell.KeyEsc && event.Modifiers() == tcell.ModCtrl) || 
-		   event.Key() == tcell.KeyF8 {
+		// Handle mode toggle (Alt+T for "Terminal mode")
+		// Alt+T is more universal and works on all keyboard layouts
+		if (event.Key() == tcell.KeyRune && event.Rune() == 't' && event.Modifiers()&tcell.ModAlt != 0) ||
+		   (event.Key() == tcell.KeyRune && event.Rune() == 'T' && event.Modifiers()&tcell.ModAlt != 0) {
 			if t.mode == ModeApplication {
 				t.SetMode(ModePassthrough)
 			} else {
@@ -876,15 +903,26 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			// Mode toggle is already handled above
 		} else if t.mode == ModeApplication {
 			// In application mode, only block specific emed shortcuts
-			// Only intercept emed-specific shortcuts, let everything else through to terminal
+			// Check for specific keys that emed uses
 			switch event.Key() {
-			case tcell.KeyCtrlA, tcell.KeyCtrlE, tcell.KeyCtrlT,
-				tcell.KeyCtrlW, tcell.KeyF1, tcell.KeyF2, tcell.KeyF3,
+			// Block F-keys that emed uses
+			case tcell.KeyF1, tcell.KeyF2, tcell.KeyF3,
 				tcell.KeyF4, tcell.KeyF5, tcell.KeyF6, tcell.KeyF7:
-				// These are emed shortcuts - pass back to app
+				return // These are emed shortcuts - pass back to app
+			// Block specific Ctrl keys that emed uses
+			case tcell.KeyCtrlA: // Focus File Manager
 				return
-			case tcell.KeyF8:
-				// F8 is used for mode toggle, already handled above
+			case tcell.KeyCtrlE: // Focus Editor  
+				return
+			case tcell.KeyCtrlT: // Focus Terminal
+				return
+			case tcell.KeyCtrlW: // Close Tab
+				return
+			case tcell.KeyCtrlL: // Cycle Proportions
+				return
+			case tcell.KeyCtrlP: // Toggle Position
+				return
+			case tcell.KeyCtrlQ: // Quit
 				return
 			}
 			
@@ -898,16 +936,87 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 		var data []byte
 		
 		switch event.Key() {
+		// Handle the tcell KeyCtrl* constants directly
+		case tcell.KeyCtrlSpace:
+			data = []byte{0x00}
+		case tcell.KeyCtrlA:
+			data = []byte{0x01}
+		case tcell.KeyCtrlB:
+			data = []byte{0x02}
+		case tcell.KeyCtrlC:
+			data = []byte{0x03}
+		case tcell.KeyCtrlD:
+			data = []byte{0x04}
+		case tcell.KeyCtrlE:
+			data = []byte{0x05}
+		case tcell.KeyCtrlF:
+			data = []byte{0x06}
+		case tcell.KeyCtrlG:
+			data = []byte{0x07}
+		case tcell.KeyCtrlH: // Same as KeyBackspace
+			data = []byte{0x08}
+		case tcell.KeyCtrlI: // Same as KeyTab
+			data = []byte{0x09}
+		case tcell.KeyCtrlJ:
+			data = []byte{0x0a}
+		case tcell.KeyCtrlK:
+			data = []byte{0x0b}
+		case tcell.KeyCtrlL:
+			data = []byte{0x0c}
+		case tcell.KeyCtrlM: // Same as KeyEnter
+			data = []byte{0x0d}
+		case tcell.KeyCtrlN:
+			data = []byte{0x0e}
+		case tcell.KeyCtrlO:
+			data = []byte{0x0f}
+		case tcell.KeyCtrlP:
+			data = []byte{0x10}
+		case tcell.KeyCtrlQ:
+			data = []byte{0x11}
+		case tcell.KeyCtrlR:
+			data = []byte{0x12}
+		case tcell.KeyCtrlS:
+			data = []byte{0x13}
+		case tcell.KeyCtrlT:
+			data = []byte{0x14}
+		case tcell.KeyCtrlU:
+			data = []byte{0x15}
+		case tcell.KeyCtrlV:
+			data = []byte{0x16}
+		case tcell.KeyCtrlW:
+			data = []byte{0x17}
+		case tcell.KeyCtrlX:
+			data = []byte{0x18}
+		case tcell.KeyCtrlY:
+			data = []byte{0x19}
+		case tcell.KeyCtrlZ:
+			data = []byte{0x1a}
+		case tcell.KeyCtrlBackslash:
+			data = []byte{0x1c}
+		case tcell.KeyCtrlRightSq:
+			data = []byte{0x1d}
+		case tcell.KeyCtrlCarat:
+			data = []byte{0x1e}
+		case tcell.KeyCtrlUnderscore:
+			data = []byte{0x1f}
+		case tcell.KeyBackspace2:
+			data = []byte{0x7f}
 		case tcell.KeyRune:
-			data = []byte(string(event.Rune()))
-		case tcell.KeyEnter:
-			data = []byte("\r")
-		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			data = []byte("\x7f")
-		case tcell.KeyTab:
-			data = []byte("\t")
-		case tcell.KeyEscape:
-			data = []byte("\x1b")
+			// Check if Ctrl is pressed with a letter (fallback for cases not caught above)
+			if event.Modifiers()&tcell.ModCtrl != 0 {
+				// Convert to control character (Ctrl+A = 1, Ctrl+B = 2, etc.)
+				r := event.Rune()
+				if r >= 'a' && r <= 'z' {
+					data = []byte{byte(r - 'a' + 1)}
+				} else if r >= 'A' && r <= 'Z' {
+					data = []byte{byte(r - 'A' + 1)}
+				} else {
+					// For other characters with Ctrl, just send the character
+					data = []byte(string(r))
+				}
+			} else {
+				data = []byte(string(event.Rune()))
+			}
 		case tcell.KeyUp:
 			// Check if we're in application cursor mode
 			if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
@@ -951,18 +1060,6 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			data = []byte("\x1b[6~")
 		case tcell.KeyDelete:
 			data = []byte("\x1b[3~")
-		case tcell.KeyCtrlC:
-			data = []byte("\x03")
-		case tcell.KeyCtrlD:
-			data = []byte("\x04")
-		case tcell.KeyCtrlZ:
-			data = []byte("\x1a")
-		case tcell.KeyCtrlL:
-			data = []byte("\x0c")
-		case tcell.KeyCtrlU:
-			data = []byte("\x15")
-		case tcell.KeyCtrlK:
-			data = []byte("\x0b")
 		case tcell.KeyF1:
 			data = []byte("\x1bOP")  // F1
 		case tcell.KeyF2:

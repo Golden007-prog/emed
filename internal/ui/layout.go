@@ -255,8 +255,7 @@ func (l *Layout) getHelpText() string {
   F2             Cycle Focus Between Panels
   
 [yellow]TERMINAL:[-]
-  F8             Toggle Terminal Mode (Passthrough/Application)
-  Ctrl+Esc       Toggle Terminal Mode (alternative)
+  Alt+T          Toggle Terminal Mode (Passthrough/Application)
   
 [yellow]TABS:[-]
   Ctrl+Shift+←   Previous Tab (or F3)
@@ -306,7 +305,7 @@ func (l *Layout) setupKeybindings() {
 		// Check if terminal is in passthrough mode - if so, let it handle ALL input
 		if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
 			// In passthrough mode, ALL input goes to the terminal
-			// The terminal's input handler will only intercept the mode toggle (Ctrl+Esc or F8)
+			// The terminal's input handler will only intercept the mode toggle (Alt+T)
 			return event
 		}
 		
@@ -493,6 +492,12 @@ func (l *Layout) setupKeybindings() {
 				// Quit with confirmation
 				l.tryQuit()
 				return nil
+			case tcell.KeyCtrlC:
+				// Forward Ctrl+C to components without stopping the application
+				// Per tview docs: return a NEW event to forward without triggering app stop
+				// This allows terminal to handle Ctrl+C for interrupts
+				// and editor to handle it for copy operations (when implemented)
+				return tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone)
 			}
 		}
 		
