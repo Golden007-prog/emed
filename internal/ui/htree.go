@@ -623,6 +623,12 @@ func (t *HTree) RefreshNode(node *HTreeNode) {
 		return
 	}
 	
+	// Save current selection path
+	var selectedPath string
+	if t.selected != nil {
+		selectedPath = t.selected.Path
+	}
+	
 	// Save expansion state of children
 	expandedPaths := make(map[string]bool)
 	t.saveExpansionState(node, expandedPaths)
@@ -633,6 +639,13 @@ func (t *HTree) RefreshNode(node *HTreeNode) {
 	
 	// Restore expansion state
 	t.restoreExpansionState(node, expandedPaths)
+	
+	// Restore selection if it still exists
+	if selectedPath != "" {
+		if selectedNode := t.FindNodeByPath(selectedPath); selectedNode != nil {
+			t.selected = selectedNode
+		}
+	}
 }
 
 func (t *HTree) saveExpansionState(node *HTreeNode, expanded map[string]bool) {

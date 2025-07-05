@@ -257,6 +257,8 @@ func (fm *FileManager) CreateNewDirectory() {
 					newNode := fm.tree.FindNodeByPath(capturedFullPath)
 					if newNode != nil {
 						fm.tree.SetCurrentNode(newNode)
+						// Ensure the tree has focus to show selection
+						fm.app.SetFocus(fm.tree)
 					}
 				}
 			})
@@ -323,6 +325,8 @@ func (fm *FileManager) CreateNewFile() {
 					newNode := fm.tree.FindNodeByPath(capturedFullPath)
 					if newNode != nil {
 						fm.tree.SetCurrentNode(newNode)
+						// Ensure the tree has focus to show selection
+						fm.app.SetFocus(fm.tree)
 					}
 				}
 			})
@@ -469,6 +473,8 @@ func (fm *FileManager) PasteClipboard() {
 					pastedNode := fm.tree.FindNodeByPath(capturedTargetPath)
 					if pastedNode != nil {
 						fm.tree.SetCurrentNode(pastedNode)
+						// Ensure the tree has focus to show selection
+						fm.app.SetFocus(fm.tree)
 					}
 				}
 			})
@@ -699,6 +705,8 @@ func (fm *FileManager) performDelete(path, parentPath string, currentIndex, sibl
 					if newChildCount == 0 {
 						// No children left, select parent
 						fm.tree.SetCurrentNode(parentNode)
+						// Ensure the tree has focus to show selection
+						fm.app.SetFocus(fm.tree)
 					} else if capturedIndex >= 0 && capturedSiblingCount > 1 {
 						// There were siblings, select the appropriate one
 						var nodeToSelect *HTreeNode
@@ -716,10 +724,14 @@ func (fm *FileManager) performDelete(path, parentPath string, currentIndex, sibl
 						
 						if nodeToSelect != nil {
 							fm.tree.SetCurrentNode(nodeToSelect)
+							// Ensure the tree has focus to show selection
+							fm.app.SetFocus(fm.tree)
 						}
 					} else {
 						// Fallback: select parent
 						fm.tree.SetCurrentNode(parentNode)
+						// Ensure the tree has focus to show selection
+						fm.app.SetFocus(fm.tree)
 					}
 				}
 			})
