@@ -55,6 +55,9 @@ func NewLayout(app *tview.Application) *Layout {
 	
 	// Set callback for when last tab is closed
 	l.editor.SetOnLastTabClosed(func() {
+		// Rebuild layout to collapse editor
+		l.rebuildLayout()
+		// Focus file manager
 		l.focusFileManager()
 	})
 	
@@ -149,16 +152,32 @@ func (l *Layout) rebuildLayout() {
 	// Clear main area
 	l.mainArea.Clear()
 	
-	// Check if terminal has tabs
+	// Check what we have open
+	hasEditorTabs := l.editor.HasTabs()
 	hasTerminalTabs := l.terminal.HasTabs()
 	
-	if !hasTerminalTabs {
-		// No terminal tabs - editor takes all space
+	if !hasEditorTabs && !hasTerminalTabs {
+		// Neither editor nor terminal has tabs - show no-docs view without border
+		// Get the no-docs view from editor and remove its border
+		noDocsView := l.editor.GetNoDocsView()
+		if box, ok := noDocsView.(*tview.Box); ok {
+			box.SetBorder(false)
+		}
+		l.rightSide.SetDirection(tview.FlexRow).
+			Clear().
+			AddItem(noDocsView, 0, 1, false)
+	} else if hasEditorTabs && !hasTerminalTabs {
+		// Only editor has tabs - editor takes all space
 		l.rightSide.SetDirection(tview.FlexRow).
 			Clear().
 			AddItem(l.editor.GetView(), 0, 1, false)
+	} else if !hasEditorTabs && hasTerminalTabs {
+		// Only terminal has tabs - terminal takes all space
+		l.rightSide.SetDirection(tview.FlexRow).
+			Clear().
+			AddItem(l.terminal.GetView(), 0, 1, false)
 	} else {
-		// Terminal has tabs - use proportion system
+		// Both have tabs - use proportion system
 		// Get proportions based on index
 		proportions := [][2]int{
 			{8, 2}, // 80/20 - editor large
@@ -551,7 +570,16 @@ func (l *Layout) focusTerminal() {
 
 // OpenFile opens a file in the editor
 func (l *Layout) OpenFile(path string) {
+	// Check if editor had no tabs before opening
+	hadNoTabs := !l.editor.HasTabs()
+	
 	l.editor.OpenFile(path)
+	
+	// If editor was collapsed and now has tabs, rebuild layout
+	if hadNoTabs && l.editor.HasTabs() {
+		l.rebuildLayout()
+	}
+	
 	l.focusEditor()
 }
 
@@ -586,7 +614,15 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 	// Track which files were modified
 	modifiedFiles := make(map[string]bool)
 	
+	// Check if git HEAD changed (branch switch)
+	gitHeadChanged := false
+	
 	for _, change := range changes {
+		// Check if this is the .git/HEAD file
+		if strings.HasSuffix(change.Path, ".git/HEAD") {
+			gitHeadChanged = true
+		}
+		
 		// Get the directory of the changed file
 		dir := filepath.Dir(change.Path)
 		dirsToRefresh[dir] = true
@@ -601,6 +637,11 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 			// Check if any editor tabs have this file open
 			l.editor.HandleFileDeleted(change.Path)
 		}
+	}
+	
+	// If git HEAD changed, refresh the branch in status bar
+	if gitHeadChanged {
+		l.statusBar.RefreshGitBranch()
 	}
 	
 	// Refresh affected directories in file manager

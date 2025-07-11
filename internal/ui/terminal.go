@@ -125,6 +125,8 @@ func (t *Terminal) showNoTermsView() {
 	t.contentArea.SwitchToPage("no-terms")
 	t.container.SetTitle(" Terminal ")
 	t.activeTab = -1
+	// Reset terminal numbering when all tabs are closed
+	t.nextID = 1
 }
 
 // switchToTab switches to the specified tab

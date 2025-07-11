@@ -108,8 +108,13 @@ func (fw *FileWatcher) scanDirectory() {
 			return filepath.SkipDir
 		}
 		
-		// Skip .git directory
+		// Skip .git directory contents except HEAD file
 		if info.IsDir() && info.Name() == ".git" {
+			// But first, check the HEAD file specifically
+			headPath := filepath.Join(path, "HEAD")
+			if headInfo, err := os.Stat(headPath); err == nil {
+				newFiles[headPath] = headInfo
+			}
 			return filepath.SkipDir
 		}
 		
@@ -141,8 +146,13 @@ func (fw *FileWatcher) checkForChanges() {
 			return filepath.SkipDir
 		}
 		
-		// Skip .git directory
+		// Skip .git directory contents except HEAD file
 		if info.IsDir() && info.Name() == ".git" {
+			// But first, check the HEAD file specifically
+			headPath := filepath.Join(path, "HEAD")
+			if headInfo, err := os.Stat(headPath); err == nil {
+				newFiles[headPath] = headInfo
+			}
 			return filepath.SkipDir
 		}
 		

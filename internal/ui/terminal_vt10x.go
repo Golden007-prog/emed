@@ -185,42 +185,49 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	// 1005 = UTF-8 mode (deprecated, but still used by some apps)
 	// 1006 = SGR extended reporting mode
 	// 1015 = URXVT mode (not fully supported but enable mouse)
-	if strings.Contains(str, "\x1b[?1000h") {
+	
+	// Debug: Log any escape sequences with ? (comment out in production)
+	// if strings.Contains(str, "\x1b[?") {
+	// 	fmt.Fprintf(os.Stderr, "DEBUG: Escape sequence in output: %q\n", str)
+	// }
+	
+	// IMPORTANT: When a string contains both enable and disable sequences,
+	// we need to use the LAST occurrence to determine the final state.
+	// Check which comes last in the string.
+	
+	// Find the last occurrence of any enable/disable for main mouse modes
+	lastEnablePos := -1
+	lastDisablePos := -1
+	
+	// Check for enable positions
+	for _, pattern := range []string{"1000h", "1001h", "1002h", "1003h", "1005h", "1015h"} {
+		if pos := strings.LastIndex(str, pattern); pos > lastEnablePos {
+			lastEnablePos = pos
+		}
+	}
+	
+	// Check for disable positions  
+	for _, pattern := range []string{"1000l", "1001l", "1002l", "1003l", "1005l", "1015l"} {
+		if pos := strings.LastIndex(str, pattern); pos > lastDisablePos {
+			lastDisablePos = pos
+		}
+	}
+	
+	// Set mouse reporting based on which came last
+	if lastEnablePos > lastDisablePos && lastEnablePos >= 0 {
 		t.mouseReporting = true
-		t.mouseSGRMode = false  // Normal mode
-	}
-	if strings.Contains(str, "\x1b[?1001h") {
-		t.mouseReporting = true  // Highlight tracking
-		// Keep existing SGR mode setting
-	}
-	if strings.Contains(str, "\x1b[?1002h") {
-		t.mouseReporting = true
-		// Keep existing SGR mode setting
-	}
-	if strings.Contains(str, "\x1b[?1003h") {
-		t.mouseReporting = true
-		// Keep existing SGR mode setting
-	}
-	if strings.Contains(str, "\x1b[?1005h") {
-		t.mouseReporting = true  // UTF-8 mode (deprecated)
-		// Keep existing SGR mode setting
-	}
-	if strings.Contains(str, "\x1b[?1006h") {
-		t.mouseReporting = true
-		t.mouseSGRMode = true  // SGR mode
-	}
-	if strings.Contains(str, "\x1b[?1015h") {
-		t.mouseReporting = true  // URXVT mode
-		// Keep existing SGR mode setting
-	}
-	if strings.Contains(str, "\x1b[?1000l") || strings.Contains(str, "\x1b[?1001l") ||
-	   strings.Contains(str, "\x1b[?1002l") || strings.Contains(str, "\x1b[?1003l") ||
-	   strings.Contains(str, "\x1b[?1005l") || strings.Contains(str, "\x1b[?1015l") {
+	} else if lastDisablePos > lastEnablePos && lastDisablePos >= 0 {
 		t.mouseReporting = false
-		// Keep SGR mode setting in case it's re-enabled
 	}
-	if strings.Contains(str, "\x1b[?1006l") {
-		t.mouseSGRMode = false  // Disable SGR mode
+	
+	// Handle SGR mode separately
+	lastSGREnablePos := strings.LastIndex(str, "1006h")
+	lastSGRDisablePos := strings.LastIndex(str, "1006l")
+	
+	if lastSGREnablePos > lastSGRDisablePos && lastSGREnablePos >= 0 {
+		t.mouseSGRMode = true
+	} else if lastSGRDisablePos > lastSGREnablePos && lastSGRDisablePos >= 0 {
+		t.mouseSGRMode = false
 	}
 	
 	// Alternate screen buffer
@@ -723,31 +730,55 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		x, y := event.Position()
 		rectX, rectY, width, height := t.GetInnerRect()
 		
-		// Check if event is within the terminal bounds
-		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
-			// Calculate terminal-relative coordinates (1-based for terminal)
-			termX := x - rectX + 1
-			termY := y - rectY + 1
-			
-			// Handle focus on click actions
+		// Calculate terminal-relative coordinates (1-based for terminal)
+		// Even if outside bounds, we might need to report it
+		termX := x - rectX + 1
+		termY := y - rectY + 1
+		
+		// Clamp coordinates to valid terminal range if needed
+		if termX < 1 {
+			termX = 1
+		}
+		if termY < 1 {
+			termY = 1
+		}
+		if termX > width {
+			termX = width
+		}
+		if termY > height {
+			termY = height
+		}
+		
+		// Check if event is within the terminal bounds for focus handling
+		inBounds := x >= rectX && x < rectX+width && y >= rectY && y < rectY+height
+		
+		if inBounds {
+			// Handle focus on click actions (but don't block other events)
 			switch action {
 			case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick,
 				 tview.MouseRightClick, tview.MouseRightDown,
 				 tview.MouseMiddleClick, tview.MouseMiddleDown:
 				setFocus(t)
 			}
-			
-			// If the terminal application has requested mouse reporting, send events to it
-			if t.mouseReporting && t.ptm != nil {
-				// Convert mouse action to terminal escape sequences
-				mouseSeq := t.generateMouseSequence(action, event, termX, termY)
-				if mouseSeq != "" {
-					t.ptm.Write([]byte(mouseSeq))
-				}
-				// Consume the event to prevent propagation
-				return true, nil
+		}
+		
+		
+		// If the terminal application has requested mouse reporting, send ALL mouse events to it
+		// This includes events outside the terminal bounds (for drag operations)
+		if t.mouseReporting && t.ptm != nil {
+			// Convert mouse action to terminal escape sequences
+			// This includes up events, move events, etc.
+			mouseSeq := t.generateMouseSequence(action, event, termX, termY)
+			if mouseSeq != "" {
+				t.ptm.Write([]byte(mouseSeq))
 			}
-			
+			// Always consume mouse events when mouse reporting is on
+			// This ensures consistent behavior for terminal applications
+			return true, nil
+		}
+		
+		// Only handle local mouse events if within bounds
+		if inBounds {
 			// Otherwise, handle mouse events locally (when mouse reporting is off)
 			switch action {
 			case tview.MouseScrollUp:
@@ -789,7 +820,7 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 	
 	// Determine button code
 	switch action {
-	case tview.MouseLeftClick, tview.MouseLeftDown:
+	case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick:
 		button = 0
 		isRelease = false
 	case tview.MouseLeftUp:

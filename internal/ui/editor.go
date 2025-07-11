@@ -618,6 +618,11 @@ func (e *Editor) CloseFileTab(path string) {
 	}
 }
 
+// GetNoDocsView returns the no-docs view primitive for external use
+func (e *Editor) GetNoDocsView() tview.Primitive {
+	return e.noDocsView
+}
+
 // showSaveConflictDialog shows a dialog when trying to save an externally modified file
 func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 	if e.app == nil {
