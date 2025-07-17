@@ -103,18 +103,18 @@ func (fw *FileWatcher) scanDirectory() {
 			return nil // Skip files we can't access
 		}
 		
-		// Skip hidden directories (but include hidden files)
-		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
-			return filepath.SkipDir
-		}
-		
-		// Skip .git directory contents except HEAD file
+		// Handle .git directory specially - include HEAD file
 		if info.IsDir() && info.Name() == ".git" {
-			// But first, check the HEAD file specifically
+			// Check the HEAD file specifically
 			headPath := filepath.Join(path, "HEAD")
 			if headInfo, err := os.Stat(headPath); err == nil {
 				newFiles[headPath] = headInfo
 			}
+			return filepath.SkipDir
+		}
+		
+		// Skip other hidden directories (but include hidden files)
+		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
 			return filepath.SkipDir
 		}
 		
@@ -141,18 +141,35 @@ func (fw *FileWatcher) checkForChanges() {
 			return nil // Skip files we can't access
 		}
 		
-		// Skip hidden directories (but include hidden files)
-		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
-			return filepath.SkipDir
-		}
-		
-		// Skip .git directory contents except HEAD file
+		// Handle .git directory specially - include HEAD file
 		if info.IsDir() && info.Name() == ".git" {
-			// But first, check the HEAD file specifically
+			// Check the HEAD file specifically
 			headPath := filepath.Join(path, "HEAD")
 			if headInfo, err := os.Stat(headPath); err == nil {
 				newFiles[headPath] = headInfo
+				
+				// Check if HEAD file was modified
+				if oldInfo, exists := oldFiles[headPath]; exists {
+					// File existed, check if modified
+					if headInfo.ModTime().After(oldInfo.ModTime()) {
+						changes = append(changes, FileChange{
+							Path: headPath,
+							Type: FileModified,
+						})
+					}
+				} else {
+					// New file (first time seeing it)
+					changes = append(changes, FileChange{
+						Path: headPath,
+						Type: FileCreated,
+					})
+				}
 			}
+			return filepath.SkipDir
+		}
+		
+		// Skip other hidden directories (but include hidden files)
+		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
 			return filepath.SkipDir
 		}
 		

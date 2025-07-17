@@ -156,18 +156,14 @@ func (sb *StatusBar) GetView() tview.Primitive {
 func (sb *StatusBar) SetProjectPath(path string) {
 	sb.projectPath = filepath.Base(path)
 	sb.updateTextParts()
-	if sb.app != nil {
-		sb.app.Draw()
-	}
+	// Caller should handle drawing if needed
 }
 
 // RefreshGitBranch refreshes the git branch information
 func (sb *StatusBar) RefreshGitBranch() {
 	sb.updateGitBranch()
 	sb.updateTextParts()
-	if sb.app != nil {
-		sb.app.Draw()
-	}
+	// No need to call Draw here - it will be called by the caller if needed
 }
 
 // SetClipboard updates the clipboard status
@@ -175,9 +171,7 @@ func (sb *StatusBar) SetClipboard(path string, isCut bool) {
 	sb.clipboardPath = path
 	sb.clipboardCut = isCut
 	sb.updateTextParts()
-	if sb.app != nil {
-		sb.app.Draw()
-	}
+	// The Draw method will handle the rendering when needed
 }
 
 // SetApp sets the application reference for getting terminal dimensions

@@ -621,6 +621,8 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 		// Check if this is the .git/HEAD file
 		if strings.HasSuffix(change.Path, ".git/HEAD") {
 			gitHeadChanged = true
+			// Don't try to refresh .git directory in file manager
+			continue
 		}
 		
 		// Get the directory of the changed file
