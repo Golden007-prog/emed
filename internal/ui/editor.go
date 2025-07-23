@@ -39,6 +39,9 @@ func NewEditor() *Editor {
 		tabs:        make([]*EditorTab, 0),
 		activeTab:   -1,
 	}
+	
+	// Set background color for content area
+	e.contentArea.SetBackgroundColor(tcell.ColorBlack)
 
 	var emedTaglines = []string{
 	"Efficiently Manage, Elegantly Develop.",
@@ -99,14 +102,23 @@ made with ♥ in Sonora[-]
 	// Replace {tagline} with actual tagline
 	helpText = strings.ReplaceAll(helpText, "{tagline}", tagline)
 
+	// Create the text view for the help text
+	helpTextView := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText(helpText).
+		SetDynamicColors(true)
+	helpTextView.SetBackgroundColor(tcell.ColorBlack)
+	
+	// Create spacer boxes with black background
+	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	
 	// Create a flex container to center vertically
 	centerFlex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(nil, 0, 1, false).  // Top spacer
-		AddItem(tview.NewTextView().
-			SetTextAlign(tview.AlignCenter).
-			SetText(helpText).
-			SetDynamicColors(true), 10, 0, false).  // ASCII art (fixed height)
-		AddItem(nil, 0, 1, false)  // Bottom spacer
+		AddItem(topSpacer, 0, 1, false).  // Top spacer
+		AddItem(helpTextView, 10, 0, false).  // ASCII art (fixed height)
+		AddItem(bottomSpacer, 0, 1, false)  // Bottom spacer
+	centerFlex.SetBackgroundColor(tcell.ColorBlack)
 	
 	e.noDocsView = centerFlex
 	
@@ -634,9 +646,9 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 		UseFixedSize:    true,
 		FixedWidth:      60,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorDefault,
-		BorderColor:     tcell.ColorYellow,
-		TitleColor:      tcell.ColorYellow,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
 		Title:           " File Conflict ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -855,9 +867,9 @@ func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
 		UseFixedSize:    true,
 		FixedWidth:      60,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorDefault,
-		BorderColor:     tcell.ColorRed,
-		TitleColor:      tcell.ColorRed,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
 		Title:           " File Deleted ",
 		TitleAlign:      tview.AlignCenter,
 	}

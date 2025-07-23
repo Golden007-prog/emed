@@ -498,9 +498,9 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 		UseFixedSize:    true,
 		FixedWidth:      50,  // 50 characters wide
 		FixedHeight:     7,   // 7 lines tall
-		BackgroundColor: tcell.ColorDefault,
-		BorderColor:     tcell.ColorBlue,
-		TitleColor:      tcell.ColorBlue,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
 		Title:           " Rename ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -852,20 +852,20 @@ func getFileSize(path string) string {
 
 // showConfirmModalWithParent shows a confirmation dialog with a specific parent modal
 func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, title, message string, onConfirm, onCancel func()) {
-	// Create outer flex (borderless, titleless)
-	outerFlex := tview.NewFlex()
+	// Create modal configuration with fixed size
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      50,  // 50 chars wide
+		FixedHeight:     10,  // 10 lines tall for message + buttons
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
+		Title:           " " + title + " ",
+		TitleAlign:      tview.AlignCenter,
+	}
 	
-	// Create a Box that will fill the entire area with black background
-	backgroundBox := tview.NewBox().
-		SetBorder(true).
-		SetTitle(" " + title + " ").
-		SetTitleAlign(tview.AlignCenter).
-		SetBackgroundColor(tcell.ColorBlack).
-		SetBorderColor(tcell.ColorYellow).
-		SetTitleColor(tcell.ColorYellow)
-	
-	// Create content flex for message and buttons
-	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	modal, contentFlex := NewConfiguredModal(fm.app, config, true)
+	modal.SetPreviousRoot(parentModal)
 	
 	// Create message text
 	messageView := tview.NewTextView().
@@ -884,33 +884,26 @@ func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, tit
 	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	
+	// Create spacer boxes with black background
+	leftSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	middleSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	rightSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	
 	buttonsFlex.
-		AddItem(nil, 0, 1, false).
+		AddItem(leftSpacer, 0, 1, false).
 		AddItem(yesButton, 10, 0, true).
-		AddItem(nil, 2, 0, false).
+		AddItem(middleSpacer, 2, 0, false).
 		AddItem(noButton, 10, 0, false).
-		AddItem(nil, 0, 1, false)
+		AddItem(rightSpacer, 0, 1, false)
 	
 	// Add message and buttons to content flex
 	contentFlex.
-		AddItem(nil, 0, 1, false).
+		AddItem(topSpacer, 0, 1, false).
 		AddItem(messageView, 0, 2, false).
 		AddItem(buttonsFlex, 3, 0, true).
-		AddItem(nil, 0, 1, false)
-	
-	// Create a custom primitive that combines background and content
-	modalContent := &backgroundWithContent{
-		Box:        tview.NewBox(),
-		background: backgroundBox,
-		content:    contentFlex,
-	}
-	
-	// Add the combined primitive to outer flex
-	outerFlex.AddItem(modalContent, 0, 1, true)
-	
-	// Create the modal with the outer flex
-	modal := NewEmModal(fm.app, outerFlex, true)
-	modal.SetPreviousRoot(parentModal) // Set parent modal, not mainAppRoot
+		AddItem(bottomSpacer, 0, 1, false)
 	
 	// Set button handlers with access to modal
 	yesButton.SetSelectedFunc(func() {
@@ -949,7 +942,7 @@ func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, tit
 		return event
 	})
 	
-	modal.SetOnCancel(onCancel)
+	modal.modal.SetOnCancel(onCancel)
 	modal.Show()
 	fm.app.SetFocus(yesButton)
 }
@@ -986,9 +979,9 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 		UseFixedSize:    true,
 		FixedWidth:      65,   // 65 characters wide
 		FixedHeight:     20,   // 20 lines tall (enough for info + all buttons)
-		BackgroundColor: tcell.ColorDefault,
-		BorderColor:     tcell.ColorBlue,
-		TitleColor:      tcell.ColorBlue,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
 		Title:           " File Information ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -1002,7 +995,7 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 	// Create info text
 	infoText := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText(fmt.Sprintf("[yellow]Name:[-] %s\n[yellow]Type:[-] %s\n[yellow]Size:[-] %s\n[yellow]Relative Path:[-]\n%s\n",
+		SetText(fmt.Sprintf("[blue]Name:[-] %s\n[blue]Type:[-] %s\n[blue]Size:[-] %s\n[blue]Relative Path:[-]\n%s\n",
 			node.Text,
 			fileType,
 			sizeStr,

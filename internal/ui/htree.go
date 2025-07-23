@@ -275,7 +275,7 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		
 		// Determine colors
 		fgColor := node.Color
-		bgColor := tcell.ColorDefault
+		bgColor := tcell.ColorBlack
 		
 		if node == t.selected {
 			if t.hasFocus {

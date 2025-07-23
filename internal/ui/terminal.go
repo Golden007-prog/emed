@@ -36,10 +36,14 @@ func NewTerminal() *Terminal {
 		nextID:      1,
 	}
 	
+	// Set background color for content area
+	t.contentArea.SetBackgroundColor(tcell.ColorBlack)
+	
 	// Create no terminals view
 	t.noTermsView = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("\n\n\nNo terminal open.\n\nPress Ctrl+T to create a new terminal.")
+	t.noTermsView.SetBackgroundColor(tcell.ColorBlack)
 	
 	// Add the no terminals view as a page
 	t.contentArea.AddPage("no-terms", t.noTermsView, true, false)
@@ -202,7 +206,7 @@ func (t *Terminal) updateTabBar() {
 		if i == t.activeTab {
 			modeIndicator := ""
 			if t.tabs[i].emulator != nil && t.tabs[i].emulator.GetMode() == ModePassthrough {
-				modeIndicator = "[yellow]*[-]"
+				modeIndicator = "[blue]*[-]"
 			}
 			// Highlight active tab with brackets (no color, matching editor style)
 			tabTexts = append(tabTexts, fmt.Sprintf("[%s[]%s", name, modeIndicator))

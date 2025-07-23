@@ -36,7 +36,7 @@ func NewEmModal(app *tview.Application, content tview.Primitive, cancellable boo
 	m := &EmModal{
 		Box:         tview.NewBox(),
 		app:         app,
-		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(tcell.ColorDefault),
+		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(tcell.ColorBlack),
 		content:     content,
 		cancellable: cancellable,
 	}
@@ -304,8 +304,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 	var modalContent tview.Primitive
 	
 	if config.UseFixedSize {
-		// For fixed size modals, create a simple bordered box without backgroundWithContent
-		// This prevents the content from expanding to fill allocated space
+		// For fixed size modals, create a simple bordered box
 		bordered := tview.NewFlex().SetDirection(tview.FlexRow)
 		bordered.SetBorder(true).
 			SetTitle(config.Title).
@@ -494,20 +493,20 @@ func (s *solidBackground) MouseHandler() func(action tview.MouseAction, event *t
 
 // ShowConfirmModal shows a confirmation dialog
 func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, onCancel func()) {
-	// Create outer flex (borderless, titleless)
-	outerFlex := tview.NewFlex()
+	// Create modal configuration with fixed size
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      50,  // 50 chars wide
+		FixedHeight:     10,  // 10 lines tall for message + buttons
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
+		Title:           " " + title + " ",
+		TitleAlign:      tview.AlignCenter,
+	}
 	
-	// Create a Box that will fill the entire area with black background
-	backgroundBox := tview.NewBox().
-		SetBorder(true).
-		SetTitle(" " + title + " ").
-		SetTitleAlign(tview.AlignCenter).
-		SetBackgroundColor(tcell.ColorBlack).
-		SetBorderColor(tcell.ColorYellow).
-		SetTitleColor(tcell.ColorYellow)
-	
-	// Create content flex for message and buttons
-	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	modal, contentFlex := NewConfiguredModal(app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
 	
 	// Create message text
 	messageView := tview.NewTextView().
@@ -521,44 +520,31 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 	yesButton := tview.NewButton("YES")
 	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
-	yesButton.SetSelectedFunc(func() {
-		// Will be set after modal creation
-	})
 	
 	noButton := tview.NewButton("NO")
 	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
-	noButton.SetSelectedFunc(func() {
-		// Will be set after modal creation
-	})
+	
+	// Create spacer boxes with black background
+	leftSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	middleSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	rightSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	
 	buttonsFlex.
-		AddItem(nil, 0, 1, false).
+		AddItem(leftSpacer, 0, 1, false).
 		AddItem(yesButton, 10, 0, true).
-		AddItem(nil, 2, 0, false).
+		AddItem(middleSpacer, 2, 0, false).
 		AddItem(noButton, 10, 0, false).
-		AddItem(nil, 0, 1, false)
+		AddItem(rightSpacer, 0, 1, false)
 	
 	// Add message and buttons to content flex
 	contentFlex.
-		AddItem(nil, 0, 1, false).
+		AddItem(topSpacer, 0, 1, false).
 		AddItem(messageView, 0, 2, false).
 		AddItem(buttonsFlex, 3, 0, true).
-		AddItem(nil, 0, 1, false)
-	
-	// Create a custom primitive that combines background and content
-	modalContent := &backgroundWithContent{
-		Box:        tview.NewBox(),
-		background: backgroundBox,
-		content:    contentFlex,
-	}
-	
-	// Add the combined primitive to outer flex
-	outerFlex.AddItem(modalContent, 0, 1, true)
-	
-	// Create the modal with the outer flex
-	modal := NewEmModal(app, outerFlex, true)
-	modal.SetPreviousRoot(mainAppRoot)
+		AddItem(bottomSpacer, 0, 1, false)
 	
 	// Set button handlers with access to modal
 	yesButton.SetSelectedFunc(func() {
@@ -597,7 +583,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		return event
 	})
 	
-	modal.SetOnCancel(onCancel)
+	modal.modal.SetOnCancel(onCancel)
 	modal.Show()
 	app.SetFocus(yesButton)
 }
@@ -673,15 +659,17 @@ func (b *backgroundWithContent) MouseHandler() func(action tview.MouseAction, ev
 	return b.content.MouseHandler()
 }
 
+
 // ShowHelpModal shows a help dialog
 func ShowHelpModal(app *tview.Application, helpText string) {
 	// Create modal configuration
 	config := EmModalConfig{
-		Width:           80,
-		Height:          80,
+		UseFixedSize:    true,
+		FixedWidth:      70,  // 70 chars wide for comfortable reading
+		FixedHeight:     25,  // 25 lines for help content
 		BackgroundColor: tcell.ColorBlack,  // Use black background for consistency
-		BorderColor:     tcell.ColorGreen,
-		TitleColor:      tcell.ColorGreen,
+		BorderColor:     tcell.ColorGray,
+		TitleColor:      tcell.ColorLightGray,
 		Title:           " Help ",
 		TitleAlign:      tview.AlignCenter,
 	}

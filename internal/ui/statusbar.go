@@ -93,7 +93,7 @@ func (sb *StatusBar) updateTextParts() {
 	}
 	
 	// Help hint
-	parts = append(parts, "[yellow]Alt+H or F1 for help[-]")
+	parts = append(parts, "[blue]Alt+H or F1 for help[-]")
 
 	sb.leftText = strings.Join(parts, " | ")
 	

@@ -101,9 +101,11 @@ func NewLayout(app *tview.Application) *Layout {
 	
 	// Main area contains file manager and right side
 	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
+	l.mainArea.SetBackgroundColor(tcell.ColorBlack)
 	
 	// Create right side container
 	l.rightSide = tview.NewFlex()
+	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
 	
 	// Build initial layout
 	l.rebuildLayout()
@@ -112,6 +114,7 @@ func NewLayout(app *tview.Application) *Layout {
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(l.mainArea, 0, 1, true).          // Main area takes all space except status bar
 		AddItem(l.statusBar.GetView(), 1, 0, false) // Status bar is 1 line high
+	mainLayout.SetBackgroundColor(tcell.ColorBlack)
 	
 	// Set root to main layout
 	l.root = mainLayout
@@ -256,39 +259,39 @@ func (l *Layout) togglePosition() {
 func (l *Layout) getHelpText() string {
 	return `[::b]KEYBOARD SHORTCUTS[-::-]
 
-[yellow]FILE MANAGER (when focused):[-]
+[blue]FILE MANAGER (when focused):[-]
   i              File actions (info, copy, rename, delete, etc.)
   Enter          Open File / Toggle Directory
   
-[yellow]EDITOR:[-]
+[blue]EDITOR:[-]
   Ctrl+S         Save File (coming soon)
   Ctrl+W         Close Current Tab
   Ctrl+F         Search in Document
   Ctrl+Z         Undo (coming soon)
   Ctrl+Y         Redo (coming soon)
   
-[yellow]NAVIGATION:[-]
+[blue]NAVIGATION:[-]
   Ctrl+A         Focus File Manager
   Ctrl+E         Focus Editor
   Ctrl+T         Focus/Create Terminal
   F2             Cycle Focus Between Panels
   
-[yellow]TERMINAL:[-]
+[blue]TERMINAL:[-]
   Alt+T          Toggle Terminal Mode (Passthrough/Application)
   
-[yellow]TABS:[-]
+[blue]TABS:[-]
   Ctrl+Shift+←   Previous Tab (or F3)
   Ctrl+Shift+→   Next Tab (or F4)
   F3             Previous Tab
   F4             Next Tab
   
-[yellow]LAYOUT:[-]
+[blue]LAYOUT:[-]
   Ctrl+L         Cycle Proportions (or F7)
   Ctrl+P         Toggle Terminal Position (or F6)
   F6             Toggle Terminal Position
   F7             Cycle Proportions
   
-[yellow]GENERAL:[-]
+[blue]GENERAL:[-]
   Alt+H          Show This Help (or F1)
   F1             Show This Help
   F5             Refresh (coming soon)

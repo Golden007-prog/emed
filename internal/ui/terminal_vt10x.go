@@ -367,7 +367,7 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		if modeX > x {
 			for i, ch := range modeText {
 				screen.SetContent(modeX+i, y, ch, nil, 
-					tcell.StyleDefault.Foreground(tcell.ColorYellow).Bold(true))
+					tcell.StyleDefault.Foreground(tcell.ColorBlue).Bold(true))
 			}
 		}
 	}
