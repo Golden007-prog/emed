@@ -606,7 +606,12 @@ func (l *Layout) setupFileWatcher() {
 	})
 	
 	// Start watching
-	l.fileWatcher.Start()
+	err = l.fileWatcher.Start()
+	if err != nil {
+		// File watching is optional, so we just log the error silently
+		// The editor will still work without file watching
+		return
+	}
 }
 
 // handleFileChanges processes file system changes

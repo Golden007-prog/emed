@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/laborin/vt10x v0.0.0-20250820105957-f656d76b1ed3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

@@ -3,8 +3,10 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // FileChangeType represents the type of file system change
@@ -24,24 +26,26 @@ type FileChange struct {
 	Type    FileChangeType
 }
 
-// FileWatcher watches for file system changes
+// FileWatcher watches for file system changes using fsnotify
 type FileWatcher struct {
-	rootPath      string
-	files         map[string]os.FileInfo // path -> info for tracking
-	mu            sync.RWMutex
-	onChange      func([]FileChange)
-	stopChan      chan bool
-	isWatching    bool
-	checkInterval time.Duration
+	rootPath   string
+	watcher    *fsnotify.Watcher
+	mu         sync.RWMutex
+	onChange   func([]FileChange)
+	stopChan   chan bool
+	isWatching bool
+	
+	// Track directories we're watching for recursive monitoring
+	watchedDirs map[string]bool
+	dirMu       sync.RWMutex
 }
 
 // NewFileWatcher creates a new file watcher
 func NewFileWatcher(rootPath string) *FileWatcher {
 	return &FileWatcher{
-		rootPath:      rootPath,
-		files:         make(map[string]os.FileInfo),
-		stopChan:      make(chan bool),
-		checkInterval: 500 * time.Millisecond, // Check every 500ms
+		rootPath:    rootPath,
+		stopChan:    make(chan bool),
+		watchedDirs: make(map[string]bool),
 	}
 }
 
@@ -51,18 +55,143 @@ func (fw *FileWatcher) SetOnChange(handler func([]FileChange)) {
 }
 
 // Start starts watching for changes
-func (fw *FileWatcher) Start() {
+func (fw *FileWatcher) Start() error {
 	if fw.isWatching {
-		return
+		return nil
+	}
+	
+	// Create fsnotify watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	fw.watcher = watcher
+	
+	// Add root directory and all subdirectories
+	err = fw.addDirectoryRecursive(fw.rootPath)
+	if err != nil {
+		watcher.Close()
+		return err
 	}
 	
 	fw.isWatching = true
 	
-	// Initial scan
-	fw.scanDirectory()
+	// Start event processing loop
+	go fw.processEvents()
 	
-	// Start watching loop
-	go fw.watchLoop()
+	return nil
+}
+
+// addDirectoryRecursive adds a directory and all its subdirectories to the watcher
+func (fw *FileWatcher) addDirectoryRecursive(dir string) error {
+	// Walk the directory tree
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip directories we can't read
+		}
+		
+		// Skip hidden directories except .git (needed for branch detection)
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if strings.HasPrefix(base, ".") && base != ".git" && path != fw.rootPath {
+				return filepath.SkipDir
+			}
+			
+			// Add directory to watcher
+			fw.dirMu.Lock()
+			fw.watchedDirs[path] = true
+			fw.dirMu.Unlock()
+			
+			return fw.watcher.Add(path)
+		}
+		
+		return nil
+	})
+}
+
+// removeDirectory removes a directory from the watcher
+func (fw *FileWatcher) removeDirectory(dir string) {
+	fw.dirMu.Lock()
+	delete(fw.watchedDirs, dir)
+	fw.dirMu.Unlock()
+	
+	fw.watcher.Remove(dir)
+}
+
+// processEvents processes fsnotify events
+func (fw *FileWatcher) processEvents() {
+	for {
+		select {
+		case <-fw.stopChan:
+			return
+			
+		case event, ok := <-fw.watcher.Events:
+			if !ok {
+				return
+			}
+			
+			// Convert fsnotify event to our FileChange type
+			change := fw.convertEvent(event)
+			if change != nil && fw.onChange != nil {
+				// Send changes immediately (the UI already batches them)
+				fw.onChange([]FileChange{*change})
+			}
+			
+		case err, ok := <-fw.watcher.Errors:
+			if !ok {
+				return
+			}
+			// Log error but continue watching
+			_ = err
+		}
+	}
+}
+
+// convertEvent converts fsnotify event to FileChange
+func (fw *FileWatcher) convertEvent(event fsnotify.Event) *FileChange {
+	// Allow .git/HEAD for branch detection, but skip other hidden files
+	base := filepath.Base(event.Name)
+	if strings.HasPrefix(base, ".") && !strings.HasSuffix(event.Name, ".git/HEAD") {
+		return nil
+	}
+	
+	var changeType FileChangeType
+	
+	switch {
+	case event.Op&fsnotify.Create == fsnotify.Create:
+		changeType = FileCreated
+		
+		// If it's a directory, add it to the watcher
+		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+			fw.addDirectoryRecursive(event.Name)
+		}
+		
+	case event.Op&fsnotify.Write == fsnotify.Write:
+		changeType = FileModified
+		
+	case event.Op&fsnotify.Remove == fsnotify.Remove:
+		changeType = FileDeleted
+		
+		// If it's a directory, remove it from the watcher
+		fw.dirMu.RLock()
+		if fw.watchedDirs[event.Name] {
+			fw.dirMu.RUnlock()
+			fw.removeDirectory(event.Name)
+		} else {
+			fw.dirMu.RUnlock()
+		}
+		
+	case event.Op&fsnotify.Rename == fsnotify.Rename:
+		changeType = FileRenamed
+		
+	default:
+		return nil
+	}
+	
+	return &FileChange{
+		Path: event.Name,
+		Type: changeType,
+	}
 }
 
 // Stop stops watching for changes
@@ -72,164 +201,29 @@ func (fw *FileWatcher) Stop() {
 	}
 	
 	fw.isWatching = false
-	fw.stopChan <- true
-}
-
-// watchLoop periodically scans for changes
-func (fw *FileWatcher) watchLoop() {
-	ticker := time.NewTicker(fw.checkInterval)
-	defer ticker.Stop()
+	close(fw.stopChan)
 	
-	for {
-		select {
-		case <-fw.stopChan:
-			return
-		case <-ticker.C:
-			fw.checkForChanges()
-		}
-	}
-}
-
-// scanDirectory scans the directory tree and updates the file map
-func (fw *FileWatcher) scanDirectory() {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	
-	newFiles := make(map[string]os.FileInfo)
-	
-	// Walk the directory tree
-	filepath.Walk(fw.rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip files we can't access
-		}
-		
-		// Handle .git directory specially - include HEAD file
-		if info.IsDir() && info.Name() == ".git" {
-			// Check the HEAD file specifically
-			headPath := filepath.Join(path, "HEAD")
-			if headInfo, err := os.Stat(headPath); err == nil {
-				newFiles[headPath] = headInfo
-			}
-			return filepath.SkipDir
-		}
-		
-		// Skip other hidden directories (but include hidden files)
-		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
-			return filepath.SkipDir
-		}
-		
-		newFiles[path] = info
-		return nil
-	})
-	
-	fw.files = newFiles
-}
-
-// checkForChanges compares current state with cached state
-func (fw *FileWatcher) checkForChanges() {
-	fw.mu.Lock()
-	oldFiles := fw.files
-	fw.mu.Unlock()
-	
-	// Scan current state
-	newFiles := make(map[string]os.FileInfo)
-	changes := []FileChange{}
-	
-	// Walk the directory tree
-	filepath.Walk(fw.rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip files we can't access
-		}
-		
-		// Handle .git directory specially - include HEAD file
-		if info.IsDir() && info.Name() == ".git" {
-			// Check the HEAD file specifically
-			headPath := filepath.Join(path, "HEAD")
-			if headInfo, err := os.Stat(headPath); err == nil {
-				newFiles[headPath] = headInfo
-				
-				// Check if HEAD file was modified
-				if oldInfo, exists := oldFiles[headPath]; exists {
-					// File existed, check if modified
-					if headInfo.ModTime().After(oldInfo.ModTime()) {
-						changes = append(changes, FileChange{
-							Path: headPath,
-							Type: FileModified,
-						})
-					}
-				} else {
-					// New file (first time seeing it)
-					changes = append(changes, FileChange{
-						Path: headPath,
-						Type: FileCreated,
-					})
-				}
-			}
-			return filepath.SkipDir
-		}
-		
-		// Skip other hidden directories (but include hidden files)
-		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != fw.rootPath {
-			return filepath.SkipDir
-		}
-		
-		newFiles[path] = info
-		
-		// Check if file existed before
-		if oldInfo, exists := oldFiles[path]; exists {
-			// File existed, check if modified
-			if !info.IsDir() && info.ModTime().After(oldInfo.ModTime()) {
-				changes = append(changes, FileChange{
-					Path: path,
-					Type: FileModified,
-				})
-			}
-		} else {
-			// New file
-			changes = append(changes, FileChange{
-				Path: path,
-				Type: FileCreated,
-			})
-		}
-		
-		return nil
-	})
-	
-	// Check for deleted files
-	for oldPath := range oldFiles {
-		if _, exists := newFiles[oldPath]; !exists {
-			changes = append(changes, FileChange{
-				Path: oldPath,
-				Type: FileDeleted,
-			})
-		}
-	}
-	
-	// Update cached state
-	fw.mu.Lock()
-	fw.files = newFiles
-	fw.mu.Unlock()
-	
-	// Notify if there are changes
-	if len(changes) > 0 && fw.onChange != nil {
-		fw.onChange(changes)
+	if fw.watcher != nil {
+		fw.watcher.Close()
 	}
 }
 
 // IsWatchingFile checks if a specific file is being watched
 func (fw *FileWatcher) IsWatchingFile(path string) bool {
-	fw.mu.RLock()
-	defer fw.mu.RUnlock()
+	// Check if the file's directory is being watched
+	dir := filepath.Dir(path)
 	
-	_, exists := fw.files[path]
-	return exists
+	fw.dirMu.RLock()
+	defer fw.dirMu.RUnlock()
+	
+	return fw.watchedDirs[dir]
 }
 
-// GetFileInfo gets the cached file info for a path
+// GetFileInfo gets the file info for a path (no longer cached)
 func (fw *FileWatcher) GetFileInfo(path string) (os.FileInfo, bool) {
-	fw.mu.RLock()
-	defer fw.mu.RUnlock()
-	
-	info, exists := fw.files[path]
-	return info, exists
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, false
+	}
+	return info, true
 }
