@@ -515,11 +515,20 @@ func (l *Layout) setupKeybindings() {
 				l.tryQuit()
 				return nil
 			case tcell.KeyCtrlC:
-				// Forward Ctrl+C to components without stopping the application
-				// Per tview docs: return a NEW event to forward without triggering app stop
-				// This allows terminal to handle Ctrl+C for interrupts
-				// and editor to handle it for copy operations (when implemented)
-				return tcell.NewEventKey(tcell.KeyCtrlC, 0, tcell.ModNone)
+				// Prevent Ctrl+C from stopping the application
+				// We need to handle it here and NOT forward it as KeyCtrlC
+				// because tview has a default handler that quits on KeyCtrlC
+				currentFocus := l.app.GetFocus()
+				if l.editor.HasFocus(currentFocus) {
+					// Editor has focus - convert to a rune event with value 3 (Ctrl+C)
+					// This prevents tview from seeing it as KeyCtrlC
+					return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModCtrl)
+				} else if l.terminal.HasFocus(currentFocus) {
+					// Terminal needs the actual Ctrl+C for SIGINT
+					return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModNone)
+				}
+				// Block it for other components
+				return nil
 			}
 		}
 		

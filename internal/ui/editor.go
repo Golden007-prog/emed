@@ -519,7 +519,8 @@ func (e *Editor) SaveCurrentFile() {
 			return
 		}
 		
-		// Update modification time
+		// Update modification time BEFORE the file watcher sees the change
+		// This prevents the file from being reloaded unnecessarily
 		if info, err := os.Stat(tab.path); err == nil {
 			tab.lastModTime = info.ModTime()
 		}
@@ -797,6 +798,15 @@ func (e *Editor) HandleFileModified(filePath string) {
 	// Check each tab
 	for _, tab := range e.tabs {
 		if tab.path == filePath {
+			// Check if we just saved this file ourselves
+			if info, err := os.Stat(filePath); err == nil {
+				// If the modification time matches what we recorded during save,
+				// this is our own save, not an external modification
+				if tab.lastModTime.Equal(info.ModTime()) {
+					return
+				}
+			}
+			
 			// Check if the file has unsaved changes
 			if tab.modified {
 				// Mark as externally modified, will warn on save

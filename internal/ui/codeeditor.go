@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"io/ioutil"
+	"os/exec"
+	"runtime"
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
@@ -43,9 +45,8 @@ type CodeEditor struct {
 	modified     bool
 	readOnly     bool
 	
-	// Syntax highlighting
-	highlighter  Highlighter       // Interface for modular highlighting
-	highlighted  [][]Token         // Cached highlighted lines
+	// Reserved for future syntax highlighting
+	// Will be replaced with tree-sitter in the future
 	
 	// Callbacks
 	onModified   func(modified bool)
@@ -62,18 +63,10 @@ func NewCodeEditor() *CodeEditor {
 		buffer:      [][]rune{{}},  // Start with one empty line
 		lineEndings: "\n",
 		tabSize:     4,              // Default tab size
-		highlighter: NewChromaHighlighter(), // Default to Chroma
-		highlighted: [][]Token{},
 		readOnly:    false,
 	}
 }
 
-// SetHighlighter sets a custom highlighter (allows swapping to tree-sitter later)
-func (e *CodeEditor) SetHighlighter(highlighter Highlighter) *CodeEditor {
-	e.highlighter = highlighter
-	e.rehighlightAll()
-	return e
-}
 
 // LoadFile loads a file into the editor
 func (e *CodeEditor) LoadFile(path string) error {
@@ -100,10 +93,7 @@ func (e *CodeEditor) LoadFile(path string) error {
 	
 	// Set file path and detect language
 	e.filePath = path
-	if e.highlighter != nil {
-		language := e.highlighter.DetectLanguage(path, string(content))
-		e.highlighter.SetLanguage(language)
-	}
+	// Language detection will be added with tree-sitter
 	
 	// Reset cursor and viewport
 	e.cursorRow = 0
@@ -112,8 +102,7 @@ func (e *CodeEditor) LoadFile(path string) error {
 	e.offsetCol = 0
 	e.modified = false
 	
-	// Highlight content
-	e.rehighlightAll()
+	// Syntax highlighting will be added with tree-sitter
 	
 	return nil
 }
@@ -138,10 +127,7 @@ func (e *CodeEditor) SetContent(content string) {
 	e.offsetRow = 0
 	e.offsetCol = 0
 	
-	// Re-highlight if we have a highlighter
-	if e.highlighter != nil {
-		e.rehighlightAll()
-	}
+	// Syntax highlighting will be added with tree-sitter
 	
 	// Mark as not modified since this is a fresh load
 	e.modified = false
@@ -184,6 +170,14 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.Box.DrawForSubclass(screen, e)
 	x, y, width, height := e.GetInnerRect()
 	
+	// Clear the background with explicit black color
+	style := tcell.StyleDefault.Background(tcell.ColorBlack)
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			screen.SetContent(x+col, y+row, ' ', nil, style)
+		}
+	}
+	
 	// Calculate line number width (digits + 1 space padding)
 	lineNumWidth := e.getLineNumberWidth() + 1
 	
@@ -225,47 +219,54 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		return
 	}
 	
-	// Get highlighted tokens for this line
-	var tokens []Token
-	if lineNum < len(e.highlighted) {
-		tokens = e.highlighted[lineNum]
-	} else {
-		// Fallback to plain text
-		tokens = []Token{{Text: string(e.buffer[lineNum]), Style: tcell.StyleDefault}}
-	}
+	// Default style - white text on black background
+	defaultStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 	
-	// Draw tokens with tab expansion
+	// Get the line text
+	line := e.buffer[lineNum]
+	
+	// Draw characters with tab expansion
 	screenX := x     // Position on screen
 	visualCol := 0   // Visual column position (accounting for tabs)
+	realCol := 0     // Real column position in buffer
 	
-	for _, token := range tokens {
-		for _, ch := range token.Text {
-			if ch == '\t' {
-				// Calculate spaces to next tab stop
-				nextTabStop := ((visualCol / e.tabSize) + 1) * e.tabSize
-				spacesToAdd := nextTabStop - visualCol
-				
-				// Draw spaces for the tab
-				for i := 0; i < spacesToAdd; i++ {
-					if visualCol >= e.offsetCol && screenX < x+maxWidth {
-						screen.SetContent(screenX, y, ' ', nil, token.Style)
-						screenX++
-					}
-					visualCol++
-				}
-			} else {
-				// Regular character
+	for _, ch := range line {
+		// Check if this position is selected
+		isSelected := e.isPositionSelected(lineNum, realCol)
+		
+		// Apply selection background if needed
+		style := defaultStyle
+		if isSelected {
+			style = style.Background(tcell.ColorDarkGray)
+		}
+		
+		if ch == '\t' {
+			// Calculate spaces to next tab stop
+			nextTabStop := ((visualCol / e.tabSize) + 1) * e.tabSize
+			spacesToAdd := nextTabStop - visualCol
+			
+			// Draw spaces for the tab
+			for i := 0; i < spacesToAdd; i++ {
 				if visualCol >= e.offsetCol && screenX < x+maxWidth {
-					screen.SetContent(screenX, y, ch, nil, token.Style)
+					screen.SetContent(screenX, y, ' ', nil, style)
 					screenX++
 				}
 				visualCol++
 			}
-			
-			// Stop if we've filled the line
-			if screenX >= x+maxWidth {
-				return
+			realCol++  // Tab counts as one character in buffer
+		} else {
+			// Regular character
+			if visualCol >= e.offsetCol && screenX < x+maxWidth {
+				screen.SetContent(screenX, y, ch, nil, style)
+				screenX++
 			}
+			visualCol++
+			realCol++
+		}
+		
+		// Stop if we've filled the line
+		if screenX >= x+maxWidth {
+			return
 		}
 	}
 }
@@ -375,9 +376,44 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			//         event.Modifiers()&tcell.ModAlt != 0)
 			// }
 			
+			modifiers := event.Modifiers()
+			
+			// Debug: Log Ctrl key combinations
+			// Uncomment to debug:
+			// if modifiers&tcell.ModCtrl != 0 {
+			//     fmt.Fprintf(os.Stderr, "DEBUG: Ctrl+Rune: '%c' (0x%x), Modifiers: %v\n", 
+			//         event.Rune(), event.Rune(), modifiers)
+			// }
+			
+			// Check for Ctrl/Cmd+C (copy) and Ctrl/Cmd+V (paste)
+			// Note: Ctrl+C might come as 0x03, Ctrl+V as 0x16, Ctrl+X as 0x18, Ctrl+A as 0x01
+			if modifiers&(tcell.ModCtrl|tcell.ModMeta) != 0 {
+				r := event.Rune()
+				// Handle both ASCII control codes and regular letters
+				switch {
+				case r == 3 || r == 'c' || r == 'C': // Ctrl+C
+					e.copySelection()
+					return
+				case r == 22 || r == 'v' || r == 'V': // Ctrl+V
+					e.pasteText()
+					return
+				case r == 24 || r == 'x' || r == 'X': // Ctrl+X
+					// Cut: copy then delete selection
+					if e.hasSelection {
+						e.copySelection()
+						e.deleteSelection()
+					}
+					return
+				case r == 1 || r == 'a' || r == 'A': // Ctrl+A
+					// Select all
+					e.selectAll()
+					return
+				}
+			}
+			
 			// Workaround for Terminal.app: Check if Alt/Meta modifier is set with b or f
 			// This catches cases where tcell properly detects the Meta modifier
-			if event.Modifiers()&(tcell.ModAlt|tcell.ModMeta) != 0 {
+			if modifiers&(tcell.ModAlt|tcell.ModMeta) != 0 {
 				switch event.Rune() {
 				case 'b', 'B':
 					e.wordLeft()
@@ -412,6 +448,14 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			//     modifiers&tcell.ModCtrl != 0, 
 			//     modifiers&tcell.ModMeta != 0)
 			
+			// Check if Shift is held for selection
+			shiftHeld := modifiers&tcell.ModShift != 0
+			
+			// Start selection if Shift is held and we don't have one
+			if shiftHeld && !e.hasSelection {
+				e.startSelection()
+			}
+			
 			// Support both Ctrl and Cmd (Meta) for macOS compatibility
 			if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
 				// Ctrl/Cmd+arrow navigation
@@ -440,6 +484,13 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 				e.handleNavigation(event.Key())
 			}
 			
+			// Update or clear selection based on Shift key
+			if shiftHeld && e.hasSelection {
+				e.extendSelection()
+			} else if !shiftHeld && e.hasSelection {
+				e.clearSelection()
+			}
+			
 		case tcell.KeyHome:
 			e.moveCursorToLineStart()
 			
@@ -452,25 +503,26 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		case tcell.KeyPgDn:
 			e.pageDown()
 			
+		// Handle Ctrl key combinations that come as special keys
+		// Note: KeyCtrlC should not reach here because layout intercepts it
 		case tcell.KeyCtrlC:
-			if event.Modifiers()&tcell.ModCtrl != 0 {
-				e.copySelection()
-			}
+			e.copySelection()
+			return
 			
 		case tcell.KeyCtrlV:
-			if event.Modifiers()&tcell.ModCtrl != 0 {
-				e.paste()
-			}
+			e.pasteText()
+			return
 			
 		case tcell.KeyCtrlX:
-			if event.Modifiers()&tcell.ModCtrl != 0 {
-				e.cutSelection()
+			if e.hasSelection {
+				e.copySelection()
+				e.deleteSelection()
 			}
+			return
 			
 		case tcell.KeyCtrlA:
-			if event.Modifiers()&tcell.ModCtrl != 0 {
-				e.selectAll()
-			}
+			e.selectAll()
+			return
 		}
 		
 		// Update viewport to follow cursor
@@ -510,8 +562,7 @@ func (e *CodeEditor) insertRune(r rune) {
 	// Mark as modified
 	e.setModified(true)
 	
-	// Re-highlight this line
-	e.rehighlightLine(e.cursorRow)
+	// Syntax highlighting will be added with tree-sitter
 }
 
 // insertNewline inserts a new line at the cursor position
@@ -526,23 +577,61 @@ func (e *CodeEditor) insertNewline() {
 	}
 	
 	if e.cursorRow >= len(e.buffer) {
+		// Add a new line at the end
+		e.buffer = append(e.buffer, []rune{})
+		e.cursorRow = len(e.buffer) - 1
+		e.cursorCol = 0
+		e.setModified(true)
 		return
 	}
 	
-	// Split current line
+	// Get current line
 	currentLine := e.buffer[e.cursorRow]
-	beforeCursor := currentLine[:e.cursorCol]
-	afterCursor := currentLine[e.cursorCol:]
 	
-	// Update current line
-	e.buffer[e.cursorRow] = beforeCursor
+	// Split at cursor position
+	beforeCursor := make([]rune, 0)
+	afterCursor := make([]rune, 0)
 	
-	// Insert new line
+	if e.cursorCol <= len(currentLine) {
+		if e.cursorCol > 0 {
+			beforeCursor = make([]rune, e.cursorCol)
+			copy(beforeCursor, currentLine[:e.cursorCol])
+		}
+		if e.cursorCol < len(currentLine) {
+			afterCursor = make([]rune, len(currentLine)-e.cursorCol)
+			copy(afterCursor, currentLine[e.cursorCol:])
+		}
+	} else {
+		// Cursor is beyond line end, keep entire line
+		beforeCursor = make([]rune, len(currentLine))
+		copy(beforeCursor, currentLine)
+		e.cursorCol = len(currentLine)
+	}
+	
+	// Debug output
+	// fmt.Fprintf(os.Stderr, "ENTER: row=%d col=%d buflen=%d\n", e.cursorRow, e.cursorCol, len(e.buffer))
+	// fmt.Fprintf(os.Stderr, "  before='%s' after='%s'\n", string(beforeCursor), string(afterCursor))
+	
+	// Create new buffer with one more line
 	newBuffer := make([][]rune, len(e.buffer)+1)
-	copy(newBuffer[:e.cursorRow+1], e.buffer[:e.cursorRow+1])
+	
+	// Copy lines before current row
+	for i := 0; i < e.cursorRow; i++ {
+		newBuffer[i] = e.buffer[i]
+	}
+	
+	// Set the split lines
+	newBuffer[e.cursorRow] = beforeCursor
 	newBuffer[e.cursorRow+1] = afterCursor
-	copy(newBuffer[e.cursorRow+2:], e.buffer[e.cursorRow+1:])
+	
+	// Copy lines after current row
+	for i := e.cursorRow + 1; i < len(e.buffer); i++ {
+		newBuffer[i+1] = e.buffer[i]
+	}
+	
 	e.buffer = newBuffer
+	
+	// Buffer synchronization maintained for future tree-sitter integration
 	
 	// Move cursor to start of new line
 	e.cursorRow++
@@ -551,8 +640,7 @@ func (e *CodeEditor) insertNewline() {
 	// Mark as modified
 	e.setModified(true)
 	
-	// Re-highlight affected lines
-	e.rehighlightRange(e.cursorRow-1, e.cursorRow+1)
+	// Syntax highlighting will be added with tree-sitter
 }
 
 // deleteCharBackward deletes the character before the cursor
@@ -576,24 +664,26 @@ func (e *CodeEditor) deleteCharBackward() {
 		e.buffer[e.cursorRow] = newLine
 		e.cursorCol--
 		e.setModified(true)
-		e.rehighlightLine(e.cursorRow)
+		// Syntax highlighting will be added with tree-sitter
 	} else if e.cursorRow > 0 {
 		// Join with previous line
 		prevLine := e.buffer[e.cursorRow-1]
 		currentLine := e.buffer[e.cursorRow]
 		e.buffer[e.cursorRow-1] = append(prevLine, currentLine...)
 		
-		// Remove current line
+		// Remove current line from buffer
 		newBuffer := make([][]rune, len(e.buffer)-1)
 		copy(newBuffer[:e.cursorRow], e.buffer[:e.cursorRow])
 		copy(newBuffer[e.cursorRow:], e.buffer[e.cursorRow+1:])
 		e.buffer = newBuffer
 		
+		// Buffer synchronization maintained for future tree-sitter integration
+		
 		// Move cursor to end of previous line
 		e.cursorRow--
 		e.cursorCol = len(prevLine)
 		e.setModified(true)
-		e.rehighlightRange(e.cursorRow, e.cursorRow+1)
+		// Syntax highlighting will be added with tree-sitter
 	}
 }
 
@@ -621,7 +711,7 @@ func (e *CodeEditor) deleteCharForward() {
 		newLine = append(newLine, line[e.cursorCol+1:]...)
 		e.buffer[e.cursorRow] = newLine
 		e.setModified(true)
-		e.rehighlightLine(e.cursorRow)
+		// Syntax highlighting will be added with tree-sitter
 	} else if e.cursorRow < len(e.buffer)-1 {
 		// Join with next line
 		nextLine := e.buffer[e.cursorRow+1]
@@ -632,8 +722,11 @@ func (e *CodeEditor) deleteCharForward() {
 		copy(newBuffer[:e.cursorRow+1], e.buffer[:e.cursorRow+1])
 		copy(newBuffer[e.cursorRow+1:], e.buffer[e.cursorRow+2:])
 		e.buffer = newBuffer
+		
+		// Buffer synchronization maintained for future tree-sitter integration
+		
 		e.setModified(true)
-		e.rehighlightRange(e.cursorRow, e.cursorRow+1)
+		// Syntax highlighting will be added with tree-sitter
 	}
 }
 
@@ -821,73 +914,7 @@ func (e *CodeEditor) detectLineEndings(content string) {
 	}
 }
 
-// Highlighting methods
-func (e *CodeEditor) rehighlightAll() {
-	if e.highlighter == nil {
-		return
-	}
-	
-	// Convert buffer to strings
-	lines := make([]string, len(e.buffer))
-	for i, line := range e.buffer {
-		lines[i] = string(line)
-	}
-	
-	// Highlight all lines
-	e.highlighted = e.highlighter.HighlightRange(lines, 0)
-}
-
-func (e *CodeEditor) rehighlightLine(lineNum int) {
-	if e.highlighter == nil || lineNum >= len(e.buffer) {
-		return
-	}
-	
-	// Ensure highlighted array is large enough
-	for len(e.highlighted) <= lineNum {
-		e.highlighted = append(e.highlighted, []Token{})
-	}
-	
-	// Highlight the single line
-	line := string(e.buffer[lineNum])
-	e.highlighted[lineNum] = e.highlighter.HighlightLine(line, lineNum)
-}
-
-func (e *CodeEditor) rehighlightRange(start, end int) {
-	if e.highlighter == nil {
-		return
-	}
-	
-	// Clamp range
-	if start < 0 {
-		start = 0
-	}
-	if end > len(e.buffer) {
-		end = len(e.buffer)
-	}
-	
-	// Get lines in range
-	lines := make([]string, end-start)
-	for i := start; i < end; i++ {
-		if i < len(e.buffer) {
-			lines[i-start] = string(e.buffer[i])
-		}
-	}
-	
-	// Highlight range
-	highlighted := e.highlighter.HighlightRange(lines, start)
-	
-	// Ensure highlighted array is large enough
-	for len(e.highlighted) < end {
-		e.highlighted = append(e.highlighted, []Token{})
-	}
-	
-	// Update highlighted lines
-	for i, tokens := range highlighted {
-		if start+i < len(e.highlighted) {
-			e.highlighted[start+i] = tokens
-		}
-	}
-}
+// Tree-sitter integration will be added here
 
 // insertTab inserts a tab character
 func (e *CodeEditor) insertTab() {
@@ -921,25 +948,6 @@ func (e *CodeEditor) pageDown() {
 	e.adjustCursorColumn()
 }
 
-func (e *CodeEditor) deleteSelection() {
-	// TODO: Implement selection deletion
-}
-
-func (e *CodeEditor) copySelection() {
-	// TODO: Implement copy
-}
-
-func (e *CodeEditor) cutSelection() {
-	// TODO: Implement cut
-}
-
-func (e *CodeEditor) paste() {
-	// TODO: Implement paste
-}
-
-func (e *CodeEditor) selectAll() {
-	// TODO: Implement select all
-}
 
 // ctrlLeft moves cursor to first non-whitespace char or toggle to column 0
 func (e *CodeEditor) ctrlLeft() {
@@ -1007,6 +1015,352 @@ func (e *CodeEditor) ctrlDown() {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+}
+
+// Selection methods
+func (e *CodeEditor) startSelection() {
+	e.hasSelection = true
+	e.selectionStart.row = e.cursorRow
+	e.selectionStart.col = e.cursorCol
+	e.selectionEnd.row = e.cursorRow
+	e.selectionEnd.col = e.cursorCol
+}
+
+func (e *CodeEditor) extendSelection() {
+	if !e.hasSelection {
+		return
+	}
+	e.selectionEnd.row = e.cursorRow
+	e.selectionEnd.col = e.cursorCol
+}
+
+func (e *CodeEditor) clearSelection() {
+	e.hasSelection = false
+	e.selectionStart.row = -1
+	e.selectionStart.col = -1
+	e.selectionEnd.row = -1
+	e.selectionEnd.col = -1
+}
+
+// selectAll selects all text in the editor
+func (e *CodeEditor) selectAll() {
+	if len(e.buffer) == 0 {
+		return
+	}
+	
+	e.hasSelection = true
+	e.selectionStart.row = 0
+	e.selectionStart.col = 0
+	e.selectionEnd.row = len(e.buffer) - 1
+	e.selectionEnd.col = len(e.buffer[len(e.buffer)-1])
+	
+	// Move cursor to end
+	e.cursorRow = e.selectionEnd.row
+	e.cursorCol = e.selectionEnd.col
+}
+
+// deleteSelection deletes the currently selected text
+func (e *CodeEditor) deleteSelection() {
+	if !e.hasSelection || e.readOnly {
+		return
+	}
+	
+	// Normalize selection
+	startRow, startCol := e.selectionStart.row, e.selectionStart.col
+	endRow, endCol := e.selectionEnd.row, e.selectionEnd.col
+	
+	if startRow > endRow || (startRow == endRow && startCol > endCol) {
+		startRow, endRow = endRow, startRow
+		startCol, endCol = endCol, startCol
+	}
+	
+	if startRow == endRow {
+		// Single line deletion
+		if startRow < len(e.buffer) {
+			line := e.buffer[startRow]
+			newLine := make([]rune, 0, len(line))
+			if startCol > 0 {
+				newLine = append(newLine, line[:startCol]...)
+			}
+			if endCol < len(line) {
+				newLine = append(newLine, line[endCol:]...)
+			}
+			e.buffer[startRow] = newLine
+		}
+	} else {
+		// Multi-line deletion
+		// Combine first and last lines
+		var newFirstLine []rune
+		if startRow < len(e.buffer) && startCol < len(e.buffer[startRow]) {
+			newFirstLine = append(newFirstLine, e.buffer[startRow][:startCol]...)
+		}
+		if endRow < len(e.buffer) && endCol < len(e.buffer[endRow]) {
+			newFirstLine = append(newFirstLine, e.buffer[endRow][endCol:]...)
+		}
+		
+		// Create new buffer without deleted lines
+		linesToRemove := endRow - startRow
+		newBuffer := make([][]rune, len(e.buffer)-linesToRemove)
+		copy(newBuffer[:startRow], e.buffer[:startRow])
+		newBuffer[startRow] = newFirstLine
+		if endRow+1 < len(e.buffer) {
+			copy(newBuffer[startRow+1:], e.buffer[endRow+1:])
+		}
+		e.buffer = newBuffer
+		
+		// Buffer synchronization maintained for future tree-sitter integration
+	}
+	
+	// Move cursor to start of deletion
+	e.cursorRow = startRow
+	e.cursorCol = startCol
+	e.adjustCursorColumn()
+	
+	// Clear selection
+	e.clearSelection()
+	
+	// Mark as modified
+	e.setModified(true)
+	
+	// Smart re-highlight after deletion
+	// Syntax highlighting will be added with tree-sitter
+}
+
+// isPositionSelected checks if a position is within the selection
+func (e *CodeEditor) isPositionSelected(row, col int) bool {
+	if !e.hasSelection {
+		return false
+	}
+	
+	// Normalize selection (start should be before end)
+	startRow, startCol := e.selectionStart.row, e.selectionStart.col
+	endRow, endCol := e.selectionEnd.row, e.selectionEnd.col
+	
+	if startRow > endRow || (startRow == endRow && startCol > endCol) {
+		startRow, endRow = endRow, startRow
+		startCol, endCol = endCol, startCol
+	}
+	
+	// Check if position is within selection
+	if row < startRow || row > endRow {
+		return false
+	}
+	if row == startRow && row == endRow {
+		return col >= startCol && col < endCol
+	}
+	if row == startRow {
+		return col >= startCol
+	}
+	if row == endRow {
+		return col < endCol
+	}
+	return true
+}
+
+// copyToClipboard copies text to system clipboard
+func (e *CodeEditor) copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		// Try xclip first, then xsel
+		if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		} else {
+			return fmt.Errorf("no clipboard utility found")
+		}
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+	
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
+// pasteFromClipboard pastes text from system clipboard
+func (e *CodeEditor) pasteFromClipboard() (string, error) {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbpaste")
+	case "linux":
+		// Try xclip first, then xsel
+		if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard", "-out")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--output")
+		} else {
+			return "", fmt.Errorf("no clipboard utility found")
+		}
+	default:
+		return "", fmt.Errorf("unsupported platform")
+	}
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// copySelection copies the selected text to clipboard
+func (e *CodeEditor) copySelection() {
+	if !e.hasSelection {
+		return
+	}
+	
+	text := e.getSelectedText()
+	if text != "" {
+		e.copyToClipboard(text)
+	}
+}
+
+// pasteText pastes text from clipboard at cursor position
+func (e *CodeEditor) pasteText() {
+	if e.readOnly {
+		return
+	}
+	
+	text, err := e.pasteFromClipboard()
+	if err != nil || text == "" {
+		return
+	}
+	
+	// Delete selection if any
+	if e.hasSelection {
+		e.deleteSelection()
+	}
+	
+	// Split pasted text into lines for efficient insertion
+	pastedLines := strings.Split(text, "\n")
+	
+	if len(pastedLines) == 1 {
+		// Single line paste - insert directly into current line
+		line := e.buffer[e.cursorRow]
+		newLine := make([]rune, 0, len(line)+len(text))
+		newLine = append(newLine, line[:e.cursorCol]...)
+		newLine = append(newLine, []rune(pastedLines[0])...)
+		newLine = append(newLine, line[e.cursorCol:]...)
+		e.buffer[e.cursorRow] = newLine
+		e.cursorCol += len([]rune(pastedLines[0]))
+	} else {
+		// Multi-line paste - build new buffer in one go
+		// First line: current line start + first pasted line
+		firstLine := make([]rune, 0)
+		if e.cursorRow < len(e.buffer) {
+			firstLine = append(firstLine, e.buffer[e.cursorRow][:e.cursorCol]...)
+		}
+		firstLine = append(firstLine, []rune(pastedLines[0])...)
+		
+		// Last line: last pasted line + current line end
+		lastLine := []rune(pastedLines[len(pastedLines)-1])
+		if e.cursorRow < len(e.buffer) && e.cursorCol < len(e.buffer[e.cursorRow]) {
+			lastLine = append(lastLine, e.buffer[e.cursorRow][e.cursorCol:]...)
+		}
+		
+		// Build new buffer
+		newBuffer := make([][]rune, len(e.buffer)+len(pastedLines)-1)
+		
+		// Copy lines before paste position
+		copy(newBuffer[:e.cursorRow], e.buffer[:e.cursorRow])
+		
+		// Add first line
+		newBuffer[e.cursorRow] = firstLine
+		
+		// Add middle lines
+		for i := 1; i < len(pastedLines)-1; i++ {
+			newBuffer[e.cursorRow+i] = []rune(pastedLines[i])
+		}
+		
+		// Add last line
+		newBuffer[e.cursorRow+len(pastedLines)-1] = lastLine
+		
+		// Copy lines after paste position
+		if e.cursorRow+1 < len(e.buffer) {
+			copy(newBuffer[e.cursorRow+len(pastedLines):], e.buffer[e.cursorRow+1:])
+		}
+		
+		e.buffer = newBuffer
+		
+		// Update cursor position
+		e.cursorRow = e.cursorRow + len(pastedLines) - 1
+		e.cursorCol = len([]rune(pastedLines[len(pastedLines)-1]))
+		
+		// Buffer synchronization maintained for future tree-sitter integration
+	}
+	
+	// Mark as modified
+	e.setModified(true)
+	
+	// Smart re-highlight: find the context needed
+	// Syntax highlighting will be added with tree-sitter
+}
+
+// getSelectedText returns the currently selected text
+func (e *CodeEditor) getSelectedText() string {
+	if !e.hasSelection {
+		return ""
+	}
+	
+	// Normalize selection
+	startRow, startCol := e.selectionStart.row, e.selectionStart.col
+	endRow, endCol := e.selectionEnd.row, e.selectionEnd.col
+	
+	if startRow > endRow || (startRow == endRow && startCol > endCol) {
+		startRow, endRow = endRow, startRow
+		startCol, endCol = endCol, startCol
+	}
+	
+	// Extract text
+	var result []rune
+	
+	if startRow == endRow {
+		// Single line selection
+		if startRow < len(e.buffer) && startCol < len(e.buffer[startRow]) {
+			line := e.buffer[startRow]
+			if endCol > len(line) {
+				endCol = len(line)
+			}
+			result = append(result, line[startCol:endCol]...)
+		}
+	} else {
+		// Multi-line selection
+		for row := startRow; row <= endRow && row < len(e.buffer); row++ {
+			line := e.buffer[row]
+			if row == startRow {
+				// First line: from startCol to end
+				if startCol < len(line) {
+					result = append(result, line[startCol:]...)
+				}
+				result = append(result, '\n')
+			} else if row == endRow {
+				// Last line: from start to endCol
+				if endCol > len(line) {
+					endCol = len(line)
+				}
+				result = append(result, line[:endCol]...)
+			} else {
+				// Middle lines: entire line
+				result = append(result, line...)
+				result = append(result, '\n')
+			}
+		}
+	}
+	
+	return string(result)
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // isWordChar checks if a rune is a word character
@@ -1190,16 +1544,60 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				return true, nil
 				
 			case tview.MouseLeftDown:
-				// TODO: Start text selection
+				// Start text selection
 				setFocus(e)
+				
+				// Clear any existing selection
+				e.clearSelection()
+				
+				// Set cursor position from mouse
+				lineNumWidth := e.getLineNumberWidth() + 1
+				mouseX, mouseY := event.Position()
+				clickX := mouseX - x - lineNumWidth
+				clickY := mouseY - y
+				
+				if clickX >= 0 && clickY >= 0 {
+					row := e.offsetRow + clickY
+					if row < len(e.buffer) {
+						// Convert visual column to real column
+						col := e.getRealColumn(row, e.offsetCol + clickX)
+						e.cursorRow = row
+						e.cursorCol = col
+						e.adjustCursorColumn()
+						
+						// Start selection at this position
+						e.startSelection()
+					}
+				}
+				
 				return true, e // Capture for drag selection
 				
 			case tview.MouseLeftUp:
-				// TODO: End text selection
+				// End text selection
 				return true, nil
 				
 			case tview.MouseMove:
-				// TODO: Update selection during drag
+				// Update selection during drag
+				if e.hasSelection {
+					lineNumWidth := e.getLineNumberWidth() + 1
+					mouseX, mouseY := event.Position()
+					clickX := mouseX - x - lineNumWidth
+					clickY := mouseY - y
+					
+					if clickX >= 0 && clickY >= 0 {
+						row := e.offsetRow + clickY
+						if row < len(e.buffer) {
+							// Convert visual column to real column
+							col := e.getRealColumn(row, e.offsetCol + clickX)
+							e.cursorRow = row
+							e.cursorCol = col
+							e.adjustCursorColumn()
+							
+							// Extend selection to this position
+							e.extendSelection()
+						}
+					}
+				}
 				// Process mouse move regardless of focus for future features
 				return true, nil
 			}
