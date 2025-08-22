@@ -361,7 +361,33 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		}
 		
 		switch event.Key() {
+		case tcell.KeyEscape:
+			// ESC key pressed - could be start of Terminal.app Option sequence
+			// We don't handle this directly, but tcell should convert ESC+b and ESC+f
+			return
+			
 		case tcell.KeyRune:
+			// Debug Terminal.app Option key sequences
+			// Uncomment to see what's being received:
+			// if event.Rune() == 'b' || event.Rune() == 'f' {
+			//     fmt.Fprintf(os.Stderr, "Rune: '%c', Modifiers: %v (Alt=%v)\n", 
+			//         event.Rune(), event.Modifiers(), 
+			//         event.Modifiers()&tcell.ModAlt != 0)
+			// }
+			
+			// Workaround for Terminal.app: Check if Alt/Meta modifier is set with b or f
+			// This catches cases where tcell properly detects the Meta modifier
+			if event.Modifiers()&(tcell.ModAlt|tcell.ModMeta) != 0 {
+				switch event.Rune() {
+				case 'b', 'B':
+					e.wordLeft()
+					return
+				case 'f', 'F':
+					e.wordRight()
+					return
+				}
+			}
+			
 			e.insertRune(event.Rune())
 			
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
@@ -379,7 +405,12 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
 			modifiers := event.Modifiers()
 			// Debug: Log what modifiers we're receiving
-			// fmt.Fprintf(os.Stderr, "Key: %v, Modifiers: %v\n", event.Key(), modifiers)
+			// Uncomment to debug Terminal.app issues:
+			// fmt.Fprintf(os.Stderr, "Key: %v, Modifiers: %v (Alt=%v, Ctrl=%v, Meta=%v)\n", 
+			//     event.Key(), modifiers, 
+			//     modifiers&tcell.ModAlt != 0,
+			//     modifiers&tcell.ModCtrl != 0, 
+			//     modifiers&tcell.ModMeta != 0)
 			
 			// Support both Ctrl and Cmd (Meta) for macOS compatibility
 			if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
