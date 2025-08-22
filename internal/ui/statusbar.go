@@ -19,6 +19,7 @@ type StatusBar struct {
 	gitBranch     string
 	clipboardPath string
 	clipboardCut  bool
+	watchedDirs   int     // Number of watched directories
 	app           *tview.Application
 	leftText      string  // Cached left text
 	rightText     string  // Cached right text
@@ -90,6 +91,11 @@ func (sb *StatusBar) updateTextParts() {
 		} else {
 			parts = append(parts, fmt.Sprintf("file operation: [green]copy[-] (%s)", clipboardName))
 		}
+	}
+	
+	// File watcher status
+	if sb.watchedDirs > 0 {
+		parts = append(parts, fmt.Sprintf("watching: %d dirs", sb.watchedDirs))
 	}
 	
 	// Help hint
@@ -177,4 +183,10 @@ func (sb *StatusBar) SetClipboard(path string, isCut bool) {
 // SetApp sets the application reference for getting terminal dimensions
 func (sb *StatusBar) SetApp(app *tview.Application) {
 	sb.app = app
+}
+
+// SetWatchedDirs updates the number of watched directories
+func (sb *StatusBar) SetWatchedDirs(count int) {
+	sb.watchedDirs = count
+	sb.updateTextParts()
 }

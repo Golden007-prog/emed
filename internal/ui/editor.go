@@ -29,6 +29,7 @@ type Editor struct {
 	noDocsView       tview.Primitive // View shown when no documents are open (now a Flex container)
 	app              *tview.Application
 	onLastTabClosed  func()          // Callback when last tab is closed
+	onTabClosed      func(path string) // Callback when any tab is closed
 }
 
 // NewEditor creates a new editor panel
@@ -449,9 +450,17 @@ func (e *Editor) doCloseCurrentTab() {
 		return
 	}
 	
+	// Get the path of the file being closed
+	closedPath := e.tabs[e.activeTab].path
+	
 	// Remove tab
 	e.contentArea.RemovePage(fmt.Sprintf("tab-%d", e.activeTab))
 	e.tabs = append(e.tabs[:e.activeTab], e.tabs[e.activeTab+1:]...)
+	
+	// Notify callback if set
+	if e.onTabClosed != nil && closedPath != "" {
+		e.onTabClosed(closedPath)
+	}
 	
 	// Check if there are no more tabs
 	if len(e.tabs) == 0 {
@@ -581,6 +590,11 @@ func (e *Editor) SetApp(app *tview.Application) {
 // SetOnLastTabClosed sets the callback for when the last tab is closed
 func (e *Editor) SetOnLastTabClosed(handler func()) {
 	e.onLastTabClosed = handler
+}
+
+// SetOnTabClosed sets the callback for when any tab is closed
+func (e *Editor) SetOnTabClosed(handler func(path string)) {
+	e.onTabClosed = handler
 }
 
 // HasTabs returns true if there are open tabs

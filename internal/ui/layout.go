@@ -61,6 +61,16 @@ func NewLayout(app *tview.Application) *Layout {
 		l.focusFileManager()
 	})
 	
+	// Set callback for when any tab is closed
+	l.editor.SetOnTabClosed(func(path string) {
+		// Notify file watcher that file is no longer open
+		if l.fileWatcher != nil {
+			l.fileWatcher.RemoveOpenFile(path)
+			// Update status bar with new watched dirs count
+			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+		}
+	})
+	
 	// Set callback for when last terminal tab is closed
 	l.terminal.SetOnLastTabClosed(func() {
 		// Rebuild layout to collapse terminal
@@ -587,6 +597,13 @@ func (l *Layout) OpenFile(path string) {
 	
 	l.editor.OpenFile(path)
 	
+	// Notify file watcher that we opened a file
+	if l.fileWatcher != nil {
+		l.fileWatcher.AddOpenFile(path)
+		// Update status bar with new watched dirs count
+		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+	}
+	
 	// If editor was collapsed and now has tabs, rebuild layout
 	if hadNoTabs && l.editor.HasTabs() {
 		l.rebuildLayout()
@@ -620,6 +637,27 @@ func (l *Layout) setupFileWatcher() {
 		// File watching is optional, so we just log the error silently
 		// The editor will still work without file watching
 		return
+	}
+	
+	// Update status bar with watched directories count
+	if l.fileWatcher != nil {
+		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+		
+		// Set up periodic update for watched dirs count
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if l.fileWatcher != nil {
+					count := l.fileWatcher.GetWatchedDirsCount()
+					l.app.QueueUpdateDraw(func() {
+						l.statusBar.SetWatchedDirs(count)
+					})
+				} else {
+					break
+				}
+			}
+		}()
 	}
 }
 
