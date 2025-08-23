@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -752,11 +751,11 @@ func (fm *FileManager) copyPath(src, dst string) error {
 	
 	// If it's a file, copy it
 	if !srcInfo.IsDir() {
-		input, err := ioutil.ReadFile(src)
+		input, err := os.ReadFile(src)
 		if err != nil {
 			return err
 		}
-		return ioutil.WriteFile(dst, input, srcInfo.Mode())
+		return os.WriteFile(dst, input, srcInfo.Mode())
 	}
 	
 	// It's a directory, create destination directory
@@ -766,7 +765,7 @@ func (fm *FileManager) copyPath(src, dst string) error {
 	}
 	
 	// Read directory contents
-	entries, err := ioutil.ReadDir(src)
+	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}

@@ -385,7 +385,6 @@ func (e *Editor) updateTabBar() {
 		title := fmt.Sprintf(" %s ", tabString)
 		
 		// Debug: write to a temp file what we're setting
-		// ioutil.WriteFile("/tmp/emed-debug.txt", []byte(fmt.Sprintf("Tabs: %d, Active: %d, Title: '%s', TabTexts: %v\n", len(e.tabs), e.activeTab, title, tabTexts)), 0644)
 		
 		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
 	} else {

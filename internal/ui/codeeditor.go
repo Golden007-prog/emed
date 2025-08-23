@@ -2,7 +2,7 @@ package ui
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -71,7 +71,7 @@ func NewCodeEditor() *CodeEditor {
 // LoadFile loads a file into the editor
 func (e *CodeEditor) LoadFile(path string) error {
 	// Read file
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (e *CodeEditor) SaveFile(path string) error {
 	content := strings.Join(lines, e.lineEndings)
 	
 	// Write file
-	err := ioutil.WriteFile(path, []byte(content), 0644)
+	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
 		return err
 	}
