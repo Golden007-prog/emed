@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 	
 	"github.com/creack/pty"
@@ -38,6 +39,7 @@ type VT10XTerminal struct {
 	mode      TerminalMode
 	hasFocus  bool
 	isRunning bool
+	stateMutex sync.RWMutex  // Protects isRunning and other state
 	app       *tview.Application
 	
 	// Mouse and screen state
@@ -55,6 +57,7 @@ type VT10XTerminal struct {
 	
 	// Refresh control
 	needsRedraw bool
+	redrawMutex sync.Mutex
 	
 	// Scrollback state
 	viewportOffset  int              // Offset from bottom (0 = live view)
@@ -88,9 +91,12 @@ func (t *VT10XTerminal) SetApp(app *tview.Application) {
 
 // Start starts the terminal emulator
 func (t *VT10XTerminal) Start() error {
+	t.stateMutex.RLock()
 	if t.isRunning {
+		t.stateMutex.RUnlock()
 		return nil
 	}
+	t.stateMutex.RUnlock()
 	
 	// Create command
 	t.cmd = exec.Command(t.shell)
@@ -105,7 +111,9 @@ func (t *VT10XTerminal) Start() error {
 		return err
 	}
 	t.ptm = ptm
+	t.stateMutex.Lock()
 	t.isRunning = true
+	t.stateMutex.Unlock()
 	
 	// Set initial size
 	if err := pty.Setsize(t.ptm, &pty.Winsize{
@@ -132,13 +140,23 @@ func (t *VT10XTerminal) refreshLoop() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	
-	for t.isRunning {
+	for {
+		t.stateMutex.RLock()
+		running := t.isRunning
+		t.stateMutex.RUnlock()
+		
+		if !running {
+			break
+		}
+		
 		select {
 		case <-ticker.C:
+			t.redrawMutex.Lock()
 			if t.needsRedraw && t.app != nil {
 				t.app.QueueUpdateDraw(func() {})
 				t.needsRedraw = false
 			}
+			t.redrawMutex.Unlock()
 		}
 	}
 }
@@ -147,13 +165,23 @@ func (t *VT10XTerminal) refreshLoop() {
 func (t *VT10XTerminal) readPTY() {
 	buf := make([]byte, 32768)
 	
-	for t.isRunning {
+	for {
+		t.stateMutex.RLock()
+		running := t.isRunning
+		t.stateMutex.RUnlock()
+		
+		if !running {
+			break
+		}
+		
 		n, err := t.ptm.Read(buf)
 		if err != nil {
 			if err != io.EOF {
 				// Terminal closed
 			}
+			t.stateMutex.Lock()
 			t.isRunning = false
+			t.stateMutex.Unlock()
 			// Notify that the shell has exited
 			if t.onExit != nil {
 				go t.onExit() // Call in goroutine to avoid blocking
@@ -168,7 +196,9 @@ func (t *VT10XTerminal) readPTY() {
 			// Pass data directly to vt10x
 			// Note: vt10x doesn't support RGB colors, so they will be ignored
 			t.vt.Write(buf[:n])
+			t.redrawMutex.Lock()
 			t.needsRedraw = true
+			t.redrawMutex.Unlock()
 		}
 	}
 }
@@ -246,11 +276,14 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 
 // Stop stops the terminal emulator
 func (t *VT10XTerminal) Stop() {
+	t.stateMutex.Lock()
 	if !t.isRunning {
+		t.stateMutex.Unlock()
 		return
 	}
 	
 	t.isRunning = false
+	t.stateMutex.Unlock()
 	
 	if t.ptm != nil {
 		t.ptm.Close()
@@ -264,12 +297,18 @@ func (t *VT10XTerminal) Stop() {
 
 // Write writes data to the terminal
 func (t *VT10XTerminal) Write(data []byte) (int, error) {
-	if !t.isRunning || t.ptm == nil {
+	t.stateMutex.RLock()
+	running := t.isRunning
+	t.stateMutex.RUnlock()
+	
+	if !running || t.ptm == nil {
 		return 0, nil
 	}
 	n, err := t.ptm.Write(data)
 	// Force a redraw after input to update cursor position
+	t.redrawMutex.Lock()
 	t.needsRedraw = true
+	t.redrawMutex.Unlock()
 	return n, err
 }
 
@@ -345,7 +384,11 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		// Resize the vt10x terminal
 		t.vt.Resize(width, height)
 		
-		if t.isRunning && t.ptm != nil {
+		t.stateMutex.RLock()
+		running := t.isRunning
+		t.stateMutex.RUnlock()
+		
+		if running && t.ptm != nil {
 			// Set the PTY size
 			err := pty.Setsize(t.ptm, &pty.Winsize{
 				Rows: uint16(t.rows),
@@ -355,7 +398,9 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 			})
 			if err == nil && (oldRows != 0 || oldCols != 0) {
 				// Force a redraw after resize
+				t.redrawMutex.Lock()
 				t.needsRedraw = true
+				t.redrawMutex.Unlock()
 			}
 		}
 	}
@@ -722,7 +767,11 @@ func (t *VT10XTerminal) Blur() {
 // MouseHandler handles mouse events
 func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
 	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
-		if !t.isRunning {
+		t.stateMutex.RLock()
+		running := t.isRunning
+		t.stateMutex.RUnlock()
+		
+		if !running {
 			return false, nil
 		}
 		
@@ -907,7 +956,11 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 // InputHandler handles input events
 func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return t.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
-		if !t.hasFocus || !t.isRunning {
+		t.stateMutex.RLock()
+		running := t.isRunning
+		t.stateMutex.RUnlock()
+		
+		if !t.hasFocus || !running {
 			return
 		}
 		
