@@ -21,6 +21,7 @@ type Layout struct {
 	terminal    *Terminal
 	statusBar   *StatusBar
 	fileWatcher *FileWatcher // File system watcher
+	stopTicker  chan bool    // Channel to stop the status update ticker
 	// No longer need pages or modal tracking
 	
 	// Track which panel is currently focused
@@ -643,18 +644,22 @@ func (l *Layout) setupFileWatcher() {
 	if l.fileWatcher != nil {
 		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 		
-		// Set up periodic update for watched dirs count
+		// Set up periodic update for watched dirs count  
+		l.stopTicker = make(chan bool)
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
-			for range ticker.C {
-				if l.fileWatcher != nil {
-					count := l.fileWatcher.GetWatchedDirsCount()
-					l.app.QueueUpdateDraw(func() {
-						l.statusBar.SetWatchedDirs(count)
-					})
-				} else {
-					break
+			for {
+				select {
+				case <-l.stopTicker:
+					return
+				case <-ticker.C:
+					if l.fileWatcher != nil {
+						count := l.fileWatcher.GetWatchedDirsCount()
+						l.app.QueueUpdateDraw(func() {
+							l.statusBar.SetWatchedDirs(count)
+						})
+					}
 				}
 			}
 		}()
@@ -752,5 +757,8 @@ func (l *Layout) tryQuit() {
 func (l *Layout) Stop() {
 	if l.fileWatcher != nil {
 		l.fileWatcher.Stop()
+	}
+	if l.stopTicker != nil {
+		close(l.stopTicker)
 	}
 }
