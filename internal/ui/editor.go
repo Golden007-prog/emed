@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/rivo/tview"
 )
 
@@ -857,6 +858,7 @@ func (e *Editor) reloadTab(tab *EditorTab) {
 	// Read the file
 	content, err := os.ReadFile(tab.path)
 	if err != nil {
+		logging.Error("Failed to reload file %s: %v", tab.path, err)
 		return
 	}
 	

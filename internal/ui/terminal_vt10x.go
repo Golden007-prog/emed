@@ -11,6 +11,7 @@ import (
 	
 	"github.com/creack/pty"
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/vt10x"
 	"github.com/rivo/tview"
 )
@@ -108,6 +109,7 @@ func (t *VT10XTerminal) Start() error {
 	// Start PTY
 	ptm, err := pty.Start(t.cmd)
 	if err != nil {
+		logging.Error("Failed to start PTY for shell %s: %v", t.shell, err)
 		return err
 	}
 	t.ptm = ptm

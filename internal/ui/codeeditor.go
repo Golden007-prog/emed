@@ -8,6 +8,7 @@ import (
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/rivo/tview"
 )
 
@@ -73,6 +74,7 @@ func (e *CodeEditor) LoadFile(path string) error {
 	// Read file
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Error("Failed to load file %s: %v", path, err)
 		return err
 	}
 	
@@ -152,6 +154,7 @@ func (e *CodeEditor) SaveFile(path string) error {
 	// Write file
 	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
+		logging.Error("Failed to save file %s: %v", path, err)
 		return err
 	}
 	

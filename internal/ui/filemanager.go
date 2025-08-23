@@ -9,6 +9,7 @@ import (
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/rivo/tview"
 )
 
@@ -291,6 +292,7 @@ func (fm *FileManager) CreateNewFile() {
 			// Create the file
 			file, err := os.Create(fullPath)
 			if err != nil {
+				logging.Error("Failed to create file %s: %v", fullPath, err)
 				return
 			}
 			file.Close()
