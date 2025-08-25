@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/rivo/tview"
 )
@@ -295,7 +296,7 @@ func (e *Editor) updateTabBar() {
 	
 	// Build tab display centered around active tab
 	var tabTexts []string
-	maxVisible := 4 // Maximum number of tabs to show (reduced to leave room for indicators and prevent trimming)
+	maxVisible := config.MaxVisibleTabs // Maximum number of tabs to show
 	
 	// Simple approach for small number of tabs
 	if len(e.tabs) <= maxVisible {

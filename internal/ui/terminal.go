@@ -5,6 +5,7 @@ import (
 	"strings"
 	
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/config"
 	"github.com/rivo/tview"
 )
 
@@ -153,7 +154,7 @@ func (t *Terminal) updateTabBar() {
 	
 	// Build tab display centered around active tab
 	var tabTexts []string
-	maxVisible := 4 // Maximum number of tabs to show (reduced to leave room for indicators and prevent trimming)
+	maxVisible := config.MaxVisibleTabs // Maximum number of tabs to show
 	
 	// Calculate visible range, ensuring active tab is always visible
 	start := t.activeTab - 2

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/laborin/emed/internal/config"
 )
 
 // FileChangeType represents the type of file system change
@@ -97,8 +98,8 @@ func NewFileWatcher(rootPath string) *FileWatcher {
 		stopChan:        make(chan bool),
 		watchedDirs:     make(map[string]bool),
 		openFiles:       make(map[string]bool),
-		maxDepth:        3,  // Only watch 3 levels deep by default
-		maxWatchedDirs:  500, // Limit total watched directories
+		maxDepth:        config.MaxWatchDepth,  // Only watch limited levels deep
+		maxWatchedDirs:  config.MaxWatchedDirs, // Limit total watched directories
 		excludePatterns: defaultExclusions,
 	}
 }
@@ -330,7 +331,7 @@ func (fw *FileWatcher) processEvents() {
 				if debounceTimer != nil {
 					debounceTimer.Stop()
 				}
-				debounceTimer = time.AfterFunc(100*time.Millisecond, sendBatch)
+				debounceTimer = time.AfterFunc(config.WatcherDebounceDelay, sendBatch)
 			}
 			
 		case err, ok := <-fw.watcher.Errors:

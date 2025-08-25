@@ -7,6 +7,7 @@ import (
 	"time"
 	
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/config"
 	"github.com/rivo/tview"
 )
 
@@ -224,7 +225,7 @@ func (l *Layout) rebuildLayout() {
 	
 	// Rebuild main area
 	l.mainArea.
-		AddItem(l.fileManager.GetView(), 30, 0, false). // File manager fixed width 30
+		AddItem(l.fileManager.GetView(), config.LayoutFileManagerProportion+10, 0, false). // File manager fixed width
 		AddItem(l.rightSide, 0, 1, false)                // Editor and terminal take remaining space
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"github.com/laborin/emed/internal/config"
 )
 
 type LogLevel int
@@ -52,15 +53,15 @@ func (l *Logger) initLogFile() {
 	}
 	
 	logDir := filepath.Join(homeDir, ".emed")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, config.LogDirPermissions); err != nil {
 		return
 	}
 	
-	// Clean up old log files (keep last 7 days)
-	l.cleanOldLogs(logDir, 7)
+	// Clean up old log files
+	l.cleanOldLogs(logDir, config.LogRetentionDays)
 	
 	logFile := filepath.Join(logDir, fmt.Sprintf("emed_%s.log", time.Now().Format("2006-01-02")))
-	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, config.LogFilePermissions)
 	if err != nil {
 		return
 	}
