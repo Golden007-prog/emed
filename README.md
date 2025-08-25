@@ -10,6 +10,26 @@ Emed is built on top of the tview framework, which handles all the heavy lifting
 
 The code editor is a custom tview primitive that handles text editing operations.
 
+## The Plan
+- [x] Simple 3-pane layout with easy keyboard navigation.
+- [x] File manager in left panel with basic file operation (rename, delete, create files and dirs, copy, move paste files).
+- [x] Fully functional terminal emulator on bottom panel.
+- [x] Code editor, able to save files, responsive to external file changes, ready for syntax-highlighting using tview's color system.
+- [x] File watcher to keep track of external changes on the project directory.
+- [ ] Refactor for better file organization, modularity and best practices. In pogress.
+- [ ] Implement tree-sitter for syntax highlighting. A proof of concept was implemented using chroma but discarded in favor of tree-sitter for more features.
+- [ ] ???
+
+## Screenshots
+Emed's initial view:
+![Emed's initial view](assets/screenshot1.png)
+
+Terminal panel open, running htop. Emed can handle medium complexity TUI apps on its embedded terminal, including nested emed instances. Struggles with some apps like opencode:
+![Emed's terminal](assets/screenshot2.png)
+
+A code file open. Syntax highlighting turned off, will be re-implemented with tree-sitter soon:
+![Emed's editor panel](assets/screenshot3.png)
+
 ## Building
 
 I added a Makefile to make building, debugging and testing easier. Here's how to use the basics:
