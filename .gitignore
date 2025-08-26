@@ -18,7 +18,6 @@
 go.work
 
 # Build output
-emed
 /emed
 build/
 dist/
