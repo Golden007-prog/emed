@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"syscall"
 	
 	"github.com/laborin/emed/internal/config"
+	"github.com/laborin/emed/internal/core/container"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/ui"
 	"github.com/rivo/tview"
@@ -76,14 +78,36 @@ func main() {
 	defer logger.Close()
 	logging.Info("Emed started in directory: %s", workingDir)
 	
+	diContainer := container.New()
 	app := tview.NewApplication()
+	if err := diContainer.RegisterInstance(
+		reflect.TypeOf((*tview.Application)(nil)),
+		app,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to register application: %v\n", err)
+		os.Exit(1)
+	}
+	
+	if err := container.RegisterServices(diContainer); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to register services: %v\n", err)
+		os.Exit(1)
+	}
+	
+	if err := diContainer.Build(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to build container: %v\n", err)
+		os.Exit(1)
+	}
+	
+	layoutInterface, err := diContainer.Resolve(reflect.TypeOf((*ui.Layout)(nil)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to resolve layout: %v\n", err)
+		os.Exit(1)
+	}
+	layout := layoutInterface.(*ui.Layout)
 	
 	// Set up signal handling for clean shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
-	
-	// Create the main layout (working directory is already set via os.Chdir)
-	layout := ui.NewLayout(app)
 	
 	go func() {
 		<-sigChan

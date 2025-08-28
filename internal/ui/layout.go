@@ -34,7 +34,23 @@ type Layout struct {
 	proportionDir    int    // 1: increasing, -1: decreasing
 }
 
-// NewLayout creates the main application layout
+func NewLayoutWithDependencies(app *tview.Application, fileManager *FileManager, editor *Editor, terminal *Terminal, statusBar *StatusBar) *Layout {
+	l := &Layout{
+		app:              app,
+		fileManager:      fileManager,
+		editor:          editor,
+		terminal:        terminal,
+		statusBar:       statusBar,
+		focusedPanel:     0,        // Start with file manager focused
+		terminalPosition: "bottom", // Start with terminal at bottom
+		proportionIndex:  1,        // Start with 70/30
+		proportionDir:    1,        // Start going forward
+	}
+	
+	l.initialize()
+	return l
+}
+
 func NewLayout(app *tview.Application) *Layout {
 	l := &Layout{
 		app:              app,
@@ -50,10 +66,15 @@ func NewLayout(app *tview.Application) *Layout {
 	l.terminal = NewTerminal()
 	l.statusBar = NewStatusBar()
 	
+	l.initialize()
+	return l
+}
+
+func (l *Layout) initialize() {
 	// Set app reference
-	l.editor.SetApp(app)
-	l.terminal.SetApp(app)
-	l.statusBar.SetApp(app)
+	l.editor.SetApp(l.app)
+	l.terminal.SetApp(l.app)
+	l.statusBar.SetApp(l.app)
 	
 	// Set callback for when last tab is closed
 	l.editor.SetOnLastTabClosed(func() {
@@ -135,7 +156,7 @@ func NewLayout(app *tview.Application) *Layout {
 	SetMainAppRoot(l.root)
 	
 	// NOW set app reference for filemanager (after l.root is created)
-	l.fileManager.SetApp(app)
+	l.fileManager.SetApp(l.app)
 	
 	// Set up keybindings
 	l.setupKeybindings()
@@ -150,8 +171,6 @@ func NewLayout(app *tview.Application) *Layout {
 			l.focusFileManager()
 		})
 	}()
-	
-	return l
 }
 
 // GetRoot returns the root element for the application
