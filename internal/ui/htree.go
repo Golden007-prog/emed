@@ -72,6 +72,23 @@ func naturalLess(a, b string) bool {
 // sortNodes sorts nodes according to the specified order:
 // 1. dot directories, 2. normal directories, 3. dot files, 4. normal files
 // Each category is sorted with natural order
+func hasCodeExtension(filename string) bool {
+	extensions := []string{
+		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rb", ".java", ".c", ".cpp", ".h", ".hpp",
+		".rs", ".sh", ".bash", ".zsh", ".fish", ".php", ".html", ".css", ".scss", ".sass",
+		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
+		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r", ".R",
+	}
+	
+	for _, ext := range extensions {
+		if strings.HasSuffix(strings.ToLower(filename), ext) {
+			return true
+		}
+	}
+	
+	return false
+}
+
 func sortNodes(nodes []*HTreeNode) {
 	sort.Slice(nodes, func(i, j int) bool {
 		nodeA := nodes[i]
@@ -443,8 +460,8 @@ func (t *HTree) loadChildren(node *HTreeNode) {
 			child.Color = tcell.NewRGBColor(80, 80, 80)
 		} else if file.IsDir() {
 			child.Color = tcell.ColorBlue
-		} else if isCodeFile(file.Name()) {
-			child.Color = tcell.ColorSkyblue
+		} else if hasCodeExtension(file.Name()) {
+			child.Color = tcell.ColorLightBlue
 		} else {
 			child.Color = tcell.ColorSilver
 		}
