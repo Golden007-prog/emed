@@ -260,8 +260,13 @@ func (t *Terminal) CloseCurrentTab() {
 		t.tabs[t.activeTab].emulator.Stop()
 	}
 	
-	// Remove tab
-	t.contentArea.RemovePage(fmt.Sprintf("term-%d", t.activeTab))
+	// Get the tab ID before removing
+	tabID := t.tabs[t.activeTab].id
+	
+	// Remove tab from pages
+	t.contentArea.RemovePage(fmt.Sprintf("term-%d", tabID))
+	
+	// Remove tab from array
 	t.tabs = append(t.tabs[:t.activeTab], t.tabs[t.activeTab+1:]...)
 	
 	// Check if there are no more tabs
