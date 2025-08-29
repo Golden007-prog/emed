@@ -447,6 +447,11 @@ func SetMainAppRoot(root tview.Primitive) {
 	mainAppRoot = root
 }
 
+// GetMainAppRoot returns the main application root for modal restoration
+func GetMainAppRoot() tview.Primitive {
+	return mainAppRoot
+}
+
 // IsModalOpen returns true if a modal is currently open
 func IsModalOpen() bool {
 	return modalIsOpen

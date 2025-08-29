@@ -2,6 +2,7 @@ package interfaces
 
 import "reflect"
 
+// ServiceLifetime defines how service instances are managed
 type ServiceLifetime int
 
 const (
@@ -10,15 +11,11 @@ const (
 	Scoped
 )
 
+// Container defines dependency injection container interface
 type Container interface {
 	Register(serviceType reflect.Type, factory interface{}, lifetime ServiceLifetime) error
-	RegisterSingleton(serviceType reflect.Type, factory interface{}) error
-	RegisterTransient(serviceType reflect.Type, factory interface{}) error
 	RegisterInstance(serviceType reflect.Type, instance interface{}) error
 	Resolve(serviceType reflect.Type) (interface{}, error)
 	ResolveAll(serviceType reflect.Type) ([]interface{}, error)
-	CreateScope() Container
 	Build() error
 }
-
-type ServiceFactory func(c Container) (interface{}, error)

@@ -7,10 +7,8 @@ import (
 // LayoutManagerInterface defines the contract for layout management
 type LayoutManagerInterface interface {
 	// Component management
-	SetEditor(editor EditorInterface)
 	SetTerminal(terminal TerminalInterface)
 	SetFileManager(fileManager FileManagerInterface)
-	GetEditor() EditorInterface
 	GetTerminal() TerminalInterface
 	GetFileManager() FileManagerInterface
 	
@@ -34,11 +32,6 @@ type LayoutManagerInterface interface {
 	HideTerminal()
 	ToggleTerminal()
 	IsTerminalVisible() bool
-	
-	// Modal management
-	ShowModal(modal ModalInterface)
-	CloseModal()
-	HasModal() bool
 	
 	// Status bar
 	SetStatusBar(statusBar StatusBarInterface)

@@ -40,20 +40,21 @@ func NewBaseTabManager() *BaseTabManager {
 // AddTab adds a new tab to the manager
 func (m *BaseTabManager) AddTab(tab interfaces.Tab) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	
 	m.tabs = append(m.tabs, tab)
 	m.activeTab = len(m.tabs) - 1
+	tabID := tab.GetID()
+	callback := m.onTabSwitched
+	m.mu.Unlock()
 	
-	if m.onTabSwitched != nil {
-		m.onTabSwitched(tab.GetID())
+	// Call callback after releasing lock
+	if callback != nil {
+		callback(tabID)
 	}
 }
 
 // RemoveTab removes a tab by ID
 func (m *BaseTabManager) RemoveTab(id int) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
@@ -61,41 +62,69 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 			m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
 			
 			// Adjust active tab
+			var lastTabCallback func()
+			var tabClosedCallback func(int)
+			var switchCallback func(int)
+			var newActiveID int = -1
+			
 			if len(m.tabs) == 0 {
 				m.activeTab = -1
-				if m.onLastTabClosed != nil {
-					m.onLastTabClosed()
-				}
+				lastTabCallback = m.onLastTabClosed
 			} else if m.activeTab >= len(m.tabs) {
 				m.activeTab = len(m.tabs) - 1
+				newActiveID = m.tabs[m.activeTab].GetID()
+				switchCallback = m.onTabSwitched
+			} else if m.activeTab > i {
+				// Active tab was after the removed tab, adjust index
+				m.activeTab--
 			}
 			
-			if m.onTabClosed != nil {
-				m.onTabClosed(id)
+			tabClosedCallback = m.onTabClosed
+			m.mu.Unlock()
+			
+			// Call callbacks after releasing lock
+			if tabClosedCallback != nil {
+				tabClosedCallback(id)
+			}
+			if switchCallback != nil && newActiveID != -1 {
+				switchCallback(newActiveID)
+			}
+			if lastTabCallback != nil {
+				lastTabCallback()
 			}
 			
 			return nil
 		}
 	}
 	
+	m.mu.Unlock()
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
 // SwitchToTab switches to a tab by ID
 func (m *BaseTabManager) SwitchToTab(id int) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
+			if m.activeTab == i {
+				// Already active
+				m.mu.Unlock()
+				return nil
+			}
 			m.activeTab = i
-			if m.onTabSwitched != nil {
-				m.onTabSwitched(id)
+			callback := m.onTabSwitched
+			m.mu.Unlock()
+			
+			// Call callback after releasing lock
+			if callback != nil {
+				callback(id)
 			}
 			return nil
 		}
 	}
 	
+	m.mu.Unlock()
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
