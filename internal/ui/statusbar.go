@@ -23,6 +23,7 @@ type StatusBar struct {
 	app           *tview.Application
 	leftText      string  // Cached left text
 	rightText     string  // Cached right text
+	gitUpdating   bool    // Flag to prevent concurrent git updates
 }
 
 // NewStatusBar creates a new status bar
@@ -44,8 +45,8 @@ func NewStatusBar() *StatusBar {
 	}
 	sb.projectPath = filepath.Base(cwd)
 	
-	// Get git branch if in git repository
-	sb.updateGitBranch()
+	// Get git branch if in git repository (async)
+	go sb.updateGitBranch()
 	
 	// Initial update to cache the text parts
 	sb.updateTextParts()
@@ -53,20 +54,39 @@ func NewStatusBar() *StatusBar {
 	return sb
 }
 
-// updateGitBranch updates the current git branch
+// updateGitBranch updates the current git branch (runs asynchronously)
 func (sb *StatusBar) updateGitBranch() {
-	cmd := exec.Command("git", "branch", "--show-current")
+	// Prevent concurrent updates
+	if sb.gitUpdating {
+		return
+	}
+	sb.gitUpdating = true
+	defer func() { sb.gitUpdating = false }()
+	
+	// First check if we're in a git repo
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	if err := cmd.Run(); err != nil {
+		sb.gitBranch = ""
+		sb.updateTextParts()
+		if sb.app != nil {
+			sb.app.QueueUpdateDraw(func() {})
+		}
+		return
+	}
+	
+	// Get the current branch
+	cmd = exec.Command("git", "branch", "--show-current")
 	output, err := cmd.Output()
-	if err == nil {
+	if err == nil && len(output) > 0 {
 		sb.gitBranch = strings.TrimSpace(string(output))
 	} else {
-		// Check if we're in a git repo at all
-		cmd = exec.Command("git", "rev-parse", "--git-dir")
-		if err := cmd.Run(); err != nil {
-			sb.gitBranch = ""
-		} else {
-			sb.gitBranch = "detached"
-		}
+		// We're in a git repo but can't get branch (probably detached HEAD)
+		sb.gitBranch = "detached"
+	}
+	
+	sb.updateTextParts()
+	if sb.app != nil {
+		sb.app.QueueUpdateDraw(func() {})
 	}
 }
 
@@ -167,9 +187,7 @@ func (sb *StatusBar) SetProjectPath(path string) {
 
 // RefreshGitBranch refreshes the git branch information
 func (sb *StatusBar) RefreshGitBranch() {
-	sb.updateGitBranch()
-	sb.updateTextParts()
-	// No need to call Draw here - it will be called by the caller if needed
+	go sb.updateGitBranch()
 }
 
 // SetClipboard updates the clipboard status
