@@ -2,11 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/core/buffer"
 	"github.com/laborin/emed/internal/core/clipboard"
 	"github.com/laborin/emed/internal/core/selection"
+	"github.com/laborin/emed/internal/core/syntax"
 	"github.com/rivo/tview"
 )
 
@@ -15,9 +17,10 @@ type CodeEditor struct {
 	*tview.Box
 
 	// Core components
-	buffer    *buffer.TextBuffer
-	selection *selection.Selection
-	clipboard *clipboard.Clipboard
+	buffer      *buffer.TextBuffer
+	selection   *selection.Selection
+	clipboard   *clipboard.Clipboard
+	highlighter *syntax.Highlighter
 
 	// Focus state
 	hasFocus bool
@@ -68,6 +71,18 @@ func (e *CodeEditor) LoadFile(path string) error {
 	e.offsetCol = 0
 	e.selection.Clear()
 
+	// Initialize syntax highlighter
+	if e.highlighter != nil {
+		e.highlighter.Close()
+	}
+	e.highlighter = syntax.NewHighlighter(path)
+	if e.highlighter != nil {
+		// Convert buffer content to lines for the highlighter
+		content := e.buffer.GetContent()
+		lines := strings.Split(content, "\n")
+		e.highlighter.UpdateContent(lines)
+	}
+
 	return nil
 }
 
@@ -93,6 +108,19 @@ func (e *CodeEditor) SaveFile(path string) error {
 
 	if err := e.buffer.SaveFile(path); err != nil {
 		return err
+	}
+
+	// Update highlighter if file extension changed
+	if path != e.filePath {
+		if e.highlighter != nil {
+			e.highlighter.Close()
+		}
+		e.highlighter = syntax.NewHighlighter(path)
+		if e.highlighter != nil {
+			content := e.buffer.GetContent()
+			lines := strings.Split(content, "\n")
+			e.highlighter.UpdateContent(lines)
+		}
 	}
 
 	e.filePath = path
@@ -163,19 +191,37 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 	// Default style - white text on black background
 	defaultStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 
+	// Get syntax highlighting for this line if available
+	var tokens []syntax.TokenStyle
+	if e.highlighter != nil {
+		tokens = e.highlighter.GetLineTokens(lineNum)
+	}
+
+	// Helper function to get style for a column position
+	getStyleForColumn := func(col int) tcell.Style {
+		for _, token := range tokens {
+			if col >= token.Start && col < token.End {
+				return token.Style
+			}
+		}
+		return defaultStyle
+	}
+
 	// Draw characters with tab expansion
 	screenX := x    // Position on screen
 	visualCol := 0  // Visual column position (accounting for tabs)
 	realCol := 0    // Real column position in buffer
 
 	for _, ch := range line {
+		// Get base style from syntax highlighting
+		style := getStyleForColumn(realCol)
+
 		// Check if this position is selected
 		isSelected := e.selection.IsPositionSelected(lineNum, realCol)
-
-		// Apply selection background if needed
-		style := defaultStyle
 		if isSelected {
-			style = style.Background(tcell.ColorDarkGray)
+			// Preserve foreground color from syntax highlighting, change background
+			fg, _, _ := style.Decompose()
+			style = tcell.StyleDefault.Background(tcell.ColorDarkGray).Foreground(fg)
 		}
 
 		if ch == '\t' {
@@ -667,6 +713,12 @@ func (e *CodeEditor) setModified(modified bool) {
 	e.buffer.SetModified(modified)
 	if e.onModified != nil {
 		e.onModified(modified)
+	}
+	// Update syntax highlighting after modifications
+	if modified && e.highlighter != nil {
+		content := e.buffer.GetContent()
+		lines := strings.Split(content, "\n")
+		e.highlighter.UpdateContent(lines)
 	}
 }
 
@@ -1173,5 +1225,13 @@ func (e *CodeEditor) Redo() {
 		e.setModified(true)
 		
 		// The display will be refreshed automatically by tview
+	}
+}
+
+// Close cleans up resources
+func (e *CodeEditor) Close() {
+	if e.highlighter != nil {
+		e.highlighter.Close()
+		e.highlighter = nil
 	}
 }
