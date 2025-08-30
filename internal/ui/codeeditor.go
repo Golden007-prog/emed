@@ -152,6 +152,11 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.viewportHeight = height
 	e.viewportWidth = width - lineNumWidth - 1 // Reserve space for line numbers and scrollbar
 
+	// Update highlighter viewport for lazy tokenization
+	if e.highlighter != nil {
+		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+height-1)
+	}
+
 	// Draw line numbers and content
 	lines := e.buffer.GetLines()
 	for row := 0; row < height && row+e.offsetRow < len(lines); row++ {
@@ -627,6 +632,10 @@ func (e *CodeEditor) scrollUp(lines int) {
 	if e.offsetRow < 0 {
 		e.offsetRow = 0
 	}
+	// Update highlighter viewport when scrolling
+	if e.highlighter != nil && e.viewportHeight > 0 {
+		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
+	}
 }
 
 func (e *CodeEditor) scrollDown(lines int) {
@@ -637,6 +646,10 @@ func (e *CodeEditor) scrollDown(lines int) {
 	}
 	if e.offsetRow > maxOffset {
 		e.offsetRow = maxOffset
+	}
+	// Update highlighter viewport when scrolling
+	if e.highlighter != nil && e.viewportHeight > 0 {
+		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
 	}
 }
 
