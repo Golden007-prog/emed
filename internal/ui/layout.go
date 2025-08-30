@@ -521,14 +521,11 @@ func (l *Layout) setupKeybindings() {
 					l.terminal.CloseCurrentTab()
 				}
 				return nil
-			case tcell.KeyCtrlZ:
-				// Undo
-				// TODO: Implement undo in editor
-				return nil
-			case tcell.KeyCtrlY:
-				// Redo
-				// TODO: Implement redo in editor
-				return nil
+			case tcell.KeyCtrlZ, tcell.KeyCtrlY:
+				// Pass through to the focused component (editor handles undo/redo)
+				// But we need to handle it here to prevent default SIGTSTP behavior
+				// Just return the event as-is to let it propagate
+				return event
 			case tcell.KeyCtrlL:
 				// Cycle through proportions (only if terminal has tabs)
 				if l.terminal.HasTabs() {

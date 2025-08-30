@@ -6,19 +6,48 @@ import (
 	"strings"
 )
 
+// BufferState represents a snapshot of the buffer at a point in time
+type BufferState struct {
+	lines    [][]rune
+	cursorX  int
+	cursorY  int
+}
+
+// copyLines creates a deep copy of the lines
+func copyLines(lines [][]rune) [][]rune {
+	copied := make([][]rune, len(lines))
+	for i, line := range lines {
+		copied[i] = make([]rune, len(line))
+		copy(copied[i], line)
+	}
+	return copied
+}
+
 type TextBuffer struct {
 	lines       [][]rune
 	lineEndings string
 	modified    bool
 	tabSize     int
+	
+	// Undo/Redo stacks
+	undoStack   []BufferState
+	redoStack   []BufferState
+	maxUndoSize int
+	
+	// Track if we should record this change
+	recordingUndo bool
 }
 
 func New() *TextBuffer {
 	return &TextBuffer{
-		lines:       [][]rune{{}},
-		lineEndings: "\n",
-		tabSize:     4,
-		modified:    false,
+		lines:         [][]rune{{}},
+		lineEndings:   "\n",
+		tabSize:       4,
+		modified:      false,
+		undoStack:     make([]BufferState, 0),
+		redoStack:     make([]BufferState, 0),
+		maxUndoSize:   100, // Keep last 100 undo states
+		recordingUndo: true,
 	}
 }
 
@@ -51,6 +80,7 @@ func (b *TextBuffer) LoadFile(path string) error {
 	b.lines = lines
 	b.detectLineEndings(path)
 	b.modified = false
+	b.ClearUndoHistory() // Clear undo history when loading a new file
 	return nil
 }
 
@@ -389,4 +419,102 @@ func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string
 	result.WriteString(string(endLine[:endCol]))
 	
 	return result.String()
+}
+
+// SaveState saves the current buffer state to the undo stack
+func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
+	if !b.recordingUndo {
+		return
+	}
+	
+	
+	// Create a snapshot of current state
+	state := BufferState{
+		lines:   copyLines(b.lines),
+		cursorX: cursorCol,
+		cursorY: cursorRow,
+	}
+	
+	// Add to undo stack
+	b.undoStack = append(b.undoStack, state)
+	
+	// Limit undo stack size
+	if len(b.undoStack) > b.maxUndoSize {
+		b.undoStack = b.undoStack[1:]
+	}
+	
+	// Clear redo stack when new change is made
+	b.redoStack = b.redoStack[:0]
+}
+
+// Undo reverts to the previous state
+func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
+	
+	if len(b.undoStack) == 0 {
+		return 0, 0, false
+	}
+	
+	// Save current state to redo stack before undoing
+	currentState := BufferState{
+		lines:   copyLines(b.lines),
+		cursorX: 0, // Will be set by caller
+		cursorY: 0,
+	}
+	b.redoStack = append(b.redoStack, currentState)
+	
+	// Pop from undo stack
+	state := b.undoStack[len(b.undoStack)-1]
+	b.undoStack = b.undoStack[:len(b.undoStack)-1]
+	
+	
+	// Restore state without recording undo
+	b.recordingUndo = false
+	b.lines = copyLines(state.lines)
+	b.modified = true
+	b.recordingUndo = true
+	
+	return state.cursorX, state.cursorY, true
+}
+
+// Redo reapplies a previously undone change
+func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
+	if len(b.redoStack) == 0 {
+		return 0, 0, false
+	}
+	
+	// Save current state to undo stack before redoing
+	currentState := BufferState{
+		lines:   copyLines(b.lines),
+		cursorX: 0,
+		cursorY: 0,
+	}
+	b.undoStack = append(b.undoStack, currentState)
+	
+	// Pop from redo stack
+	state := b.redoStack[len(b.redoStack)-1]
+	b.redoStack = b.redoStack[:len(b.redoStack)-1]
+	
+	// Restore state without recording undo
+	b.recordingUndo = false
+	b.lines = copyLines(state.lines)
+	b.modified = true
+	b.recordingUndo = true
+	
+	return state.cursorX, state.cursorY, true
+}
+
+// CanUndo returns true if undo is available
+func (b *TextBuffer) CanUndo() bool {
+	return len(b.undoStack) > 0
+}
+
+// CanRedo returns true if redo is available
+func (b *TextBuffer) CanRedo() bool {
+	return len(b.redoStack) > 0
+}
+
+// ClearUndoHistory clears both undo and redo stacks
+func (b *TextBuffer) ClearUndoHistory() {
+	b.undoStack = b.undoStack[:0]
+	b.redoStack = b.redoStack[:0]
 }

@@ -363,6 +363,14 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		case tcell.KeyCtrlA:
 			e.selectAll()
 			return
+
+		case tcell.KeyCtrlZ:
+			e.Undo()
+			return
+
+		case tcell.KeyCtrlY:
+			e.Redo()
+			return
 		}
 
 		// Update viewport to follow cursor
@@ -421,6 +429,9 @@ func (e *CodeEditor) insertRune(r rune) {
 		return
 	}
 
+	// Save state for undo before making changes
+	e.buffer.SaveState(e.cursorRow, e.cursorCol)
+
 	// Delete selection first if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
@@ -439,6 +450,9 @@ func (e *CodeEditor) insertNewline() {
 	if e.readOnly {
 		return
 	}
+
+	// Save state for undo before making changes
+	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
 	// Delete selection first if any
 	if e.selection.IsActive() {
@@ -460,6 +474,9 @@ func (e *CodeEditor) deleteCharBackward() {
 		return
 	}
 
+	// Save state for undo before making changes
+	e.buffer.SaveState(e.cursorRow, e.cursorCol)
+
 	// Delete selection if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
@@ -479,6 +496,9 @@ func (e *CodeEditor) deleteCharForward() {
 	if e.readOnly {
 		return
 	}
+
+	// Save state for undo before making changes
+	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
 	// Delete selection if any
 	if e.selection.IsActive() {
@@ -799,6 +819,9 @@ func (e *CodeEditor) pasteText() {
 		return
 	}
 
+	// Save state for undo before making changes
+	e.buffer.SaveState(e.cursorRow, e.cursorCol)
+
 	// Delete selection if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
@@ -1109,4 +1132,46 @@ func (e *CodeEditor) SetOnModified(handler func(modified bool)) *CodeEditor {
 func (e *CodeEditor) SetOnCursorMove(handler func(row, col int)) *CodeEditor {
 	e.onCursorMove = handler
 	return e
+}
+
+// Undo reverts the last edit operation
+func (e *CodeEditor) Undo() {
+	if e.readOnly {
+		return
+	}
+
+	// Perform undo and get the restored cursor position
+	cursorX, cursorY, success := e.buffer.Undo()
+	if success {
+		e.cursorCol = cursorX
+		e.cursorRow = cursorY
+		e.selection.Clear()
+		e.ensureCursorVisible()
+		
+		// Mark as modified (undo still changes the buffer)
+		e.setModified(true)
+		
+		// The display will be refreshed automatically by tview
+	}
+}
+
+// Redo reapplies a previously undone edit operation  
+func (e *CodeEditor) Redo() {
+	if e.readOnly {
+		return
+	}
+
+	// Perform redo and get the restored cursor position
+	cursorX, cursorY, success := e.buffer.Redo()
+	if success {
+		e.cursorCol = cursorX
+		e.cursorRow = cursorY
+		e.selection.Clear()
+		e.ensureCursorVisible()
+		
+		// Mark as modified
+		e.setModified(true)
+		
+		// The display will be refreshed automatically by tview
+	}
 }
