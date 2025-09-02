@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ type VT10XTerminal struct {
 	
 	// VT10x terminal emulator
 	vt        vt10x.Terminal
+	vtMutex   sync.Mutex // Protect vt10x access
+	writeChan chan []byte // Channel for vt10x writes
 	
 	// Terminal state
 	mode      TerminalMode
@@ -47,15 +50,27 @@ type VT10XTerminal struct {
 	// Callbacks
 	onModeChange func(mode TerminalMode)
 	onExit       func() // Called when shell exits
+	onTitleChange func(title string) // Called when terminal title changes
 	
 	// Terminal size
 	rows int
 	cols int
 	
+	// Terminal title tracking
+	lastTitle   string
+	
+	// OSC buffer for incomplete sequences
+	oscBuffer []byte
+	
 	// Refresh control
 	needsRedraw bool
 	redrawMutex sync.Mutex
 	done        chan struct{}
+	
+	// Write batching
+	writeBuf    []byte
+	writeMutex  sync.Mutex
+	writeTimer  *time.Timer
 }
 
 // NewVT10XTerminal creates a new VT10x-based terminal emulator
@@ -73,6 +88,7 @@ func NewVT10XTerminal() *VT10XTerminal {
 		rows:      24,
 		cols:      80,
 		done:      make(chan struct{}),
+		writeChan: make(chan []byte, 1000), // Large buffer to prevent blocking
 	}
 	
 	// Create VT10x terminal with default size
@@ -81,6 +97,9 @@ func NewVT10XTerminal() *VT10XTerminal {
 	// Setup callbacks
 	t.ptyMgr.SetOnData(t.onPTYData)
 	t.ptyMgr.SetOnExit(t.onPTYExit)
+	
+	// Start write processor
+	go t.writeProcessor()
 	
 	// Start refresh loop
 	go t.refreshLoop()
@@ -123,20 +142,55 @@ func (t *VT10XTerminal) Stop() {
 	t.ptyMgr.Stop()
 }
 
-// Write writes data to the terminal
+// flushWrites sends buffered writes to PTY
+func (t *VT10XTerminal) flushWrites() {
+	t.writeMutex.Lock()
+	if len(t.writeBuf) > 0 {
+		data := t.writeBuf
+		t.writeBuf = nil
+		t.writeMutex.Unlock()
+		
+		// Write to PTY
+		if err := t.ptyMgr.Write(data); err != nil {
+			logging.Error("PTY write error: %v", err)
+		}
+	} else {
+		t.writeMutex.Unlock()
+	}
+}
+
+// Write writes data to the terminal with batching for rapid input
 func (t *VT10XTerminal) Write(data []byte) (int, error) {
 	if !t.ptyMgr.IsRunning() {
 		return 0, nil
 	}
 	
-	err := t.ptyMgr.Write(data)
-	if err != nil {
-		return 0, err
+	t.writeMutex.Lock()
+	t.writeBuf = append(t.writeBuf, data...)
+	
+	// Cancel existing timer if any
+	if t.writeTimer != nil {
+		t.writeTimer.Stop()
 	}
 	
-	// Force a redraw after input to update cursor position
-	t.markNeedsRedraw()
+	// If buffer is getting large, flush immediately
+	if len(t.writeBuf) > 128 {
+		t.writeMutex.Unlock()
+		t.flushWrites()
+	} else {
+		// Otherwise, wait a tiny bit to batch more input
+		t.writeTimer = time.AfterFunc(time.Millisecond, t.flushWrites)
+		t.writeMutex.Unlock()
+	}
+	
 	return len(data), nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetMode returns the current terminal mode
@@ -164,14 +218,95 @@ func (t *VT10XTerminal) SetOnExit(handler func()) {
 	t.onExit = handler
 }
 
+// SetOnTitleChange sets the title change callback
+func (t *VT10XTerminal) SetOnTitleChange(handler func(string)) {
+	t.onTitleChange = handler
+}
+
+// getTerminalTitle tries to get the terminal title using reflection
+func (t *VT10XTerminal) getTerminalTitle() string {
+	// Use reflection to call Title() method if it exists
+	v := reflect.ValueOf(t.vt)
+	
+	// Try direct method
+	if method := v.MethodByName("Title"); method.IsValid() {
+		results := method.Call(nil)
+		if len(results) > 0 {
+			if str, ok := results[0].Interface().(string); ok {
+				if str != "" {
+					logging.Debug("Got terminal title via direct method: %s", str)
+				}
+				return str
+			}
+		}
+	}
+	
+	// Try to access through embedded State field
+	// The terminal struct likely embeds *State
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	
+	// Look for State field
+	if field := v.FieldByName("State"); field.IsValid() {
+		if method := field.MethodByName("Title"); method.IsValid() {
+			results := method.Call(nil)
+			if len(results) > 0 {
+				if str, ok := results[0].Interface().(string); ok {
+					if str != "" {
+						logging.Debug("Got terminal title via State field: %s", str)
+					}
+					return str
+				}
+			}
+		}
+	}
+	
+	return ""
+}
+
+// parseOSCSequences parses OSC title sequences from the data and triggers title changes
+func (t *VT10XTerminal) parseOSCSequences(data []byte) []byte {
+	// Simply return the data unchanged - disable OSC parsing for now
+	// to isolate the freeze issue
+	return data
+}
+
+
+// writeProcessor processes writes to vt10x in a single goroutine
+func (t *VT10XTerminal) writeProcessor() {
+	for {
+		select {
+		case <-t.done:
+			return
+		case data := <-t.writeChan:
+			t.vtMutex.Lock()
+			t.vt.Write(data)
+			t.vtMutex.Unlock()
+			t.markNeedsRedraw()
+		}
+	}
+}
+
 // onPTYData handles data from PTY
 func (t *VT10XTerminal) onPTYData(data []byte) {
+	// Parse OSC sequences for title changes before passing to vt10x
+	data = t.parseOSCSequences(data)
+	
 	// Scan for terminal control sequences before passing to vt10x
 	t.scanForControlSequences(data)
 	
-	// Pass data directly to vt10x
-	t.vt.Write(data)
-	t.markNeedsRedraw()
+	// Send to write channel (non-blocking with large buffer)
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+	
+	select {
+	case t.writeChan <- dataCopy:
+		// Successfully queued
+	default:
+		// Channel full - this shouldn't happen with 1000 buffer
+		// but if it does, just drop the data
+	}
 }
 
 // onPTYExit handles PTY exit
@@ -213,6 +348,11 @@ func (t *VT10XTerminal) refreshLoop() {
 
 // scanForControlSequences looks for mouse mode and alternate screen escape sequences
 func (t *VT10XTerminal) scanForControlSequences(data []byte) {
+	// Quick check - if data is too small to contain these sequences, skip
+	if len(data) < 5 {
+		return
+	}
+	
 	str := string(data)
 	
 	// Find the last occurrence of any enable/disable for main mouse modes
@@ -274,8 +414,10 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		t.rows = height
 		t.cols = width
 		
-		// Resize the vt10x terminal
+		// Resize the vt10x terminal with mutex protection
+		t.vtMutex.Lock()
 		t.vt.Resize(width, height)
+		t.vtMutex.Unlock()
 		
 		if t.ptyMgr.IsRunning() {
 			t.ptyMgr.Resize(width, height)
@@ -313,11 +455,17 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 	t.drawTerminalContent(screen, x, y, width, height)
 }
 
+// isControlChar checks if a rune is a control character that shouldn't be displayed
+func isControlChar(ch rune) bool {
+	// Filter out control characters except tab, newline, carriage return
+	return ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r'
+}
+
 // drawTerminalContent draws the actual terminal content
 func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, height int) {
-	// Lock the vt10x terminal for reading
-	t.vt.Lock()
-	defer t.vt.Unlock()
+	// Lock our mutex to protect vt10x access
+	t.vtMutex.Lock()
+	defer t.vtMutex.Unlock()
 	
 	// If scrolled, implement scrollback rendering
 	if t.scrollbuf.IsScrolled() {
@@ -347,7 +495,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 						glyph := line[col]
 						style := t.vt10xToTcellStyle(glyph)
 						ch := glyph.Char
-						if ch == 0 {
+						if ch == 0 || isControlChar(ch) {
 							ch = ' '
 						}
 						screen.SetContent(x+col, y+screenRow, ch, nil, style)
@@ -364,7 +512,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 							glyph := t.vt.Cell(col, row)
 							style := t.vt10xToTcellStyle(glyph)
 							ch := glyph.Char
-							if ch == 0 {
+							if ch == 0 || isControlChar(ch) {
 								ch = ' '
 							}
 							screen.SetContent(x+col, y+screenRow, ch, nil, style)
@@ -399,7 +547,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 				// This is a cursor position marked by vt10x
 				// Force it to render as a block cursor
 				ch := glyph.Char
-				if ch == 0 {
+				if ch == 0 || isControlChar(ch) {
 					ch = ' '
 				}
 				cursorStyle := tcell.StyleDefault.
@@ -410,7 +558,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 				// Normal rendering
 				style := t.vt10xToTcellStyle(glyph)
 				ch := glyph.Char
-				if ch == 0 {
+				if ch == 0 || isControlChar(ch) {
 					ch = ' '
 				}
 				screen.SetContent(x+col, y+row, ch, nil, style)
@@ -430,7 +578,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 				// Get the character at cursor position
 				glyph := t.vt.Cell(cursorX, cursorY)
 				ch := glyph.Char
-				if ch == 0 {
+				if ch == 0 || isControlChar(ch) {
 					ch = ' '
 				}
 				

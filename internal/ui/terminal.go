@@ -13,6 +13,7 @@ type TerminalTab struct {
 	id       int
 	emulator *VT10XTerminal
 	modified bool
+	title    string // Custom title set by terminal application
 }
 
 // GetID returns the tab ID
@@ -22,7 +23,11 @@ func (t *TerminalTab) GetID() int {
 
 // GetTitle returns the tab title
 func (t *TerminalTab) GetTitle() string {
-	title := fmt.Sprintf("Term %d", t.id)
+	// Use custom title if set, otherwise default
+	title := t.title
+	if title == "" {
+		title = fmt.Sprintf("Term %d", t.id)
+	}
 	// Add mode indicator for passthrough mode
 	if t.emulator != nil && t.emulator.GetMode() == ModePassthrough {
 		title += " *"
@@ -135,6 +140,25 @@ func (t *Terminal) NewTab() {
 		if t.app != nil {
 			t.app.QueueUpdateDraw(func() {
 				t.tabManager.RemoveTab(tabID)
+			})
+		}
+	})
+	
+	// Set title change callback to update tab title
+	emulator.SetOnTitleChange(func(title string) {
+		if t.app != nil {
+			t.app.QueueUpdateDraw(func() {
+				// Find the tab and update its title
+				tabs := t.tabManager.GetTabs()
+				for _, tab := range tabs {
+					if tab.GetID() == tabID {
+						if termTab, ok := tab.(*TerminalTab); ok {
+							termTab.title = title
+							t.updateTabBar()
+						}
+						break
+					}
+				}
 			})
 		}
 	})

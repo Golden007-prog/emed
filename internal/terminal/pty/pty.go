@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -43,7 +44,18 @@ func (p *PTYManager) Start(cols, rows int) error {
 	}
 	
 	p.cmd = exec.Command(p.shell, "-i")
-	p.cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// Set environment to prevent OSC sequences from leaking
+	env := os.Environ()
+	// Filter out any existing TERM_PROGRAM variables that might cause issues
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, "TERM_PROGRAM") && 
+		   !strings.HasPrefix(e, "ITERM_") &&
+		   !strings.HasPrefix(e, "LC_TERMINAL") {
+			filtered = append(filtered, e)
+		}
+	}
+	p.cmd.Env = append(filtered, "TERM=xterm-256color")
 	
 	ptm, err := pty.StartWithSize(p.cmd, &pty.Winsize{
 		Rows: uint16(rows),
@@ -110,13 +122,16 @@ func (p *PTYManager) Stop() error {
 
 func (p *PTYManager) Write(data []byte) error {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
 	
 	if !p.running || p.ptm == nil {
+		p.mu.RUnlock()
 		return fmt.Errorf("PTY not running")
 	}
 	
-	_, err := p.ptm.Write(data)
+	ptm := p.ptm
+	p.mu.RUnlock() // Release lock before write to avoid blocking other operations
+	
+	_, err := ptm.Write(data)
 	return err
 }
 
@@ -160,11 +175,15 @@ func (p *PTYManager) readLoop() {
 		ptm := p.ptm
 		p.mu.RUnlock()
 		
+		// Log before read to detect if we're stuck here
+		//logging.Debug("PTY readLoop: about to read")
 		n, err := ptm.Read(buf)
 		if err != nil {
+			//logging.Error("PTY readLoop: read error: %v", err)
 			break
 		}
 		
+		//logging.Debug("PTY readLoop: read %d bytes", n)
 		if n > 0 && p.onData != nil {
 			p.onData(buf[:n])
 		}
