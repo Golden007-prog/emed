@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -58,9 +57,6 @@ type VT10XTerminal struct {
 	
 	// Terminal title tracking
 	lastTitle   string
-	
-	// OSC buffer for incomplete sequences
-	oscBuffer []byte
 	
 	// Refresh control
 	needsRedraw bool
@@ -223,54 +219,22 @@ func (t *VT10XTerminal) SetOnTitleChange(handler func(string)) {
 	t.onTitleChange = handler
 }
 
-// getTerminalTitle tries to get the terminal title using reflection
-func (t *VT10XTerminal) getTerminalTitle() string {
-	// Use reflection to call Title() method if it exists
-	v := reflect.ValueOf(t.vt)
+// pollTitle checks if vt10x has a new title
+func (t *VT10XTerminal) pollTitle() {
+	// vt10x captures title sequences internally
+	// We need to poll for changes
+	t.vtMutex.Lock()
+	title := t.vt.Title()
+	t.vtMutex.Unlock()
 	
-	// Try direct method
-	if method := v.MethodByName("Title"); method.IsValid() {
-		results := method.Call(nil)
-		if len(results) > 0 {
-			if str, ok := results[0].Interface().(string); ok {
-				if str != "" {
-					logging.Debug("Got terminal title via direct method: %s", str)
-				}
-				return str
-			}
+	if title != t.lastTitle && title != "" {
+		t.lastTitle = title
+		if t.onTitleChange != nil {
+			t.onTitleChange(title)
 		}
 	}
-	
-	// Try to access through embedded State field
-	// The terminal struct likely embeds *State
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	
-	// Look for State field
-	if field := v.FieldByName("State"); field.IsValid() {
-		if method := field.MethodByName("Title"); method.IsValid() {
-			results := method.Call(nil)
-			if len(results) > 0 {
-				if str, ok := results[0].Interface().(string); ok {
-					if str != "" {
-						logging.Debug("Got terminal title via State field: %s", str)
-					}
-					return str
-				}
-			}
-		}
-	}
-	
-	return ""
 }
 
-// parseOSCSequences parses OSC title sequences from the data and triggers title changes
-func (t *VT10XTerminal) parseOSCSequences(data []byte) []byte {
-	// Simply return the data unchanged - disable OSC parsing for now
-	// to isolate the freeze issue
-	return data
-}
 
 
 // writeProcessor processes writes to vt10x in a single goroutine
@@ -283,6 +247,9 @@ func (t *VT10XTerminal) writeProcessor() {
 			t.vtMutex.Lock()
 			t.vt.Write(data)
 			t.vtMutex.Unlock()
+			
+			// Check if title changed after write (outside the mutex)
+			t.pollTitle()
 			t.markNeedsRedraw()
 		}
 	}
@@ -290,8 +257,8 @@ func (t *VT10XTerminal) writeProcessor() {
 
 // onPTYData handles data from PTY
 func (t *VT10XTerminal) onPTYData(data []byte) {
-	// Parse OSC sequences for title changes before passing to vt10x
-	data = t.parseOSCSequences(data)
+	// Don't parse OSC sequences - let vt10x handle them
+	// vt10x will capture title sequences internally
 	
 	// Scan for terminal control sequences before passing to vt10x
 	t.scanForControlSequences(data)
