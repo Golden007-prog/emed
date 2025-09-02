@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 	
 	"github.com/gdamore/tcell/v2"
@@ -57,6 +58,7 @@ type Editor struct {
 	contentArea       *tview.Pages
 	tabManager        *components.BaseTabManager
 	tabs              []*EditorTab // Keep for direct access to EditorTab-specific functionality
+	tabsMu            sync.RWMutex // Protects access to tabs slice
 	noDocsView        tview.Primitive // View shown when no documents are open (now a Flex container)
 	app               *tview.Application
 	onLastTabClosed   func()          // Callback when last tab is closed
@@ -99,9 +101,6 @@ func NewEditor() *Editor {
 	e.showNoDocsView()
 	
 	// Set up tab manager callbacks
-	e.tabManager.SetOnTabSwitched(func(id int) {
-		e.switchToTabByID(id)
-	})
 	
 	e.tabManager.SetOnLastTabClosed(func() {
 		e.showNoDocsView()
@@ -112,21 +111,26 @@ func NewEditor() *Editor {
 	
 	e.tabManager.SetOnTabClosed(func(id int) {
 		// Find and remove the tab from our local list
+		e.tabsMu.Lock()
+		var path string
 		for i, tab := range e.tabs {
 			if tab.id == id {
-				// Call tab closed callback with path
-				if e.onTabClosed != nil && tab.path != "" {
-					e.onTabClosed(tab.path)
-				}
-				// Remove from content area
-				e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
+				path = tab.path
 				// Remove from tabs list
 				e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
-				// Update the tab bar to reflect the change
-				e.updateTabBar()
 				break
 			}
 		}
+		e.tabsMu.Unlock()
+		
+		// Call tab closed callback with path
+		if e.onTabClosed != nil && path != "" {
+			e.onTabClosed(path)
+		}
+		// Remove from content area
+		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
+		// Update the tab bar to reflect the change
+		e.updateTabBar()
 	})
 	
 	return e
@@ -141,23 +145,40 @@ func (e *Editor) showNoDocsView() {
 // switchToTabByID switches to a tab by its ID (called by BaseTabManager)
 func (e *Editor) switchToTabByID(id int) {
 	// Find tab with this ID and switch to it
+	e.tabsMu.RLock()
+	var found bool
 	for _, tab := range e.tabs {
 		if tab.id == id {
-			e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
-			e.updateTabBar()
+			found = true
 			break
 		}
+	}
+	e.tabsMu.RUnlock()
+	
+	if found {
+		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
+		e.updateTabBar()
 	}
 }
 
 // OpenFile opens a file in a new tab or focuses existing tab
 func (e *Editor) OpenFile(path string) {
 	// Check if file is already open
+	e.tabsMu.RLock()
+	var existingTabID int = -1
 	for _, tab := range e.tabs {
 		if tab.path == path {
-			e.tabManager.SwitchToTab(tab.id)
-			return
+			existingTabID = tab.id
+			break
 		}
+	}
+	e.tabsMu.RUnlock()
+	
+	if existingTabID != -1 {
+		// Switch to the existing tab
+		e.tabManager.SwitchToTab(existingTabID)
+		e.switchToTabByID(existingTabID)
+		return
 	}
 	
 	// Create new code editor
@@ -178,14 +199,17 @@ func (e *Editor) OpenFile(path string) {
 	
 	// Set up modified callback
 	codeEditor.SetOnModified(func(modified bool) {
+		e.tabsMu.RLock()
 		for _, t := range e.tabs {
 			if t.codeEditor == codeEditor {
 				t.SetModified(modified)
+				e.tabsMu.RUnlock()
 				// Always update tab bar when modified state changes
 				e.updateTabBar()
-				break
+				return
 			}
 		}
+		e.tabsMu.RUnlock()
 	})
 	
 	// Get file modification time
@@ -204,11 +228,14 @@ func (e *Editor) OpenFile(path string) {
 	}
 	
 	// Add to our local list and content area first
+	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
+	e.tabsMu.Unlock()
 	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), codeEditor, true, false)
 	
-	// Then add to manager (which will trigger callbacks)
+	// Add to manager and switch to the new tab
 	e.tabManager.AddTab(tab)
+	e.switchToTabByID(tabID)
 }
 
 // NewDocument creates a new untitled document
@@ -224,14 +251,17 @@ func (e *Editor) NewDocument() {
 	
 	// Set up modified callback
 	codeEditor.SetOnModified(func(modified bool) {
+		e.tabsMu.RLock()
 		for _, t := range e.tabs {
 			if t.codeEditor == codeEditor {
 				t.SetModified(modified)
+				e.tabsMu.RUnlock()
 				// Always update tab bar when modified state changes
 				e.updateTabBar()
-				break
+				return
 			}
 		}
+		e.tabsMu.RUnlock()
 	})
 	
 	tab := &EditorTab{
@@ -244,11 +274,14 @@ func (e *Editor) NewDocument() {
 	}
 	
 	// Add to our local list and content area first
+	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
+	e.tabsMu.Unlock()
 	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), codeEditor, true, false)
 	
-	// Then add to manager (which will trigger callbacks)
+	// Add to manager and switch to the new tab
 	e.tabManager.AddTab(tab)
+	e.switchToTabByID(tabID)
 }
 
 // ShowOpenDialog shows a file open dialog (placeholder)
@@ -264,7 +297,10 @@ func (e *Editor) switchToTab(index int) {
 	}
 	
 	// Use BaseTabManager to switch
-	e.tabManager.GoToTabByIndex(index)
+	tabID := e.tabManager.GoToTabByIndexWithID(index)
+	if tabID != -1 {
+		e.switchToTabByID(tabID)
+	}
 }
 
 // updateTabBar updates the title with tab information
@@ -274,8 +310,17 @@ func (e *Editor) updateTabBar() {
 		return
 	}
 	
+	// Get the container width to make tabs responsive
+	_, _, width, _ := e.container.GetRect()
+	// tview adds padding and may add ellipsis, so we need extra buffer
+	// 2 chars for tview padding + 3 chars safety margin for ellipsis
+	availableWidth := width - 5
+	if availableWidth < 0 {
+		availableWidth = 0
+	}
+	
 	// Use BaseTabManager to generate tab bar text
-	tabBarText := e.tabManager.GenerateTabBarText()
+	tabBarText := e.tabManager.GenerateTabBarText(availableWidth)
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
 		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
@@ -286,12 +331,18 @@ func (e *Editor) updateTabBar() {
 
 // NextTab switches to the next tab
 func (e *Editor) NextTab() {
-	e.tabManager.NextTab()
+	tabID := e.tabManager.NextTabWithID()
+	if tabID != -1 {
+		e.switchToTabByID(tabID)
+	}
 }
 
 // PreviousTab switches to the previous tab
 func (e *Editor) PreviousTab() {
-	e.tabManager.PreviousTab()
+	tabID := e.tabManager.PreviousTabWithID()
+	if tabID != -1 {
+		e.switchToTabByID(tabID)
+	}
 }
 
 // CloseCurrentTab closes the current tab
@@ -302,6 +353,7 @@ func (e *Editor) CloseCurrentTab() {
 	}
 	
 	// Find the active tab
+	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
 		if t.id == activeID {
@@ -309,6 +361,7 @@ func (e *Editor) CloseCurrentTab() {
 			break
 		}
 	}
+	e.tabsMu.RUnlock()
 	
 	if tab == nil {
 		return
@@ -358,6 +411,7 @@ func (e *Editor) SaveCurrentFile() {
 	}
 	
 	// Find the active tab
+	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
 		if t.id == activeID {
@@ -365,6 +419,7 @@ func (e *Editor) SaveCurrentFile() {
 			break
 		}
 	}
+	e.tabsMu.RUnlock()
 	
 	if tab == nil || tab.codeEditor == nil {
 		return
@@ -432,11 +487,14 @@ func (e *Editor) HasFocus(focused tview.Primitive) bool {
 		return true
 	}
 	// Check if any tab content has focus
+	e.tabsMu.RLock()
 	for _, tab := range e.tabs {
 		if focused == tab.codeEditor {
+			e.tabsMu.RUnlock()
 			return true
 		}
 	}
+	e.tabsMu.RUnlock()
 	// Check the no-docs view
 	if focused == e.noDocsView {
 		return true
@@ -446,13 +504,16 @@ func (e *Editor) HasFocus(focused tview.Primitive) bool {
 
 // UpdateFilePath updates the path of an open file (for renames)
 func (e *Editor) UpdateFilePath(oldPath, newPath string) {
+	e.tabsMu.Lock()
 	for _, tab := range e.tabs {
 		if tab.path == oldPath {
 			tab.path = newPath
+			e.tabsMu.Unlock()
 			e.updateTabBar()
 			return
 		}
 	}
+	e.tabsMu.Unlock()
 }
 
 // SetApp sets the application reference
@@ -488,12 +549,19 @@ func (e *Editor) HasUnsavedChanges() bool {
 
 // CloseFileTab closes a tab by file path (for deletions)
 func (e *Editor) CloseFileTab(path string) {
+	e.tabsMu.RLock()
+	var tabID int = -1
 	for _, tab := range e.tabs {
 		if tab.path == path {
-			// Use BaseTabManager to remove the tab
-			e.tabManager.RemoveTab(tab.id)
-			return
+			tabID = tab.id
+			break
 		}
+	}
+	e.tabsMu.RUnlock()
+	
+	if tabID != -1 {
+		// Use BaseTabManager to remove the tab
+		e.tabManager.RemoveTab(tabID)
 	}
 }
 
@@ -546,6 +614,7 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 // HandleFileModified handles when a file is modified externally
 func (e *Editor) HandleFileModified(filePath string) {
 	// Check each tab
+	e.tabsMu.Lock()
 	for _, tab := range e.tabs {
 		if tab.path == filePath {
 			// Use FileChangeHandler to determine action
@@ -560,18 +629,23 @@ func (e *Editor) HandleFileModified(filePath string) {
 			
 			switch action {
 			case components.FileChangeActionReload:
+				e.tabsMu.Unlock()
 				e.reloadTab(tab)
+				return
 			case components.FileChangeActionMarkConflict:
 				tab.externallyModified = true
 			}
-			break
+			e.tabsMu.Unlock()
+			return
 		}
 	}
+	e.tabsMu.Unlock()
 }
 
 // HandleFileDeleted handles when a file is deleted externally
 func (e *Editor) HandleFileDeleted(filePath string) {
 	// Find and mark the tab
+	e.tabsMu.Lock()
 	for _, tab := range e.tabs {
 		if tab.path == filePath {
 			// Use FileChangeHandler to determine action
@@ -586,13 +660,18 @@ func (e *Editor) HandleFileDeleted(filePath string) {
 			
 			switch action {
 			case components.FileChangeActionClose:
-				e.tabManager.RemoveTab(tab.id)
+				tabID := tab.id
+				e.tabsMu.Unlock()
+				e.tabManager.RemoveTab(tabID)
+				return
 			case components.FileChangeActionMarkDeleted:
 				tab.externallyModified = true
 			}
-			break
+			e.tabsMu.Unlock()
+			return
 		}
 	}
+	e.tabsMu.Unlock()
 }
 
 // reloadTab reloads the content of a tab from disk

@@ -2,10 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/ui/components"
 	"github.com/rivo/tview"
 )
@@ -90,9 +88,6 @@ func NewTerminal() *Terminal {
 	t.showNoTermsView()
 
 	// Set up tab manager callbacks
-	t.tabManager.SetOnTabSwitched(func(id int) {
-		t.switchToTabByID(id)
-	})
 
 	t.tabManager.SetOnLastTabClosed(func() {
 		t.showNoTermsView()
@@ -163,8 +158,9 @@ func (t *Terminal) NewTab() {
 	// Add page to content area
 	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), emulator, true, false)
 
-	// Add tab to manager (this will switch to it automatically)
+	// Add tab to manager and switch to it
 	t.tabManager.AddTab(tab)
+	t.switchToTabByID(tabID)
 }
 
 // showNoTermsView shows the "no terminals" message
@@ -186,101 +182,39 @@ func (t *Terminal) updateTabBar() {
 		return
 	}
 
-	// Get tabs and build display
-	tabs := t.tabManager.GetTabs()
-	activeTabID := t.tabManager.GetActiveTabID()
-
-	// Find active tab index
-	activeIndex := -1
-	for i, tab := range tabs {
-		if tab.GetID() == activeTabID {
-			activeIndex = i
-			break
-		}
+	// Get the container width to make tabs responsive
+	_, _, width, _ := t.container.GetRect()
+	// tview adds padding and may add ellipsis, so we need extra buffer
+	// 2 chars for tview padding + 3 chars safety margin for ellipsis
+	availableWidth := width - 5
+	if availableWidth < 0 {
+		availableWidth = 0
 	}
-
-	if activeIndex == -1 {
-		return
+	
+	// Use BaseTabManager to generate tab bar text (same as Editor for consistency)
+	tabBarText := t.tabManager.GenerateTabBarText(availableWidth)
+	if tabBarText != "" {
+		title := fmt.Sprintf(" %s ", tabBarText)
+		t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
+	} else {
+		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
 	}
-
-	// Build tab display using similar logic to original
-	var tabTexts []string
-	maxVisible := config.MaxVisibleTabs
-
-	// Calculate visible range, ensuring active tab is always visible
-	start := activeIndex - 2
-	end := activeIndex + 2
-
-	// Adjust if we're near the beginning
-	if start < 0 {
-		start = 0
-		end = start + maxVisible
-		if end > len(tabs) {
-			end = len(tabs)
-		}
-	}
-
-	// Adjust if we're near the end
-	if end > len(tabs) {
-		end = len(tabs)
-		start = end - maxVisible
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	// Ensure active tab is within visible range
-	if activeIndex < start {
-		start = activeIndex
-		end = start + maxVisible
-		if end > len(tabs) {
-			end = len(tabs)
-		}
-	}
-	if activeIndex >= end {
-		end = activeIndex + 1
-		start = end - maxVisible
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	// Add indicator if there are tabs before
-	if start > 0 {
-		tabTexts = append(tabTexts, "...")
-	}
-
-	// Add visible tabs
-	for i := start; i < end; i++ {
-		tab := tabs[i]
-		name := tab.GetTitle()
-
-		// Highlight active tab with brackets (matching editor style)
-		if i == activeIndex {
-			tabTexts = append(tabTexts, fmt.Sprintf("[%s]", name))
-		} else {
-			tabTexts = append(tabTexts, name)
-		}
-	}
-
-	// Add indicator if there are tabs after
-	if end < len(tabs) {
-		tabTexts = append(tabTexts, "...")
-	}
-
-	// Set title with tabs
-	title := fmt.Sprintf(" %s ", strings.Join(tabTexts, " | "))
-	t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
 }
 
 // NextTab switches to the next tab
 func (t *Terminal) NextTab() {
-	t.tabManager.NextTab()
+	tabID := t.tabManager.NextTabWithID()
+	if tabID != -1 {
+		t.switchToTabByID(tabID)
+	}
 }
 
 // PreviousTab switches to the previous tab
 func (t *Terminal) PreviousTab() {
-	t.tabManager.PreviousTab()
+	tabID := t.tabManager.PreviousTabWithID()
+	if tabID != -1 {
+		t.switchToTabByID(tabID)
+	}
 }
 
 // CloseCurrentTab closes the current tab
