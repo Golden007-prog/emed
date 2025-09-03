@@ -1100,10 +1100,7 @@ func (e *CodeEditor) Undo() {
 		e.selection.Clear()
 		e.ensureCursorVisible()
 		
-		// Mark as modified (undo still changes the buffer)
-		e.setModified(true)
-		
-		// The display will be refreshed automatically by tview
+		e.setModified(e.buffer.IsModified())
 	}
 }
 
@@ -1113,7 +1110,6 @@ func (e *CodeEditor) Redo() {
 		return
 	}
 
-	// Perform redo and get the restored cursor position
 	cursorX, cursorY, success := e.buffer.Redo()
 	if success {
 		e.cursorCol = cursorX
@@ -1121,14 +1117,11 @@ func (e *CodeEditor) Redo() {
 		e.selection.Clear()
 		e.ensureCursorVisible()
 		
-			e.setModified(true)
-		
-		// The display will be refreshed automatically by tview
+		e.setModified(e.buffer.IsModified())
 	}
 }
 
 // Close cleans up resources
-// Close cleans up resources used by the code editor.
 func (e *CodeEditor) Close() {
 	if e.highlighter != nil {
 		e.highlighter.Close()

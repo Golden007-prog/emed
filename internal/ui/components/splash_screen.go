@@ -65,7 +65,7 @@ func (s *SplashScreen) CreateNoDocsView() tview.Primitive {
 [darkgray]{tagline}
 made with ♥ in Sonora[-]
 
-[gray]Ayuda / Help: Alt+H / F1[-]
+[gray]Ayuda / Help: F1[-]
 `
 
 	tagline := s.getRandomTagline()

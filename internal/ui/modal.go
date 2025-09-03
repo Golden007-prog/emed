@@ -80,16 +80,6 @@ func (m *EmModal) Close() {
 	} else if mainAppRoot != nil {
 		m.app.SetRoot(mainAppRoot, true)
 	}
-	
-	go func() {
-		m.app.QueueUpdateDraw(func() {
-			if m.savedFocus != nil {
-				m.app.SetFocus(m.savedFocus)
-			} else if previousFocus != nil {
-				m.app.SetFocus(previousFocus)
-			}
-		})
-	}()
 }
 
 // Cancel cancels the modal dialog if it's cancellable.

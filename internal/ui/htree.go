@@ -189,9 +189,6 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		return
 	}
 	
-	statusY := y + height - 1
-	height = height - 1
-	
 	t.buildVisibleNodes()
 	
 	if t.selected != nil {
@@ -296,10 +293,6 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		}
 	}
 	
-	if t.hasFocus {
-		helpText := "Press i for file actions"
-		tview.Print(screen, helpText, x+(width-len(helpText))/2, statusY, width, tview.AlignLeft, tcell.ColorGray)
-	}
 }
 
 func (t *HTree) getRelativePath(node *HTreeNode) string {

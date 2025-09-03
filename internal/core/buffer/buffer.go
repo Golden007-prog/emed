@@ -23,6 +23,24 @@ func copyLines(lines [][]rune) [][]rune {
 	return copied
 }
 
+// linesEqual checks if two sets of lines are identical
+func linesEqual(a, b [][]rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if len(a[i]) != len(b[i]) {
+			return false
+		}
+		for j := range a[i] {
+			if a[i][j] != b[i][j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 type TextBuffer struct {
 	lines       [][]rune
 	lineEndings string
@@ -33,14 +51,16 @@ type TextBuffer struct {
 	undoStack   []BufferState
 	redoStack   []BufferState
 	maxUndoSize int
+	initialState [][]rune
 	
 	// Track if we should record this change
 	recordingUndo bool
 }
 
 func New() *TextBuffer {
+	initialLines := [][]rune{{}}
 	return &TextBuffer{
-		lines:         [][]rune{{}},
+		lines:         copyLines(initialLines),
 		lineEndings:   "\n",
 		tabSize:       4,
 		modified:      false,
@@ -48,6 +68,7 @@ func New() *TextBuffer {
 		redoStack:     make([]BufferState, 0),
 		maxUndoSize:   100, // Keep last 100 undo states
 		recordingUndo: true,
+		initialState:  initialLines,
 	}
 }
 
@@ -80,6 +101,7 @@ func (b *TextBuffer) LoadFile(path string) error {
 	b.lines = lines
 	b.detectLineEndings(path)
 	b.modified = false
+	b.initialState = copyLines(lines) // Save initial state
 	b.ClearUndoHistory() // Clear undo history when loading a new file
 	return nil
 }
@@ -320,32 +342,41 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 		}
 		return row, col
 	}
-	
 	currentLine := b.lines[row]
 	if col > len(currentLine) {
 		col = len(currentLine)
 	}
 	
-	before := currentLine[:col]
-	after := currentLine[col:]
-	
-	b.lines[row] = append(before, []rune(lines[0])...)
+	before := make([]rune, col)
+	copy(before, currentLine[:col])
+	after := make([]rune, len(currentLine)-col)
+	copy(after, currentLine[col:])
 	
 	newLines := make([][]rune, len(b.lines)+len(lines)-1)
-	copy(newLines[:row+1], b.lines[:row+1])
+	copy(newLines[:row], b.lines[:row])
+	
+	firstLine := make([]rune, 0, len(before)+len(lines[0]))
+	firstLine = append(firstLine, before...)
+	firstLine = append(firstLine, []rune(lines[0])...)
+	newLines[row] = firstLine
 	
 	for i := 1; i < len(lines)-1; i++ {
 		newLines[row+i] = []rune(lines[i])
 	}
 	
-	lastLine := []rune(lines[len(lines)-1])
-	newLines[row+len(lines)-1] = append(lastLine, after...)
+	lastLineIndex := row + len(lines) - 1
+	if lastLineIndex != row {
+		lastLine := make([]rune, 0, len(lines[len(lines)-1])+len(after))
+		lastLine = append(lastLine, []rune(lines[len(lines)-1])...)
+		lastLine = append(lastLine, after...)
+		newLines[lastLineIndex] = lastLine
+	}
 	
 	copy(newLines[row+len(lines):], b.lines[row+1:])
 	b.lines = newLines
 	
 	b.modified = true
-	return row + len(lines) - 1, len(lastLine)
+	return row + len(lines) - 1, len([]rune(lines[len(lines)-1]))
 }
 
 func (b *TextBuffer) IsModified() bool {
@@ -470,7 +501,14 @@ func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
 	// Restore state without recording undo
 	b.recordingUndo = false
 	b.lines = copyLines(state.lines)
-	b.modified = true
+	
+	// Check if we're back to the initial state
+	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
+		b.modified = false
+	} else {
+		b.modified = true
+	}
+	
 	b.recordingUndo = true
 	
 	return state.cursorX, state.cursorY, true
@@ -497,7 +535,14 @@ func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	// Restore state without recording undo
 	b.recordingUndo = false
 	b.lines = copyLines(state.lines)
-	b.modified = true
+	
+	// Check if we're back to the initial state
+	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
+		b.modified = false
+	} else {
+		b.modified = true
+	}
+	
 	b.recordingUndo = true
 	
 	return state.cursorX, state.cursorY, true

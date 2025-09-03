@@ -103,7 +103,7 @@ func (sb *StatusBar) updateTextParts() {
 		parts = append(parts, fmt.Sprintf("watching: %d dirs", sb.watchedDirs))
 	}
 	
-	parts = append(parts, "[blue]Alt+H or F1 for help[-]")
+	parts = append(parts, "[blue]F1 for help[-]")
 
 	sb.leftText = strings.Join(parts, " | ")
 	
