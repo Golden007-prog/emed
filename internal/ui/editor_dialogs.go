@@ -303,7 +303,7 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      50,
-		FixedHeight:     10,
+		FixedHeight:     12,
 		BackgroundColor: tcell.ColorBlack,
 		BorderColor:     tcell.ColorGray,
 		TitleColor:      tcell.ColorLightGray,

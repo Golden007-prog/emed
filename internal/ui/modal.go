@@ -507,7 +507,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      50,  // 50 chars wide
-		FixedHeight:     10,  // 10 lines tall for message + buttons
+		FixedHeight:     12,  // 12 lines tall for message + buttons
 		BackgroundColor: tcell.ColorBlack,
 		BorderColor:     tcell.ColorGray,
 		TitleColor:      tcell.ColorLightGray,
