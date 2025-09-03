@@ -11,10 +11,40 @@ import (
 	"github.com/rivo/tview"
 )
 
+// MouseFocusDetector wraps a primitive to detect mouse events for focus changes
+type MouseFocusDetector struct {
+	tview.Primitive
+	layout *Layout
+}
+
+// MouseHandler intercepts mouse events to detect focus changes
+func (m *MouseFocusDetector) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
+		// Call the underlying primitive's mouse handler first
+		if handler := m.Primitive.MouseHandler(); handler != nil {
+			consumed, capture = handler(action, event, setFocus)
+		}
+		
+		// After mouse event, check if focus changed
+		// We do this in a goroutine to avoid blocking the event handler
+		if action == tview.MouseLeftClick || action == tview.MouseLeftDown {
+			go func() {
+				// Small delay to let focus change complete
+				time.Sleep(10 * time.Millisecond)
+				m.layout.app.QueueUpdateDraw(func() {
+					m.layout.checkFocusChange()
+				})
+			}()
+		}
+		
+		return consumed, capture
+	}
+}
+
 // Layout manages the main application layout
 type Layout struct {
 	app         *tview.Application
-	root        *tview.Flex
+	root        tview.Primitive
 	mainArea    *tview.Flex  // Container for all panels except status bar
 	rightSide   *tview.Flex  // Container for editor and terminal
 	fileManager *FileManager
@@ -151,8 +181,14 @@ func (l *Layout) initialize() {
 		AddItem(l.statusBar.GetView(), 1, 0, false) // Status bar is 1 line high
 	mainLayout.SetBackgroundColor(tcell.ColorBlack)
 	
-	// Set root to main layout
-	l.root = mainLayout
+	// Wrap the main layout with a mouse event interceptor
+	rootWithMouse := &MouseFocusDetector{
+		Primitive: mainLayout,
+		layout:    l,
+	}
+	
+	// Set root to wrapped layout
+	l.root = rootWithMouse
 	
 	// Set the main app root for modal restoration
 	SetMainAppRoot(l.root)
@@ -650,50 +686,39 @@ func (l *Layout) OpenFile(path string) {
 	l.focusEditor()
 }
 
-// setupFocusDetection sets up periodic focus change detection
+// setupFocusDetection sets up focus change detection
 func (l *Layout) setupFocusDetection() {
+	// No longer using polling - focus detection happens in checkFocusChange
 	l.stopFocus = make(chan bool)
+}
+
+// checkFocusChange checks if focus has changed and updates UI accordingly
+func (l *Layout) checkFocusChange() {
+	currentFocus := l.app.GetFocus()
 	
-	// Start a goroutine that periodically checks for focus changes
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond) // Check every 100ms
-		defer ticker.Stop()
-		
-		for {
-			select {
-			case <-l.stopFocus:
-				return
-			case <-ticker.C:
-				l.app.QueueUpdateDraw(func() {
-					currentFocus := l.app.GetFocus()
-					
-					// Skip if focus hasn't changed
-					if currentFocus == l.lastFocus {
-						return
-					}
-					
-					l.lastFocus = currentFocus
-					
-					// Determine which panel is now focused
-					oldPanel := l.focusedPanel
-					
-					if l.fileManager.HasFocus(currentFocus) {
-						l.focusedPanel = 0
-					} else if l.editor.HasFocus(currentFocus) {
-						l.focusedPanel = 1
-					} else if l.terminal.HasFocus(currentFocus) {
-						l.focusedPanel = 2
-					}
-					
-					// If panel changed, update tab bars
-					if oldPanel != l.focusedPanel {
-						l.editor.UpdateTabBar()
-						l.terminal.UpdateTabBar()
-					}
-				})
-			}
-		}
-	}()
+	// Skip if focus hasn't changed
+	if currentFocus == l.lastFocus {
+		return
+	}
+	
+	l.lastFocus = currentFocus
+	
+	// Determine which panel is now focused
+	oldPanel := l.focusedPanel
+	
+	if l.fileManager.HasFocus(currentFocus) {
+		l.focusedPanel = 0
+	} else if l.editor.HasFocus(currentFocus) {
+		l.focusedPanel = 1
+	} else if l.terminal.HasFocus(currentFocus) {
+		l.focusedPanel = 2
+	}
+	
+	// If panel changed, update tab bars
+	if oldPanel != l.focusedPanel {
+		l.editor.UpdateTabBar()
+		l.terminal.UpdateTabBar()
+	}
 }
 
 // setupFileWatcher sets up the file system watcher
