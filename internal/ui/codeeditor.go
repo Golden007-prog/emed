@@ -1099,8 +1099,9 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 							e.selection.ExtendMouse(e.cursorRow, e.cursorCol)
 						}
 					}
+					return true, nil // Only consume if we're actually dragging
 				}
-				return true, nil
+				return false, nil // Don't consume if not dragging
 			}
 		}
 
