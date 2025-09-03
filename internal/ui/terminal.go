@@ -58,6 +58,7 @@ type Terminal struct {
 	noTermsView     *tview.TextView // View shown when no terminals are open
 	app             *tview.Application // Reference to app for refresh
 	onLastTabClosed func() // Callback when last tab is closed
+	tabClickInfo    []components.TabClickInfo // Track clickable regions in the tab bar
 }
 
 // NewTerminal creates a new terminal panel
@@ -88,6 +89,41 @@ func NewTerminal() *Terminal {
 		SetTitle(" Terminal ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
+
+	// Set up mouse handler for tab clicks in title bar
+	t.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			x, y := event.Position()
+			// Get container position and dimensions
+			containerX, containerY, containerWidth, _ := t.container.GetRect()
+			
+			// Check if click is on the title bar (y == containerY means top border)
+			if y == containerY && x >= containerX && x < containerX+containerWidth {
+				// Calculate relative position in title bar
+				relativeX := x - containerX - 1 // -1 for the left border character
+				
+				// Check which tab was clicked based on stored click info
+				for _, clickInfo := range t.tabClickInfo {
+					if relativeX >= clickInfo.StartX && relativeX < clickInfo.EndX {
+						// Switch to this tab
+						tabs := t.tabManager.GetTabs()
+						if clickInfo.TabIndex < len(tabs) {
+							tabID := tabs[clickInfo.TabIndex].GetID()
+							t.tabManager.SwitchToTab(tabID)
+							t.switchToTabByID(tabID)
+							// Focus the terminal panel
+							if t.app != nil {
+								t.app.SetFocus(t.container)
+							}
+						}
+						return action, nil // Consume the event
+					}
+				}
+			}
+		}
+		// Pass through all other events
+		return action, event
+	})
 
 	// Show no terminals view initially
 	t.showNoTermsView()
@@ -199,6 +235,14 @@ func (t *Terminal) switchToTabByID(id int) {
 	t.UpdateTabBar()
 }
 
+// switchToTabByIndex switches to a tab by its index in the tab list
+func (t *Terminal) switchToTabByIndex(index int) {
+	tabs := t.tabManager.GetTabs()
+	if index >= 0 && index < len(tabs) {
+		t.switchToTabByID(tabs[index].GetID())
+	}
+}
+
 // updateTabBar updates the title with tab information
 // UpdateTabBar updates the tab bar display
 func (t *Terminal) UpdateTabBar() {
@@ -222,7 +266,8 @@ func (t *Terminal) UpdateTabBar() {
 	if t.app != nil {
 		hasFocus = t.HasFocus(t.app.GetFocus())
 	}
-	tabBarText := t.tabManager.GenerateTabBarText(availableWidth, hasFocus)
+	tabBarText, clickInfo := t.tabManager.GenerateTabBarTextWithPositions(availableWidth, hasFocus)
+	t.tabClickInfo = clickInfo
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
 		t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)

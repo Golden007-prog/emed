@@ -245,8 +245,21 @@ func (m *BaseTabManager) SetOnTabSwitched(callback func(id int)) {
 	// Empty - direct UI updates are handled by the parent component instead
 }
 
+// TabClickInfo contains information about clickable tab regions
+type TabClickInfo struct {
+	TabIndex int // Index of the tab in the tab list
+	StartX   int // Starting X position in the title bar
+	EndX     int // Ending X position in the title bar
+}
+
 // GenerateTabBarText generates the tab bar text with proper formatting
 func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string {
+	text, _ := m.GenerateTabBarTextWithPositions(maxWidth, hasFocus)
+	return text
+}
+
+// GenerateTabBarTextWithPositions generates tab bar text and returns click position info
+func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus bool) (string, []TabClickInfo) {
 	m.mu.RLock()
 	
 	// Copy tab data while holding the lock
@@ -266,7 +279,7 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string 
 	m.mu.RUnlock()
 	
 	if len(tabDataList) == 0 {
-		return ""
+		return "", nil
 	}
 	
 	// Build all tab texts first to calculate total width
@@ -324,10 +337,19 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string 
 	// If maxWidth is 0 or all tabs fit, return all tabs
 	if maxWidth <= 0 || totalWidth <= maxWidth {
 		var result string
-		for _, tab := range allTabs {
+		var clickInfo []TabClickInfo
+		currentX := 0
+		
+		for i, tab := range allTabs {
+			clickInfo = append(clickInfo, TabClickInfo{
+				TabIndex: i,
+				StartX:   currentX,
+				EndX:     currentX + tab.width,
+			})
 			result += tab.text
+			currentX += tab.width
 		}
-		return result
+		return result, clickInfo
 	}
 	
 	// Otherwise, show as many tabs as possible, prioritizing the active tab
@@ -378,15 +400,24 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string 
 	
 	// Build the final tab bar text
 	var tabText string
+	var clickInfo []TabClickInfo
+	currentX := 0
 	
 	// Add left indicator if there are hidden tabs on the left
 	if len(visibleTabs) > 0 && visibleTabs[0] > 0 {
 		tabText += "[gray]◀ [-]"
+		currentX += 2 // "◀ "
 	}
 	
 	// Add visible tabs
 	for _, idx := range visibleTabs {
+		clickInfo = append(clickInfo, TabClickInfo{
+			TabIndex: idx,
+			StartX:   currentX,
+			EndX:     currentX + allTabs[idx].width,
+		})
 		tabText += allTabs[idx].text
+		currentX += allTabs[idx].width
 	}
 	
 	// Add right indicator if there are hidden tabs on the right
@@ -394,7 +425,7 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string 
 		tabText += " [gray]▶[-]"
 	}
 	
-	return tabText
+	return tabText, clickInfo
 }
 
 // GetNextTabID returns the next available tab ID

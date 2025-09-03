@@ -6,9 +6,10 @@ type Position struct {
 }
 
 type Selection struct {
-	start  Position
-	end    Position
-	active bool
+	start        Position
+	end          Position
+	active       bool
+	mouseDragging bool // Track if currently dragging with mouse
 }
 
 func New() *Selection {
@@ -21,16 +22,45 @@ func (s *Selection) Start(row, col int) {
 	s.start = Position{Row: row, Col: col}
 	s.end = Position{Row: row, Col: col}
 	s.active = true
+	s.mouseDragging = false // This is for keyboard selection
+}
+
+func (s *Selection) StartMouseDrag(row, col int) {
+	s.start = Position{Row: row, Col: col}
+	s.end = Position{Row: row, Col: col}
+	s.active = true
+	s.mouseDragging = true
 }
 
 func (s *Selection) Extend(row, col int) {
-	if s.active {
+	if s.active && !s.mouseDragging {
+		// Keyboard selection - always extend
 		s.end = Position{Row: row, Col: col}
 	}
 }
 
+func (s *Selection) ExtendMouse(row, col int) {
+	if s.active && s.mouseDragging {
+		// Mouse selection - only extend if dragging
+		s.end = Position{Row: row, Col: col}
+	}
+}
+
+func (s *Selection) StopMouseDrag() {
+	s.mouseDragging = false
+	// If selection is empty (start == end), clear it
+	if s.start == s.end {
+		s.Clear()
+	}
+}
+
+func (s *Selection) IsMouseDragging() bool {
+	return s.mouseDragging
+}
+
 func (s *Selection) Clear() {
 	s.active = false
+	s.mouseDragging = false
 	s.start = Position{}
 	s.end = Position{}
 }

@@ -90,12 +90,17 @@ func (m *EmModal) Close() {
 	}
 	
 	// Restore the focus that was saved when modal was shown (not current focus)
-	if m.savedFocus != nil {
-		m.app.SetFocus(m.savedFocus)
-	} else if previousFocus != nil {
-		// Fallback for compatibility
-		m.app.SetFocus(previousFocus)
-	}
+	// Schedule focus restoration for next draw cycle to ensure UI is ready
+	go func() {
+		m.app.QueueUpdateDraw(func() {
+			if m.savedFocus != nil {
+				m.app.SetFocus(m.savedFocus)
+			} else if previousFocus != nil {
+				// Fallback for compatibility
+				m.app.SetFocus(previousFocus)
+			}
+		})
+	}()
 }
 
 // Cancel cancels the modal (only for cancellable modals)

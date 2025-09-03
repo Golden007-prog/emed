@@ -23,10 +23,12 @@ type Layout struct {
 	statusBar   *StatusBar
 	fileWatcher *FileWatcher // File system watcher
 	stopTicker  chan bool    // Channel to stop the status update ticker
+	stopFocus   chan bool    // Channel to stop focus detection
 	// No longer need pages or modal tracking
 	
 	// Track which panel is currently focused
 	focusedPanel int // 0: fileManager, 1: editor, 2: terminal
+	lastFocus    tview.Primitive // Track last focused primitive to detect changes
 	
 	// Layout configuration
 	terminalPosition string // "bottom" or "right"
@@ -163,6 +165,9 @@ func (l *Layout) initialize() {
 	
 	// Set up file watcher
 	l.setupFileWatcher()
+	
+	// Set up focus change detection
+	l.setupFocusDetection()
 	
 	// Focus the file manager initially after a brief delay to ensure UI is ready
 	go func() {
@@ -587,7 +592,9 @@ func (l *Layout) setupKeybindings() {
 // Focus management methods
 func (l *Layout) focusFileManager() {
 	l.focusedPanel = 0
-	l.app.SetFocus(l.fileManager.GetView())
+	view := l.fileManager.GetView()
+	l.app.SetFocus(view)
+	l.lastFocus = view
 	// Update tab bars to reflect focus change
 	l.editor.UpdateTabBar()
 	l.terminal.UpdateTabBar()
@@ -599,7 +606,9 @@ func (l *Layout) focusEditor() {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 1
-	l.app.SetFocus(l.editor.GetView())
+	view := l.editor.GetView()
+	l.app.SetFocus(view)
+	l.lastFocus = view
 	// Update tab bars to reflect focus change
 	l.editor.UpdateTabBar()
 	l.terminal.UpdateTabBar()
@@ -611,7 +620,9 @@ func (l *Layout) focusTerminal() {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 2
-	l.app.SetFocus(l.terminal.GetView())
+	view := l.terminal.GetView()
+	l.app.SetFocus(view)
+	l.lastFocus = view
 	// Update tab bars to reflect focus change
 	l.editor.UpdateTabBar()
 	l.terminal.UpdateTabBar()
@@ -637,6 +648,52 @@ func (l *Layout) OpenFile(path string) {
 	}
 	
 	l.focusEditor()
+}
+
+// setupFocusDetection sets up periodic focus change detection
+func (l *Layout) setupFocusDetection() {
+	l.stopFocus = make(chan bool)
+	
+	// Start a goroutine that periodically checks for focus changes
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond) // Check every 100ms
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-l.stopFocus:
+				return
+			case <-ticker.C:
+				l.app.QueueUpdateDraw(func() {
+					currentFocus := l.app.GetFocus()
+					
+					// Skip if focus hasn't changed
+					if currentFocus == l.lastFocus {
+						return
+					}
+					
+					l.lastFocus = currentFocus
+					
+					// Determine which panel is now focused
+					oldPanel := l.focusedPanel
+					
+					if l.fileManager.HasFocus(currentFocus) {
+						l.focusedPanel = 0
+					} else if l.editor.HasFocus(currentFocus) {
+						l.focusedPanel = 1
+					} else if l.terminal.HasFocus(currentFocus) {
+						l.focusedPanel = 2
+					}
+					
+					// If panel changed, update tab bars
+					if oldPanel != l.focusedPanel {
+						l.editor.UpdateTabBar()
+						l.terminal.UpdateTabBar()
+					}
+				})
+			}
+		}
+	}()
 }
 
 // setupFileWatcher sets up the file system watcher
@@ -786,5 +843,8 @@ func (l *Layout) Stop() {
 	}
 	if l.stopTicker != nil {
 		close(l.stopTicker)
+	}
+	if l.stopFocus != nil {
+		close(l.stopFocus)
 	}
 }

@@ -1060,8 +1060,8 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 
 				lineNumWidth := e.getLineNumberWidth() + 1
 				mouseX, mouseY := event.Position()
-				clickX := mouseX - x - lineNumWidth
-				clickY := mouseY - y
+				clickX := mouseX - rectX - lineNumWidth
+				clickY := mouseY - rectY
 
 				if clickX >= 0 && clickY >= 0 {
 					row := e.offsetRow + clickY
@@ -1071,21 +1071,22 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 						e.cursorCol = col
 						e.adjustCursorColumn()
 
-						e.selection.Start(e.cursorRow, e.cursorCol)
+						e.selection.StartMouseDrag(e.cursorRow, e.cursorCol)
 					}
 				}
 
 				return true, e // Capture for drag selection
 
 			case tview.MouseLeftUp:
+				e.selection.StopMouseDrag()
 				return true, nil
 
 			case tview.MouseMove:
-				if e.selection.IsActive() {
+				if e.selection.IsMouseDragging() {
 					lineNumWidth := e.getLineNumberWidth() + 1
 					mouseX, mouseY := event.Position()
-					clickX := mouseX - x - lineNumWidth
-					clickY := mouseY - y
+					clickX := mouseX - rectX - lineNumWidth
+					clickY := mouseY - rectY
 
 					if clickX >= 0 && clickY >= 0 {
 						row := e.offsetRow + clickY
@@ -1095,7 +1096,7 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 							e.cursorCol = col
 							e.adjustCursorColumn()
 
-							e.selection.Extend(e.cursorRow, e.cursorCol)
+							e.selection.ExtendMouse(e.cursorRow, e.cursorCol)
 						}
 					}
 				}

@@ -65,6 +65,7 @@ type Editor struct {
 	onTabClosed       func(path string) // Callback when any tab is closed
 	fileChangeHandler *components.FileChangeHandler // Handles external file changes
 	dialogManager     *EditorDialogManager // Handles all dialog operations
+	tabClickInfo      []components.TabClickInfo // Track clickable regions in the tab bar
 }
 
 // NewEditor creates a new editor panel
@@ -96,6 +97,41 @@ func NewEditor() *Editor {
 		SetTitle(" Editor ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
+	
+	// Set up mouse handler for tab clicks in title bar
+	e.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			x, y := event.Position()
+			// Get container position and dimensions
+			containerX, containerY, containerWidth, _ := e.container.GetRect()
+			
+			// Check if click is on the title bar (y == containerY means top border)
+			if y == containerY && x >= containerX && x < containerX+containerWidth {
+				// Calculate relative position in title bar
+				relativeX := x - containerX - 1 // -1 for the left border character
+				
+				// Check which tab was clicked based on stored click info
+				for _, clickInfo := range e.tabClickInfo {
+					if relativeX >= clickInfo.StartX && relativeX < clickInfo.EndX {
+						// Switch to this tab
+						tabs := e.tabManager.GetTabs()
+						if clickInfo.TabIndex < len(tabs) {
+							tabID := tabs[clickInfo.TabIndex].GetID()
+							e.tabManager.SwitchToTab(tabID)
+							e.switchToTabByID(tabID)
+							// Focus the editor panel
+							if e.app != nil {
+								e.app.SetFocus(e.container)
+							}
+						}
+						return action, nil // Consume the event
+					}
+				}
+			}
+		}
+		// Pass through all other events
+		return action, event
+	})
 	
 	// Show no docs view initially
 	e.showNoDocsView()
@@ -158,6 +194,14 @@ func (e *Editor) switchToTabByID(id int) {
 	if found {
 		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
 		e.UpdateTabBar()
+	}
+}
+
+// switchToTabByIndex switches to a tab by its index in the tab list
+func (e *Editor) switchToTabByIndex(index int) {
+	tabs := e.tabManager.GetTabs()
+	if index >= 0 && index < len(tabs) {
+		e.switchToTabByID(tabs[index].GetID())
 	}
 }
 
@@ -326,7 +370,8 @@ func (e *Editor) UpdateTabBar() {
 	if e.app != nil {
 		hasFocus = e.HasFocus(e.app.GetFocus())
 	}
-	tabBarText := e.tabManager.GenerateTabBarText(availableWidth, hasFocus)
+	tabBarText, clickInfo := e.tabManager.GenerateTabBarTextWithPositions(availableWidth, hasFocus)
+	e.tabClickInfo = clickInfo
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
 		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
