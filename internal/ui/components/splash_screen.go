@@ -82,17 +82,36 @@ made with ♥ in Sonora[-]
 		SetText(helpText).
 		SetDynamicColors(true)
 	helpTextView.SetBackgroundColor(tcell.ColorBlack)
+	
+	// Make the text view ignore all mouse events
+	helpTextView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		// Return nil to prevent the mouse event from being processed
+		return action, nil
+	})
 
 	// Create spacer boxes with black background
 	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	
+	// Make spacer boxes ignore mouse events
+	topSpacer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		return action, nil
+	})
+	bottomSpacer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		return action, nil
+	})
 
 	// Create a flex container to center vertically
 	centerFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(topSpacer, 0, 1, false).      // Top spacer
-		AddItem(helpTextView, 10, 0, false). // ASCII art (fixed height)
+		AddItem(helpTextView, 11, 0, false). // ASCII art (fixed height with extra line for rendering)
 		AddItem(bottomSpacer, 0, 1, false)   // Bottom spacer
 	centerFlex.SetBackgroundColor(tcell.ColorBlack)
+	
+	// Make the entire flex container ignore mouse events
+	centerFlex.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		return action, nil
+	})
 
 	return centerFlex
 }
