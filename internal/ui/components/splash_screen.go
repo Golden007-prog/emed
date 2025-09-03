@@ -8,12 +8,12 @@ import (
 	"github.com/rivo/tview"
 )
 
-// SplashScreen handles the no-documents view with ASCII art
+// SplashScreen displays the application splash screen with random taglines.
 type SplashScreen struct {
 	taglines []string
 }
 
-// NewSplashScreen creates a new splash screen component
+// NewSplashScreen creates a new splash screen with predefined taglines.
 func NewSplashScreen() *SplashScreen {
 	return &SplashScreen{
 		taglines: []string{
@@ -40,7 +40,6 @@ func NewSplashScreen() *SplashScreen {
 			"Exploding Monkeys, Every Day.",
 			"Enter My Elegant Dungeon.",
 
-			// Spanglish mix
 			"Editor Magnífico, Excelente Diseño.",
 			"Edita Más, Escribe Doble.",
 			"El Mundo Es Digital.",
@@ -55,9 +54,8 @@ func NewSplashScreen() *SplashScreen {
 	}
 }
 
-// CreateNoDocsView creates the view shown when no documents are open
+// CreateNoDocsView creates the view shown when no documents are open.
 func (s *SplashScreen) CreateNoDocsView() tview.Primitive {
-	// Create no documents view with blue ASCII art
 	helpText := `[blue]███████╗███╗   ███╗███████╗██████╗ 
 ██╔════╝████╗ ████║██╔════╝██╔══██╗
 █████╗  ██╔████╔██║█████╗  ██║  ██║
@@ -70,30 +68,23 @@ made with ♥ in Sonora[-]
 [gray]Ayuda / Help: Alt+H / F1[-]
 `
 
-	// Select a tagline
 	tagline := s.getRandomTagline()
 
-	// Replace {tagline} with actual tagline
 	helpText = strings.ReplaceAll(helpText, "{tagline}", tagline)
 
-	// Create the text view for the help text
 	helpTextView := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText(helpText).
 		SetDynamicColors(true)
 	helpTextView.SetBackgroundColor(tcell.ColorBlack)
 	
-	// Make the text view ignore all mouse events
 	helpTextView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		// Return nil to prevent the mouse event from being processed
 		return action, nil
 	})
 
-	// Create spacer boxes with black background
 	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	
-	// Make spacer boxes ignore mouse events
 	topSpacer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil
 	})
@@ -101,11 +92,10 @@ made with ♥ in Sonora[-]
 		return action, nil
 	})
 
-	// Create a flex container to center vertically
 	centerFlex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(topSpacer, 0, 1, false).      // Top spacer
-		AddItem(helpTextView, 11, 0, false). // ASCII art (fixed height with extra line for rendering)
-		AddItem(bottomSpacer, 0, 1, false)   // Bottom spacer
+		AddItem(topSpacer, 0, 1, false).
+		AddItem(helpTextView, 11, 0, false).
+		AddItem(bottomSpacer, 0, 1, false)
 	centerFlex.SetBackgroundColor(tcell.ColorBlack)
 	
 	// Make the entire flex container ignore mouse events

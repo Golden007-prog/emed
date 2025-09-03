@@ -1,3 +1,4 @@
+// Package components provides reusable UI components.
 package components
 
 import (
@@ -8,23 +9,21 @@ import (
 	"github.com/rivo/tview"
 )
 
-// BaseTabManager provides common tab management functionality
+// BaseTabManager manages tabs and provides tab switching functionality.
 type BaseTabManager struct {
 	tabs              []interfaces.Tab
 	activeTab         int
 	nextTabID         int
 	mu                sync.RWMutex
 	
-	// Callbacks
 	onTabClosed       func(id int)
 	onLastTabClosed   func()
 	
-	// UI components
 	tabBar            *tview.TextView
 	container         *tview.Flex
 }
 
-// NewBaseTabManager creates a new base tab manager
+// NewBaseTabManager creates a new tab manager.
 func NewBaseTabManager() *BaseTabManager {
 	return &BaseTabManager{
 		tabs:      make([]interfaces.Tab, 0),
@@ -35,7 +34,7 @@ func NewBaseTabManager() *BaseTabManager {
 	}
 }
 
-// AddTab adds a new tab to the manager
+// AddTab adds a new tab and makes it active.
 func (m *BaseTabManager) AddTab(tab interfaces.Tab) {
 	m.mu.Lock()
 	m.tabs = append(m.tabs, tab)
@@ -43,16 +42,14 @@ func (m *BaseTabManager) AddTab(tab interfaces.Tab) {
 	m.mu.Unlock()
 }
 
-// RemoveTab removes a tab by ID
+// RemoveTab removes a tab by its ID.
 func (m *BaseTabManager) RemoveTab(id int) error {
 	m.mu.Lock()
 	
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
-			// Remove the tab
 			m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
 			
-			// Adjust active tab
 			var lastTabCallback func()
 			var tabClosedCallback func(int)
 			
@@ -62,14 +59,12 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 			} else if m.activeTab >= len(m.tabs) {
 				m.activeTab = len(m.tabs) - 1
 			} else if m.activeTab > i {
-				// Active tab was after the removed tab, adjust index
 				m.activeTab--
 			}
 			
 			tabClosedCallback = m.onTabClosed
 			m.mu.Unlock()
 			
-			// Call callbacks after releasing lock
 			if tabClosedCallback != nil {
 				tabClosedCallback(id)
 			}
@@ -85,7 +80,7 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
-// SwitchToTab switches to a tab by ID
+// SwitchToTab switches to the tab with the given ID.
 func (m *BaseTabManager) SwitchToTab(id int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,7 +88,6 @@ func (m *BaseTabManager) SwitchToTab(id int) error {
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
 			if m.activeTab == i {
-				// Already active
 				return nil
 			}
 			m.activeTab = i
@@ -104,7 +98,7 @@ func (m *BaseTabManager) SwitchToTab(id int) error {
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
-// GetActiveTabID returns the ID of the active tab
+// GetActiveTabID returns the ID of the currently active tab.
 func (m *BaseTabManager) GetActiveTabID() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -115,7 +109,7 @@ func (m *BaseTabManager) GetActiveTabID() int {
 	return -1
 }
 
-// GetActiveTab returns the active tab
+// GetActiveTab returns the currently active tab.
 func (m *BaseTabManager) GetActiveTab() interfaces.Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -126,21 +120,21 @@ func (m *BaseTabManager) GetActiveTab() interfaces.Tab {
 	return nil
 }
 
-// GetTabCount returns the number of tabs
+// GetTabCount returns the number of open tabs.
 func (m *BaseTabManager) GetTabCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.tabs)
 }
 
-// HasTabs returns true if there are any tabs
+// HasTabs returns true if there are any open tabs.
 func (m *BaseTabManager) HasTabs() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.tabs) > 0
 }
 
-// GetTabs returns a copy of all tabs
+// GetTabs returns a copy of all tabs.
 func (m *BaseTabManager) GetTabs() []interfaces.Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -150,7 +144,7 @@ func (m *BaseTabManager) GetTabs() []interfaces.Tab {
 	return result
 }
 
-// NextTab switches to the next tab  
+// NextTab switches to the next tab.
 func (m *BaseTabManager) NextTab() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,7 +154,7 @@ func (m *BaseTabManager) NextTab() {
 	}
 }
 
-// NextTabWithID switches to the next tab and returns the new active tab ID
+// NextTabWithID switches to the next tab and returns its ID.
 func (m *BaseTabManager) NextTabWithID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -174,7 +168,7 @@ func (m *BaseTabManager) NextTabWithID() int {
 	return -1
 }
 
-// PreviousTab switches to the previous tab
+// PreviousTab switches to the previous tab.
 func (m *BaseTabManager) PreviousTab() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -187,7 +181,7 @@ func (m *BaseTabManager) PreviousTab() {
 	}
 }
 
-// PreviousTabWithID switches to the previous tab and returns the new active tab ID
+// PreviousTabWithID switches to the previous tab and returns its ID.
 func (m *BaseTabManager) PreviousTabWithID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -204,7 +198,6 @@ func (m *BaseTabManager) PreviousTabWithID() int {
 	return -1
 }
 
-// GoToTabByIndex switches to a tab by index
 func (m *BaseTabManager) GoToTabByIndex(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -214,7 +207,6 @@ func (m *BaseTabManager) GoToTabByIndex(index int) {
 	}
 }
 
-// GoToTabByIndexWithID switches to a tab by index and returns the new active tab ID
 func (m *BaseTabManager) GoToTabByIndexWithID(index int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -226,43 +218,40 @@ func (m *BaseTabManager) GoToTabByIndexWithID(index int) int {
 	return -1
 }
 
-// SetOnTabClosed sets the callback for when a tab is closed
+// SetOnTabClosed sets the callback for when a tab is closed.
 func (m *BaseTabManager) SetOnTabClosed(callback func(id int)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onTabClosed = callback
 }
 
-// SetOnLastTabClosed sets the callback for when the last tab is closed
+// SetOnLastTabClosed sets the callback for when the last tab is closed.
 func (m *BaseTabManager) SetOnLastTabClosed(callback func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onLastTabClosed = callback
 }
 
-// SetOnTabSwitched sets the callback for when a tab is switched
 func (m *BaseTabManager) SetOnTabSwitched(callback func(id int)) {
-	// Empty - direct UI updates are handled by the parent component instead
 }
 
-// TabClickInfo contains information about clickable tab regions
+// TabClickInfo contains information about clickable tab areas.
 type TabClickInfo struct {
-	TabIndex int // Index of the tab in the tab list
-	StartX   int // Starting X position in the title bar
-	EndX     int // Ending X position in the title bar
+	TabIndex int
+	StartX   int
+	EndX     int
 }
 
-// GenerateTabBarText generates the tab bar text with proper formatting
+// GenerateTabBarText generates the text representation of the tab bar.
 func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string {
 	text, _ := m.GenerateTabBarTextWithPositions(maxWidth, hasFocus)
 	return text
 }
 
-// GenerateTabBarTextWithPositions generates tab bar text and returns click position info
+// GenerateTabBarTextWithPositions generates tab bar text with click position info.
 func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus bool) (string, []TabClickInfo) {
 	m.mu.RLock()
 	
-	// Copy tab data while holding the lock
 	type tabData struct {
 		title    string
 		modified bool
@@ -282,7 +271,6 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		return "", nil
 	}
 	
-	// Build all tab texts first to calculate total width
 	type tabInfo struct {
 		text string
 		width int
@@ -293,16 +281,13 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	for i, data := range tabDataList {
 		title := data.title
 		
-		// Add modified indicator
 		if data.modified {
 			title = "● " + title
 		}
 		
-		// Format based on whether it's active
 		var tabStr string
 		var displayWidth int
 		if data.isActive {
-			// Only use blue color if the panel has focus
 			if hasFocus {
 				tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
 			} else {
@@ -314,17 +299,13 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 			displayWidth = len(title)
 		}
 		
-		// Add separator after this tab if needed
 		if i < len(tabDataList)-1 {
-			// Check if next tab is active
 			nextIsActive := tabDataList[i+1].isActive
 			
 			if !data.isActive && !nextIsActive {
-				// Both current and next are inactive, add separator
 				tabStr += " [gray]|[-] "
 				displayWidth += 3 // " | "
 			} else {
-				// Current or next is active, just add space
 				tabStr += " "
 				displayWidth += 1
 			}
@@ -334,7 +315,6 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		totalWidth += displayWidth
 	}
 	
-	// If maxWidth is 0 or all tabs fit, return all tabs
 	if maxWidth <= 0 || totalWidth <= maxWidth {
 		var result string
 		var clickInfo []TabClickInfo
@@ -352,11 +332,9 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		return result, clickInfo
 	}
 	
-	// Otherwise, show as many tabs as possible, prioritizing the active tab
 	var visibleTabs []int
 	usedWidth := 0
 	
-	// Find the active tab index
 	activeIdx := -1
 	for i, data := range tabDataList {
 		if data.isActive {
@@ -365,11 +343,9 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		}
 	}
 	if activeIdx >= 0 {
-		// Always include the active tab
 		visibleTabs = append(visibleTabs, activeIdx)
 		usedWidth += allTabs[activeIdx].width
 		
-		// Add tabs around the active tab
 		left := activeIdx - 1
 		right := activeIdx + 1
 		for (left >= 0 || right < len(tabDataList)) && usedWidth < maxWidth {
@@ -398,18 +374,15 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		}
 	}
 	
-	// Build the final tab bar text
 	var tabText string
 	var clickInfo []TabClickInfo
 	currentX := 0
 	
-	// Add left indicator if there are hidden tabs on the left
 	if len(visibleTabs) > 0 && visibleTabs[0] > 0 {
 		tabText += "[gray]◀ [-]"
-		currentX += 2 // "◀ "
+		currentX += 2
 	}
 	
-	// Add visible tabs
 	for _, idx := range visibleTabs {
 		clickInfo = append(clickInfo, TabClickInfo{
 			TabIndex: idx,
@@ -420,7 +393,6 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		currentX += allTabs[idx].width
 	}
 	
-	// Add right indicator if there are hidden tabs on the right
 	if len(visibleTabs) > 0 && visibleTabs[len(visibleTabs)-1] < len(tabDataList)-1 {
 		tabText += " [gray]▶[-]"
 	}
@@ -428,7 +400,7 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	return tabText, clickInfo
 }
 
-// GetNextTabID returns the next available tab ID
+// GetNextTabID returns and increments the next available tab ID.
 func (m *BaseTabManager) GetNextTabID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

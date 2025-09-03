@@ -2,7 +2,7 @@ package keybindings
 
 import "github.com/gdamore/tcell/v2"
 
-// NavigationHandlers defines keyboard handlers for navigation
+// NavigationHandlers contains handlers for navigation shortcuts.
 type NavigationHandlers struct {
 	FocusFileManager func() error
 	FocusEditor      func() error
@@ -12,9 +12,8 @@ type NavigationHandlers struct {
 	CloseTab         func() error
 }
 
-// RegisterNavigationHandlers registers all navigation-related key handlers
+// RegisterNavigationHandlers registers navigation keyboard shortcuts.
 func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationHandlers) {
-	// Focus navigation
 	if handlers.FocusFileManager != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -45,7 +44,6 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 		})
 	}
 	
-	// Tab navigation
 	if handlers.NextTab != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyTab,

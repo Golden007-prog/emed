@@ -8,60 +8,58 @@ import (
 	"github.com/rivo/tview"
 )
 
-// TerminalTab represents a single terminal session and implements the Tab interface
+// TerminalTab represents a single terminal tab within the Terminal component.
 type TerminalTab struct {
 	id       int
 	emulator *VT10XTerminal
 	modified bool
-	title    string // Custom title set by terminal application
+	title    string
 }
 
-// GetID returns the tab ID
+// GetID returns the unique identifier for this terminal tab.
 func (t *TerminalTab) GetID() int {
 	return t.id
 }
 
-// GetTitle returns the tab title
+// GetTitle returns the display title for this terminal tab.
 func (t *TerminalTab) GetTitle() string {
-	// Use custom title if set, otherwise default
 	title := t.title
 	if title == "" {
 		title = fmt.Sprintf("Term %d", t.id)
 	}
-	// Add mode indicator for passthrough mode
 	if t.emulator != nil && t.emulator.GetMode() == ModePassthrough {
 		title += " *"
 	}
 	return title
 }
 
-// GetContent returns the terminal emulator as content
+// GetContent returns the tview primitive that represents the tab content.
 func (t *TerminalTab) GetContent() tview.Primitive {
 	return t.emulator
 }
 
-// SetModified sets the modified flag
+// SetModified sets the modified state of the terminal tab.
 func (t *TerminalTab) SetModified(modified bool) {
 	t.modified = modified
 }
 
-// IsModified returns the modified flag
+// IsModified returns whether the terminal tab has been modified.
 func (t *TerminalTab) IsModified() bool {
 	return t.modified
 }
 
-// Terminal represents the terminal panel with tabs using BaseTabManager
+// Terminal manages multiple terminal tabs and provides terminal functionality.
 type Terminal struct {
 	container       *tview.Flex
 	contentArea     *tview.Pages
 	tabManager      *components.BaseTabManager
-	noTermsView     *tview.TextView // View shown when no terminals are open
-	app             *tview.Application // Reference to app for refresh
-	onLastTabClosed func() // Callback when last tab is closed
-	tabClickInfo    []components.TabClickInfo // Track clickable regions in the tab bar
+	noTermsView     *tview.TextView
+	app             *tview.Application
+	onLastTabClosed func()
+	tabClickInfo    []components.TabClickInfo
 }
 
-// NewTerminal creates a new terminal panel
+// NewTerminal creates a new Terminal component with no tabs.
 func NewTerminal() *Terminal {
 	t := &Terminal{
 		container:   tview.NewFlex().SetDirection(tview.FlexRow),
@@ -69,19 +67,15 @@ func NewTerminal() *Terminal {
 		tabManager:  components.NewBaseTabManager(),
 	}
 
-	// Set background color for content area
 	t.contentArea.SetBackgroundColor(tcell.ColorBlack)
 
-	// Create no terminals view
 	t.noTermsView = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("\n\n\nNo terminal open.\n\nPress Ctrl+T to create a new terminal.")
 	t.noTermsView.SetBackgroundColor(tcell.ColorBlack)
 
-	// Add the no terminals view as a page
 	t.contentArea.AddPage("no-terms", t.noTermsView, true, false)
 
-	// Set up container
 	t.container.
 		AddItem(t.contentArea, 0, 1, true).
 		SetBorder(true).
@@ -90,45 +84,35 @@ func NewTerminal() *Terminal {
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
 
-	// Set up mouse handler for tab clicks in title bar
 	t.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftClick {
 			x, y := event.Position()
-			// Get container position and dimensions
 			containerX, containerY, containerWidth, _ := t.container.GetRect()
 			
-			// Check if click is on the title bar (y == containerY means top border)
 			if y == containerY && x >= containerX && x < containerX+containerWidth {
-				// Calculate relative position in title bar
-				relativeX := x - containerX - 1 // -1 for the left border character
+				relativeX := x - containerX - 1
 				
-				// Check which tab was clicked based on stored click info
 				for _, clickInfo := range t.tabClickInfo {
 					if relativeX >= clickInfo.StartX && relativeX < clickInfo.EndX {
-						// Switch to this tab
 						tabs := t.tabManager.GetTabs()
 						if clickInfo.TabIndex < len(tabs) {
 							tabID := tabs[clickInfo.TabIndex].GetID()
 							t.tabManager.SwitchToTab(tabID)
 							t.switchToTabByID(tabID)
-							// Focus the terminal panel
 							if t.app != nil {
 								t.app.SetFocus(t.container)
 							}
 						}
-						return action, nil // Consume the event
+						return action, nil
 					}
 				}
 			}
 		}
-		// Pass through all other events
 		return action, event
 	})
 
-	// Show no terminals view initially
 	t.showNoTermsView()
 
-	// Set up tab manager callbacks
 
 	t.tabManager.SetOnLastTabClosed(func() {
 		t.showNoTermsView()
@@ -138,41 +122,33 @@ func NewTerminal() *Terminal {
 	})
 
 	t.tabManager.SetOnTabClosed(func(id int) {
-		// Remove from content area
 		t.contentArea.RemovePage(fmt.Sprintf("term-%d", id))
-		// Update the tab bar to reflect the change
 		t.UpdateTabBar()
 	})
 
 	return t
 }
 
-// SetApp sets the application reference for refresh
+// SetApp sets the application reference for the terminal.
 func (t *Terminal) SetApp(app *tview.Application) {
 	t.app = app
 }
 
-// NewTab creates a new terminal tab
+// NewTab creates and adds a new terminal tab.
 func (t *Terminal) NewTab() {
-	// Create terminal emulator
 	emulator := NewVT10XTerminal()
 
-	// Set app reference for refresh
 	if t.app != nil {
 		emulator.SetApp(t.app)
 	}
 
-	// Get next tab ID from tab manager
 	tabID := t.tabManager.GetNextTabID()
 
-	// Set mode change callback to update status
 	emulator.SetOnModeChange(func(mode TerminalMode) {
-		t.UpdateTabBar() // Refresh to show mode indicator
+		t.UpdateTabBar()
 	})
 
-	// Set exit callback to auto-close tab when shell exits
 	emulator.SetOnExit(func() {
-		// Close the tab with this emulator
 		if t.app != nil {
 			t.app.QueueUpdateDraw(func() {
 				t.tabManager.RemoveTab(tabID)
@@ -180,11 +156,9 @@ func (t *Terminal) NewTab() {
 		}
 	})
 	
-	// Set title change callback to update tab title
 	emulator.SetOnTitleChange(func(title string) {
 		if t.app != nil {
 			t.app.QueueUpdateDraw(func() {
-				// Find the tab and update its title
 				tabs := t.tabManager.GetTabs()
 				for _, tab := range tabs {
 					if tab.GetID() == tabID {
@@ -199,9 +173,7 @@ func (t *Terminal) NewTab() {
 		}
 	})
 
-	// Start the terminal
 	if err := emulator.Start(); err != nil {
-		// Fall back to a text view with error message
 		errorView := tview.NewTextView().
 			SetText(fmt.Sprintf("Failed to start terminal: %v", err)).
 			SetTextColor(tcell.ColorRed)
@@ -209,33 +181,27 @@ func (t *Terminal) NewTab() {
 		return
 	}
 
-	// Create terminal tab and add to manager
 	tab := &TerminalTab{
 		id:       tabID,
 		emulator: emulator,
 	}
 
-	// Add page to content area
 	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), emulator, true, false)
 
-	// Add tab to manager and switch to it
 	t.tabManager.AddTab(tab)
 	t.switchToTabByID(tabID)
 }
 
-// showNoTermsView shows the "no terminals" message
 func (t *Terminal) showNoTermsView() {
 	t.contentArea.SwitchToPage("no-terms")
 	t.container.SetTitle(" Terminal ")
 }
 
-// switchToTabByID switches to the specified tab by ID
 func (t *Terminal) switchToTabByID(id int) {
 	t.contentArea.SwitchToPage(fmt.Sprintf("term-%d", id))
 	t.UpdateTabBar()
 }
 
-// switchToTabByIndex switches to a tab by its index in the tab list
 func (t *Terminal) switchToTabByIndex(index int) {
 	tabs := t.tabManager.GetTabs()
 	if index >= 0 && index < len(tabs) {
@@ -243,25 +209,19 @@ func (t *Terminal) switchToTabByIndex(index int) {
 	}
 }
 
-// updateTabBar updates the title with tab information
-// UpdateTabBar updates the tab bar display
+// UpdateTabBar refreshes the tab bar display with current tabs.
 func (t *Terminal) UpdateTabBar() {
 	if !t.tabManager.HasTabs() {
 		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
 		return
 	}
 
-	// Get the container width to make tabs responsive
 	_, _, width, _ := t.container.GetRect()
-	// tview adds padding and may add ellipsis, so we need extra buffer
-	// 2 chars for tview padding + 3 chars safety margin for ellipsis
 	availableWidth := width - 5
 	if availableWidth < 0 {
 		availableWidth = 0
 	}
 	
-	// Use BaseTabManager to generate tab bar text (same as Editor for consistency)
-	// Check if terminal has focus
 	hasFocus := false
 	if t.app != nil {
 		hasFocus = t.HasFocus(t.app.GetFocus())
@@ -276,7 +236,7 @@ func (t *Terminal) UpdateTabBar() {
 	}
 }
 
-// NextTab switches to the next tab
+// NextTab switches to the next terminal tab.
 func (t *Terminal) NextTab() {
 	tabID := t.tabManager.NextTabWithID()
 	if tabID != -1 {
@@ -284,7 +244,7 @@ func (t *Terminal) NextTab() {
 	}
 }
 
-// PreviousTab switches to the previous tab
+// PreviousTab switches to the previous terminal tab.
 func (t *Terminal) PreviousTab() {
 	tabID := t.tabManager.PreviousTabWithID()
 	if tabID != -1 {
@@ -292,54 +252,50 @@ func (t *Terminal) PreviousTab() {
 	}
 }
 
-// CloseCurrentTab closes the current tab
+// CloseCurrentTab closes the currently active terminal tab.
 func (t *Terminal) CloseCurrentTab() {
 	activeTab := t.tabManager.GetActiveTab()
 	if activeTab != nil {
-		// Stop the terminal emulator if it's a TerminalTab
 		if termTab, ok := activeTab.(*TerminalTab); ok && termTab.emulator != nil {
 			termTab.emulator.Stop()
 		}
-		// Remove from tab manager
 		t.tabManager.RemoveTab(activeTab.GetID())
 	}
 }
 
-// GetView returns the primitive for the terminal
+// GetView returns the root primitive for the terminal component.
 func (t *Terminal) GetView() tview.Primitive {
 	return t.container
 }
 
-// HasFocus checks if the terminal or any of its tabs has focus
+// HasFocus checks if the given primitive is part of the terminal component.
 func (t *Terminal) HasFocus(focused tview.Primitive) bool {
 	if focused == t.container {
 		return true
 	}
-	// Check if any tab content has focus
 	tabs := t.tabManager.GetTabs()
 	for _, tab := range tabs {
 		if focused == tab.GetContent() {
 			return true
 		}
 	}
-	// Check the no-terms view
 	if focused == t.noTermsView {
 		return true
 	}
 	return false
 }
 
-// HasTabs returns true if there are open terminal tabs
+// HasTabs returns true if there are any open terminal tabs.
 func (t *Terminal) HasTabs() bool {
 	return t.tabManager.HasTabs()
 }
 
-// SetOnLastTabClosed sets the callback to invoke when the last tab is closed
+// SetOnLastTabClosed sets a callback for when the last terminal tab is closed.
 func (t *Terminal) SetOnLastTabClosed(handler func()) {
 	t.onLastTabClosed = handler
 }
 
-// IsInPassthroughMode returns true if the active terminal is in passthrough mode
+// IsInPassthroughMode returns true if the active terminal is in passthrough mode.
 func (t *Terminal) IsInPassthroughMode() bool {
 	activeTab := t.tabManager.GetActiveTab()
 	if termTab, ok := activeTab.(*TerminalTab); ok && termTab.emulator != nil {

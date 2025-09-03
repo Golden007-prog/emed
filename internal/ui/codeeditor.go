@@ -12,42 +12,35 @@ import (
 	"github.com/rivo/tview"
 )
 
-// CodeEditor is a custom primitive for code editing with syntax highlighting
+// CodeEditor provides text editing functionality with syntax highlighting.
 type CodeEditor struct {
 	*tview.Box
 
-	// Core components
 	buffer      *buffer.TextBuffer
 	selection   *selection.Selection
 	clipboard   *clipboard.Clipboard
 	highlighter *syntax.Highlighter
 
-	// Focus state
 	hasFocus bool
 
-	// Cursor position
 	cursorRow int
 	cursorCol int
 
-	// Viewport (for scrolling)
-	offsetRow      int // First visible row
-	offsetCol      int // First visible column
-	viewportHeight int // Number of visible rows
-	viewportWidth  int // Number of visible columns
+	offsetRow      int
+	offsetCol      int
+	viewportHeight int
+	viewportWidth  int
 
-	// File info
 	filePath string
 	readOnly bool
 
-	// Callbacks
 	onModified   func(modified bool)
 	onCursorMove func(row, col int)
 
-	// Application reference
 	app *tview.Application
 }
 
-// NewCodeEditor creates a new code editor
+// NewCodeEditor creates a new code editor instance with default settings.
 func NewCodeEditor() *CodeEditor {
 	return &CodeEditor{
 		Box:       tview.NewBox(),
@@ -133,11 +126,11 @@ func (e *CodeEditor) SaveFile(path string) error {
 }
 
 // Draw draws the editor
+// Draw renders the code editor to the screen.
 func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.Box.DrawForSubclass(screen, e)
 	x, y, width, height := e.GetInnerRect()
 
-	// Clear the background with explicit black color
 	style := tcell.StyleDefault.Background(tcell.ColorBlack)
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
@@ -145,32 +138,24 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 		}
 	}
 
-	// Calculate line number width (digits + 1 space padding)
 	lineNumWidth := e.getLineNumberWidth() + 1
 
-	// Adjust viewport and content area
 	e.viewportHeight = height
-	e.viewportWidth = width - lineNumWidth - 1 // Reserve space for line numbers and scrollbar
+	e.viewportWidth = width - lineNumWidth - 1
 
-	// Update highlighter viewport for lazy tokenization
 	if e.highlighter != nil {
 		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+height-1)
 	}
 
-	// Draw line numbers and content
 	lines := e.buffer.GetLines()
 	for row := 0; row < height && row+e.offsetRow < len(lines); row++ {
-		// Draw line number
 		e.drawLineNumber(screen, row+e.offsetRow+1, x, y+row, lineNumWidth-1)
 
-		// Draw line content
 		e.drawLine(screen, row+e.offsetRow, x+lineNumWidth, y+row, width-lineNumWidth-1)
 	}
 
-	// Draw vertical scrollbar
 	e.drawScrollbar(screen, x+width-1, y, height)
 
-	// Show cursor only when focused
 	if e.hasFocus {
 		if e.cursorRow >= e.offsetRow && e.cursorRow < e.offsetRow+height {
 			cursorX := x + lineNumWidth + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
@@ -181,28 +166,23 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 			}
 		}
 	} else {
-		// Hide cursor when not focused
 		screen.HideCursor()
 	}
 }
 
-// drawLine draws a single line with syntax highlighting and tab expansion
 func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int) {
 	line := e.buffer.GetLine(lineNum)
 	if len(line) == 0 {
 		return
 	}
 
-	// Default style - white text on black background
 	defaultStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 
-	// Get syntax highlighting for this line if available
 	var tokens []syntax.TokenStyle
 	if e.highlighter != nil {
 		tokens = e.highlighter.GetLineTokens(lineNum)
 	}
 
-	// Helper function to get style for a column position
 	getStyleForColumn := func(col int) tcell.Style {
 		for _, token := range tokens {
 			if col >= token.Start && col < token.End {
@@ -212,30 +192,24 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		return defaultStyle
 	}
 
-	// Draw characters with tab expansion
 	screenX := x    // Position on screen
 	visualCol := 0  // Visual column position (accounting for tabs)
 	realCol := 0    // Real column position in buffer
 
 	for _, ch := range line {
-		// Get base style from syntax highlighting
 		style := getStyleForColumn(realCol)
 
-		// Check if this position is selected
 		isSelected := e.selection.IsPositionSelected(lineNum, realCol)
 		if isSelected {
-			// Preserve foreground color from syntax highlighting, change background
 			fg, _, _ := style.Decompose()
 			style = tcell.StyleDefault.Background(tcell.ColorDarkGray).Foreground(fg)
 		}
 
 		if ch == '\t' {
-			// Calculate spaces to next tab stop
 			tabSize := e.buffer.GetTabSize()
 			nextTabStop := ((visualCol / tabSize) + 1) * tabSize
 			spacesToAdd := nextTabStop - visualCol
 
-			// Draw spaces for the tab
 			for i := 0; i < spacesToAdd; i++ {
 				if visualCol >= e.offsetCol && screenX < x+maxWidth {
 					screen.SetContent(screenX, y, ' ', nil, style)
@@ -245,7 +219,6 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			}
 			realCol++ // Tab counts as one character in buffer
 		} else {
-			// Regular character
 			if visualCol >= e.offsetCol && screenX < x+maxWidth {
 				screen.SetContent(screenX, y, ch, nil, style)
 				screenX++
@@ -254,31 +227,26 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			realCol++
 		}
 
-		// Stop if we've filled the line
 		if screenX >= x+maxWidth {
 			return
 		}
 	}
 }
 
-// drawScrollbar draws the vertical scrollbar
 func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
 	totalLines := e.buffer.GetLineCount()
 	if totalLines == 0 {
 		totalLines = 1
 	}
 
-	// Calculate scrollbar metrics
 	visibleRatio := float64(height) / float64(totalLines)
 	if visibleRatio >= 1.0 {
-		// No scrollbar needed if all content fits
 		for i := 0; i < height; i++ {
 			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
 		}
 		return
 	}
 
-	// Calculate thumb size and position
 	thumbHeight := int(float64(height) * visibleRatio)
 	if thumbHeight < 1 {
 		thumbHeight = 1
@@ -294,28 +262,23 @@ func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
 
 	thumbPosition := int(scrollPosition * float64(height-thumbHeight))
 
-	// Draw scrollbar track and thumb
 	for i := 0; i < height; i++ {
 		if i >= thumbPosition && i < thumbPosition+thumbHeight {
-			// Draw thumb
 			screen.SetContent(x, y+i, '█', nil, tcell.StyleDefault.Foreground(tcell.ColorWhite))
 		} else {
-			// Draw track
 			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
 		}
 	}
 }
 
-// InputHandler handles keyboard input
+// InputHandler returns the input handler for keyboard events.
 func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
-		// Ignore input if not focused
 		if !e.hasFocus {
 			return
 		}
 
 		if e.readOnly {
-			// Only allow navigation in read-only mode
 			switch event.Key() {
 			case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
 				e.handleNavigationWithModifiers(event)
@@ -332,7 +295,6 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		case tcell.KeyRune:
 			modifiers := event.Modifiers()
 
-			// Handle Ctrl/Cmd key combinations
 			if modifiers&(tcell.ModCtrl|tcell.ModMeta) != 0 {
 				r := event.Rune()
 				switch {
@@ -354,7 +316,6 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 				}
 			}
 
-			// Handle Alt/Meta word navigation
 			if modifiers&(tcell.ModAlt|tcell.ModMeta) != 0 {
 				switch event.Rune() {
 				case 'b', 'B':
@@ -395,7 +356,6 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 		case tcell.KeyPgDn:
 			e.pageDown()
 
-		// Handle Ctrl key combinations that come as special keys
 		case tcell.KeyCtrlC:
 			e.copySelection()
 			return
@@ -424,22 +384,18 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			return
 		}
 
-		// Update viewport to follow cursor
 		e.ensureCursorVisible()
 	}
 }
 
-// handleNavigationWithModifiers handles navigation with modifier keys
 func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 	modifiers := event.Modifiers()
 	shiftHeld := modifiers&tcell.ModShift != 0
 
-	// Start selection if Shift is held and we don't have one
 	if shiftHeld && !e.selection.IsActive() {
 		e.selection.Start(e.cursorRow, e.cursorCol)
 	}
 
-	// Handle Ctrl/Cmd+arrow navigation
 	if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
 		switch event.Key() {
 		case tcell.KeyLeft:
@@ -452,7 +408,6 @@ func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 			e.ctrlDown()
 		}
 	} else if modifiers&tcell.ModAlt != 0 {
-		// Alt+arrow word navigation
 		switch event.Key() {
 		case tcell.KeyLeft:
 			e.wordLeft()
@@ -462,11 +417,9 @@ func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 			e.handleNavigation(event.Key())
 		}
 	} else {
-		// Regular navigation
 		e.handleNavigation(event.Key())
 	}
 
-	// Update or clear selection based on Shift key
 	if shiftHeld && e.selection.IsActive() {
 		e.selection.Extend(e.cursorRow, e.cursorCol)
 	} else if !shiftHeld && e.selection.IsActive() {
@@ -474,61 +427,48 @@ func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 	}
 }
 
-// insertRune inserts a character at the cursor position
 func (e *CodeEditor) insertRune(r rune) {
 	if e.readOnly {
 		return
 	}
 
-	// Save state for undo before making changes
 	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
-	// Delete selection first if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
 	}
 
-	// Insert the rune
 	e.buffer.InsertRune(e.cursorRow, e.cursorCol, r)
 	e.cursorCol++
 
-	// Mark as modified
 	e.setModified(true)
 }
 
-// insertNewline inserts a new line at the cursor position
 func (e *CodeEditor) insertNewline() {
 	if e.readOnly {
 		return
 	}
 
-	// Save state for undo before making changes
 	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
-	// Delete selection first if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
 	}
 
-	// Insert newline and update cursor position
 	newRow, newCol := e.buffer.InsertNewline(e.cursorRow, e.cursorCol)
 	e.cursorRow = newRow
 	e.cursorCol = newCol
 
-	// Mark as modified
 	e.setModified(true)
 }
 
-// deleteCharBackward deletes the character before the cursor
 func (e *CodeEditor) deleteCharBackward() {
 	if e.readOnly {
 		return
 	}
 
-	// Save state for undo before making changes
 	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
-	// Delete selection if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
 		return
@@ -542,16 +482,13 @@ func (e *CodeEditor) deleteCharBackward() {
 	}
 }
 
-// deleteCharForward deletes the character at the cursor
 func (e *CodeEditor) deleteCharForward() {
 	if e.readOnly {
 		return
 	}
 
-	// Save state for undo before making changes
 	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
-	// Delete selection if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
 		return
@@ -562,7 +499,6 @@ func (e *CodeEditor) deleteCharForward() {
 	}
 }
 
-// Navigation methods
 func (e *CodeEditor) handleNavigation(key tcell.Key) {
 	switch key {
 	case tcell.KeyUp:
@@ -601,7 +537,6 @@ func (e *CodeEditor) handleNavigation(key tcell.Key) {
 	}
 }
 
-// Helper methods
 func (e *CodeEditor) adjustCursorColumn() {
 	lineLen := e.buffer.GetLineLength(e.cursorRow)
 	if e.cursorCol > lineLen {
@@ -626,13 +561,11 @@ func (e *CodeEditor) ensureCursorVisible() {
 	}
 }
 
-// Scrolling methods
 func (e *CodeEditor) scrollUp(lines int) {
 	e.offsetRow -= lines
 	if e.offsetRow < 0 {
 		e.offsetRow = 0
 	}
-	// Update highlighter viewport when scrolling
 	if e.highlighter != nil && e.viewportHeight > 0 {
 		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
 	}
@@ -647,7 +580,6 @@ func (e *CodeEditor) scrollDown(lines int) {
 	if e.offsetRow > maxOffset {
 		e.offsetRow = maxOffset
 	}
-	// Update highlighter viewport when scrolling
 	if e.highlighter != nil && e.viewportHeight > 0 {
 		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
 	}
@@ -680,7 +612,6 @@ func (e *CodeEditor) scrollRight(cols int) {
 	}
 }
 
-// getVisualColumn calculates the visual column position accounting for tabs
 func (e *CodeEditor) getVisualColumn(row, col int) int {
 	line := e.buffer.GetLine(row)
 	visualCol := 0
@@ -688,7 +619,6 @@ func (e *CodeEditor) getVisualColumn(row, col int) int {
 
 	for i := 0; i < col && i < len(line); i++ {
 		if line[i] == '\t' {
-			// Tab advances to next tab stop
 			visualCol = ((visualCol / tabSize) + 1) * tabSize
 		} else {
 			visualCol++
@@ -698,7 +628,6 @@ func (e *CodeEditor) getVisualColumn(row, col int) int {
 	return visualCol
 }
 
-// getRealColumn converts a visual column to a real buffer column
 func (e *CodeEditor) getRealColumn(row, targetVisualCol int) int {
 	line := e.buffer.GetLine(row)
 	visualCol := 0
@@ -707,7 +636,6 @@ func (e *CodeEditor) getRealColumn(row, targetVisualCol int) int {
 
 	for realCol < len(line) && visualCol < targetVisualCol {
 		if line[realCol] == '\t' {
-			// Tab advances to next tab stop
 			nextTabStop := ((visualCol / tabSize) + 1) * tabSize
 			if nextTabStop > targetVisualCol {
 				break
@@ -727,7 +655,6 @@ func (e *CodeEditor) setModified(modified bool) {
 	if e.onModified != nil {
 		e.onModified(modified)
 	}
-	// Update syntax highlighting after modifications
 	if modified && e.highlighter != nil {
 		content := e.buffer.GetContent()
 		lines := strings.Split(content, "\n")
@@ -735,7 +662,6 @@ func (e *CodeEditor) setModified(modified bool) {
 	}
 }
 
-// insertTab inserts a tab character
 func (e *CodeEditor) insertTab() {
 	e.insertRune('\t')
 }
@@ -764,11 +690,9 @@ func (e *CodeEditor) pageDown() {
 	e.adjustCursorColumn()
 }
 
-// ctrlLeft moves cursor to first non-whitespace char or toggle to column 0
 func (e *CodeEditor) ctrlLeft() {
 	line := e.buffer.GetLine(e.cursorRow)
 
-	// Find first non-whitespace character
 	firstNonSpace := 0
 	for i, ch := range line {
 		if ch != ' ' && ch != '\t' {
@@ -778,13 +702,10 @@ func (e *CodeEditor) ctrlLeft() {
 	}
 
 	if e.cursorCol == 0 {
-		// At column 0, move to first non-space
 		e.cursorCol = firstNonSpace
 	} else if e.cursorCol == firstNonSpace {
-		// At first non-space, move to column 0
 		e.cursorCol = 0
 	} else {
-		// Anywhere else, move to first non-space
 		e.cursorCol = firstNonSpace
 	}
 
@@ -793,7 +714,6 @@ func (e *CodeEditor) ctrlLeft() {
 	}
 }
 
-// ctrlRight moves cursor to end of line
 func (e *CodeEditor) ctrlRight() {
 	e.cursorCol = e.buffer.GetLineLength(e.cursorRow)
 
@@ -802,7 +722,6 @@ func (e *CodeEditor) ctrlRight() {
 	}
 }
 
-// ctrlUp moves cursor to beginning of document
 func (e *CodeEditor) ctrlUp() {
 	e.cursorRow = 0
 	e.cursorCol = 0
@@ -812,7 +731,6 @@ func (e *CodeEditor) ctrlUp() {
 	}
 }
 
-// ctrlDown moves cursor to end of document
 func (e *CodeEditor) ctrlDown() {
 	if e.buffer.GetLineCount() > 0 {
 		e.cursorRow = e.buffer.GetLineCount() - 1
@@ -824,7 +742,6 @@ func (e *CodeEditor) ctrlDown() {
 	}
 }
 
-// selectAll selects all text in the editor
 func (e *CodeEditor) selectAll() {
 	if e.buffer.GetLineCount() == 0 {
 		return
@@ -834,12 +751,10 @@ func (e *CodeEditor) selectAll() {
 	lastCol := e.buffer.GetLineLength(lastRow)
 	e.selection.SelectAll(e.buffer.GetLineCount(), lastCol)
 
-	// Move cursor to end
 	e.cursorRow = lastRow
 	e.cursorCol = lastCol
 }
 
-// deleteSelection deletes the currently selected text
 func (e *CodeEditor) deleteSelection() {
 	if !e.selection.IsActive() || e.readOnly {
 		return
@@ -848,19 +763,15 @@ func (e *CodeEditor) deleteSelection() {
 	startRow, startCol, endRow, endCol := e.selection.GetNormalizedRange()
 	e.buffer.DeleteRange(startRow, startCol, endRow, endCol)
 
-	// Move cursor to start of deletion
 	e.cursorRow = startRow
 	e.cursorCol = startCol
 	e.adjustCursorColumn()
 
-	// Clear selection
 	e.selection.Clear()
 
-	// Mark as modified
 	e.setModified(true)
 }
 
-// copySelection copies the selected text to clipboard
 func (e *CodeEditor) copySelection() {
 	if !e.selection.IsActive() {
 		return
@@ -873,7 +784,6 @@ func (e *CodeEditor) copySelection() {
 	}
 }
 
-// pasteText pastes text from clipboard at cursor position
 func (e *CodeEditor) pasteText() {
 	if e.readOnly {
 		return
@@ -884,54 +794,44 @@ func (e *CodeEditor) pasteText() {
 		return
 	}
 
-	// Save state for undo before making changes
 	e.buffer.SaveState(e.cursorRow, e.cursorCol)
 
-	// Delete selection if any
 	if e.selection.IsActive() {
 		e.deleteSelection()
 	}
 
-	// Insert pasted text and update cursor position
 	newRow, newCol := e.buffer.InsertText(e.cursorRow, e.cursorCol, text)
 	e.cursorRow = newRow
 	e.cursorCol = newCol
 
-	// Mark as modified
 	e.setModified(true)
 }
 
-// isWordChar checks if a rune is a word character
+// isWordChar returns true if the character is considered part of a word.
 func isWordChar(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
 		(ch >= '0' && ch <= '9') || ch == '_'
 }
 
-// wordLeft moves cursor to beginning of current/previous word
 func (e *CodeEditor) wordLeft() {
 	line := e.buffer.GetLine(e.cursorRow)
 
-	// If we're past the line end, move to line end
 	if e.cursorCol > len(line) {
 		e.cursorCol = len(line)
 	}
 
-	// If at beginning of line, move to previous line
 	if e.cursorCol == 0 {
 		if e.cursorRow > 0 {
 			e.cursorRow--
 			e.cursorCol = e.buffer.GetLineLength(e.cursorRow)
 		}
 	} else {
-		// Move left one position first
 		e.cursorCol--
 
-		// Skip any non-word characters
 		for e.cursorCol > 0 && !isWordChar(line[e.cursorCol]) {
 			e.cursorCol--
 		}
 
-		// Skip word characters to find beginning of word
 		for e.cursorCol > 0 && isWordChar(line[e.cursorCol-1]) {
 			e.cursorCol--
 		}
@@ -942,23 +842,19 @@ func (e *CodeEditor) wordLeft() {
 	}
 }
 
-// wordRight moves cursor to end of current/next word
 func (e *CodeEditor) wordRight() {
 	line := e.buffer.GetLine(e.cursorRow)
 
-	// If at end of line, move to next line
 	if e.cursorCol >= len(line) {
 		if e.cursorRow < e.buffer.GetLineCount()-1 {
 			e.cursorRow++
 			e.cursorCol = 0
 		}
 	} else {
-		// Skip current word if we're in one
 		for e.cursorCol < len(line) && isWordChar(line[e.cursorCol]) {
 			e.cursorCol++
 		}
 
-		// Skip any non-word characters
 		for e.cursorCol < len(line) && !isWordChar(line[e.cursorCol]) {
 			e.cursorCol++
 		}
@@ -969,36 +865,32 @@ func (e *CodeEditor) wordRight() {
 	}
 }
 
-// Focus implements tview.Primitive
+// Focus sets focus to the code editor.
 func (e *CodeEditor) Focus(delegate func(p tview.Primitive)) {
 	e.hasFocus = true
 }
 
-// HasFocus implements tview.Primitive
+// HasFocus returns whether the code editor has focus.
 func (e *CodeEditor) HasFocus() bool {
 	return e.hasFocus
 }
 
-// Blur implements tview.Primitive
+// Blur removes focus from the code editor.
 func (e *CodeEditor) Blur() {
 	e.hasFocus = false
 }
 
-// MouseHandler handles mouse events
+// MouseHandler returns the mouse handler for mouse events.
 func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
 	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
-		// Get the position of the click relative to the box
 		x, y := event.Position()
 		rectX, rectY, width, height := e.GetInnerRect()
 
-		// Check if event is within the editor bounds
 		if x >= rectX && x < rectX+width && y >= rectY && y < rectY+height {
-			// Check if mouse is on scrollbar column and button is pressed
 			if x == rectX+width-1 {
 				buttons := event.Buttons()
 				if buttons&tcell.Button1 != 0 {
-					// Mouse button is pressed on scrollbar - update scroll position
-					relativeY := y - rectY
+						relativeY := y - rectY
 					if relativeY >= 0 && relativeY < height {
 						totalLines := e.buffer.GetLineCount()
 						if totalLines > height {
@@ -1015,10 +907,9 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 						}
 					}
 				}
-				return true, nil // Consume all scrollbar events
+				return true, nil
 			}
 
-			// Handle regular editor area events
 			switch action {
 			case tview.MouseScrollUp:
 				modifiers := event.Modifiers()
@@ -1109,14 +1000,12 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 	}
 }
 
-// getLineNumberWidth calculates the number of digits needed for line numbers
 func (e *CodeEditor) getLineNumberWidth() int {
 	totalLines := e.buffer.GetLineCount()
 	if totalLines == 0 {
 		totalLines = 1
 	}
 
-	// Calculate number of digits needed
 	digits := 0
 	for n := totalLines; n > 0; n /= 10 {
 		digits++
@@ -1125,12 +1014,9 @@ func (e *CodeEditor) getLineNumberWidth() int {
 	return digits
 }
 
-// drawLineNumber draws a line number at the specified position
 func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, width int) {
-	// Format the line number with right alignment
 	numStr := fmt.Sprintf("%*d", width, lineNum)
 
-	// Draw each character with gray text on very dark gray background
 	style := tcell.StyleDefault.Foreground(tcell.ColorGray).Background(tcell.NewRGBColor(40, 40, 40))
 	for i, ch := range numStr {
 		if i < width {
@@ -1139,9 +1025,7 @@ func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, widt
 	}
 }
 
-// setCursorFromClick sets the cursor position based on a mouse click
 func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
-	// Calculate target row
 	targetRow := e.offsetRow + relativeY
 	if targetRow < 0 {
 		targetRow = 0
@@ -1150,18 +1034,15 @@ func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
 		targetRow = e.buffer.GetLineCount() - 1
 	}
 
-	// Calculate target visual column
 	targetVisualCol := e.offsetCol + relativeX
 	if targetVisualCol < 0 {
 		targetVisualCol = 0
 	}
 
-	// Convert visual column to real column
 	if targetRow >= 0 && targetRow < e.buffer.GetLineCount() {
 		e.cursorRow = targetRow
 		e.cursorCol = e.getRealColumn(targetRow, targetVisualCol)
 
-		// Ensure cursor doesn't go past end of line
 		if e.cursorCol > e.buffer.GetLineLength(e.cursorRow) {
 			e.cursorCol = e.buffer.GetLineLength(e.cursorRow)
 		}
@@ -1172,42 +1053,46 @@ func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
 	}
 }
 
-// Getters and setters to maintain compatibility
+// IsModified returns whether the editor content has been modified.
 func (e *CodeEditor) IsModified() bool {
 	return e.buffer.IsModified()
 }
 
+// GetFilePath returns the file path of the currently loaded file.
 func (e *CodeEditor) GetFilePath() string {
 	return e.filePath
 }
 
+// SetReadOnly sets the read-only mode of the editor.
 func (e *CodeEditor) SetReadOnly(readOnly bool) *CodeEditor {
 	e.readOnly = readOnly
 	return e
 }
 
+// SetApp sets the application reference for the code editor.
 func (e *CodeEditor) SetApp(app *tview.Application) *CodeEditor {
 	e.app = app
 	return e
 }
 
+// SetOnModified sets the callback for when the editor content is modified.
 func (e *CodeEditor) SetOnModified(handler func(modified bool)) *CodeEditor {
 	e.onModified = handler
 	return e
 }
 
+// SetOnCursorMove sets the callback for when the cursor position changes.
 func (e *CodeEditor) SetOnCursorMove(handler func(row, col int)) *CodeEditor {
 	e.onCursorMove = handler
 	return e
 }
 
-// Undo reverts the last edit operation
+// Undo reverts the last edit operation.
 func (e *CodeEditor) Undo() {
 	if e.readOnly {
 		return
 	}
 
-	// Perform undo and get the restored cursor position
 	cursorX, cursorY, success := e.buffer.Undo()
 	if success {
 		e.cursorCol = cursorX
@@ -1236,14 +1121,14 @@ func (e *CodeEditor) Redo() {
 		e.selection.Clear()
 		e.ensureCursorVisible()
 		
-		// Mark as modified
-		e.setModified(true)
+			e.setModified(true)
 		
 		// The display will be refreshed automatically by tview
 	}
 }
 
 // Close cleans up resources
+// Close cleans up resources used by the code editor.
 func (e *CodeEditor) Close() {
 	if e.highlighter != nil {
 		e.highlighter.Close()

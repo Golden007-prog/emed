@@ -2,7 +2,7 @@ package keybindings
 
 import "github.com/gdamore/tcell/v2"
 
-// FileOperationHandlers defines keyboard handlers for file operations
+// FileOperationHandlers contains handlers for file operation shortcuts.
 type FileOperationHandlers struct {
 	Save         func() error
 	SaveAs       func() error
@@ -15,7 +15,7 @@ type FileOperationHandlers struct {
 	PasteFile    func() error
 }
 
-// RegisterFileOperationHandlers registers all file operation key handlers
+// RegisterFileOperationHandlers registers file operation keyboard shortcuts.
 func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOperationHandlers) {
 	if handlers.Save != nil {
 		manager.RegisterHandler(KeyHandler{

@@ -10,19 +10,19 @@ import (
 	"github.com/rivo/tview"
 )
 
-// EditorDialogManager handles dialogs specific to the editor
+// EditorDialogManager manages editor-related dialogs and user interactions.
 type EditorDialogManager struct {
 	app *tview.Application
 }
 
-// NewEditorDialogManager creates a new editor dialog manager
+// NewEditorDialogManager creates a new editor dialog manager instance.
 func NewEditorDialogManager(app *tview.Application) *EditorDialogManager {
 	return &EditorDialogManager{
 		app: app,
 	}
 }
 
-// ShowSaveConflictDialog shows a dialog when trying to save an externally modified file
+// ShowSaveConflictDialog displays a dialog for handling save conflicts.
 func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	filePath string,
 	onOverwrite func(),
@@ -33,7 +33,6 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 		return
 	}
 
-	// Create modal configuration
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      60,
@@ -48,7 +47,6 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	modal, content := NewConfiguredModal(dm.app, config, true)
 	modal.SetPreviousRoot(GetMainAppRoot())
 
-	// Create message
 	messageText := fmt.Sprintf(
 		"The file '%s' has been modified externally.\n\n"+
 			"Saving will overwrite the external changes.\n\n"+
@@ -60,10 +58,8 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 
-	// Create buttons
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
-	// Overwrite button
 	overwriteBtn := tview.NewButton("Overwrite").
 		SetSelectedFunc(func() {
 			onOverwrite()
@@ -72,15 +68,12 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	overwriteBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	overwriteBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Save as Copy button
 	saveCopyBtn := tview.NewButton("Save as Copy").
 		SetSelectedFunc(func() {
-			// Generate copy path
 			base := strings.TrimSuffix(filePath, filepath.Ext(filePath))
 			ext := filepath.Ext(filePath)
 			copyPath := base + "_copy" + ext
 
-			// Find unique name
 			counter := 1
 			for {
 				if _, err := os.Stat(copyPath); os.IsNotExist(err) {
@@ -96,7 +89,6 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	saveCopyBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	saveCopyBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Cancel button
 	cancelBtn := tview.NewButton("Cancel").
 		SetSelectedFunc(func() {
 			onCancel()
@@ -105,7 +97,6 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Add buttons to flex
 	buttonsFlex.
 		AddItem(nil, 0, 1, false).
 		AddItem(overwriteBtn, 12, 0, true).
@@ -115,7 +106,6 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 		AddItem(cancelBtn, 10, 0, false).
 		AddItem(nil, 0, 1, false)
 
-	// Set up button navigation
 	overwriteBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
@@ -152,19 +142,16 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 		return event
 	})
 
-	// Add to content
 	content.
 		AddItem(nil, 1, 0, false).
 		AddItem(message, 0, 1, false).
 		AddItem(buttonsFlex, 3, 0, true).
 		AddItem(nil, 1, 0, false)
 
-	// Show modal
 	modal.Show()
 	dm.app.SetFocus(overwriteBtn)
 }
 
-// ShowDeletedFileDialog shows a dialog when trying to save a file that was deleted externally
 func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	filePath string,
 	onCreate func(),
@@ -175,7 +162,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 		return
 	}
 
-	// Create modal configuration
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      60,
@@ -190,7 +176,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	modal, content := NewConfiguredModal(dm.app, config, true)
 	modal.SetPreviousRoot(GetMainAppRoot())
 
-	// Create message
 	messageText := fmt.Sprintf(
 		"The file '%s' was deleted externally.\n\n"+
 			"If you save, you will recreate the file.\n\n"+
@@ -202,10 +187,8 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 
-	// Create buttons
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
-	// Create button
 	createBtn := tview.NewButton("Create").
 		SetSelectedFunc(func() {
 			onCreate()
@@ -214,7 +197,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	createBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	createBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Discard button
 	discardBtn := tview.NewButton("Discard").
 		SetSelectedFunc(func() {
 			onDiscard()
@@ -223,7 +205,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	discardBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	discardBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Cancel button
 	cancelBtn := tview.NewButton("Cancel").
 		SetSelectedFunc(func() {
 			onCancel()
@@ -232,7 +213,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Add buttons to flex
 	buttonsFlex.
 		AddItem(nil, 0, 1, false).
 		AddItem(createBtn, 10, 0, true).
@@ -242,7 +222,6 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 		AddItem(cancelBtn, 10, 0, false).
 		AddItem(nil, 0, 1, false)
 
-	// Set up button navigation
 	createBtn.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
@@ -279,19 +258,16 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 		return event
 	})
 
-	// Add to content
 	content.
 		AddItem(nil, 1, 0, false).
 		AddItem(message, 0, 1, false).
 		AddItem(buttonsFlex, 3, 0, true).
 		AddItem(nil, 1, 0, false)
 
-	// Show modal
 	modal.Show()
 	dm.app.SetFocus(createBtn)
 }
 
-// ShowUnsavedChangesDialog shows a confirmation dialog for unsaved changes
 func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, onNo func()) {
 	if dm.app == nil {
 		return
@@ -299,7 +275,6 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 
 	message := fmt.Sprintf("'%s' has unsaved changes.\n\nDo you want to close it anyway?", fileName)
 	
-	// Create modal configuration with fixed size
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      50,
@@ -314,13 +289,11 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 	modal, contentFlex := NewConfiguredModal(dm.app, config, true)
 	modal.SetPreviousRoot(GetMainAppRoot())
 
-	// Create message text
 	messageView := tview.NewTextView().
 		SetText(message).
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 
-	// Create buttons
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
 	yesButton := tview.NewButton("YES").
@@ -339,7 +312,6 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	// Set up button navigation
 	yesButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
@@ -371,14 +343,12 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 		AddItem(noButton, 10, 0, false).
 		AddItem(nil, 0, 1, false)
 
-	// Add message and buttons to content flex
 	contentFlex.
 		AddItem(nil, 0, 1, false).
 		AddItem(messageView, 0, 2, false).
 		AddItem(buttonsFlex, 3, 0, true).
 		AddItem(nil, 0, 1, false)
 
-	// Show modal
 	modal.Show()
 	dm.app.SetFocus(yesButton)
 }
