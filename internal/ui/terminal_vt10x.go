@@ -635,7 +635,18 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 			switch action {
 			case tview.MouseScrollUp:
 				if !t.alternateScreen {
-					t.scrollbuf.ScrollUp(1)
+					// Calculate actual scrollback limit
+					t.vtMutex.Lock()
+					scrollbackSize := t.vt.ScrollbackLines()
+					t.vtMutex.Unlock()
+					
+					// The maximum offset should be the number of lines in scrollback
+					maxOffset := scrollbackSize
+					if maxOffset < 0 {
+						maxOffset = 0
+					}
+					
+					t.scrollbuf.ScrollUpWithLimit(1, maxOffset)
 				}
 				return true, nil
 			case tview.MouseScrollDown:

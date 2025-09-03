@@ -25,8 +25,18 @@ func (s *ScrollbackBuffer) ScrollUp(amount int) int {
 	defer s.mu.Unlock()
 	
 	s.viewportOffset += amount
-	if s.viewportOffset > s.maxLines {
-		s.viewportOffset = s.maxLines
+	// Don't limit here - let the caller determine the actual limit
+	
+	return s.viewportOffset
+}
+
+func (s *ScrollbackBuffer) ScrollUpWithLimit(amount int, actualLimit int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.viewportOffset += amount
+	if s.viewportOffset > actualLimit {
+		s.viewportOffset = actualLimit
 	}
 	
 	return s.viewportOffset
