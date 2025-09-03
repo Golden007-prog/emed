@@ -246,7 +246,7 @@ func (m *BaseTabManager) SetOnTabSwitched(callback func(id int)) {
 }
 
 // GenerateTabBarText generates the tab bar text with proper formatting
-func (m *BaseTabManager) GenerateTabBarText(maxWidth int) string {
+func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string {
 	m.mu.RLock()
 	
 	// Copy tab data while holding the lock
@@ -289,7 +289,12 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int) string {
 		var tabStr string
 		var displayWidth int
 		if data.isActive {
-			tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
+			// Only use blue color if the panel has focus
+			if hasFocus {
+				tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
+			} else {
+				tabStr = fmt.Sprintf("[gray][ %s ][-]", title)
+			}
 			displayWidth = len(title) + 4 // "[ " + title + " ]"
 		} else {
 			tabStr = fmt.Sprintf("[gray]%s[-]", title)

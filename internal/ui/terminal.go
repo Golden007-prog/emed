@@ -105,7 +105,7 @@ func NewTerminal() *Terminal {
 		// Remove from content area
 		t.contentArea.RemovePage(fmt.Sprintf("term-%d", id))
 		// Update the tab bar to reflect the change
-		t.updateTabBar()
+		t.UpdateTabBar()
 	})
 
 	return t
@@ -131,7 +131,7 @@ func (t *Terminal) NewTab() {
 
 	// Set mode change callback to update status
 	emulator.SetOnModeChange(func(mode TerminalMode) {
-		t.updateTabBar() // Refresh to show mode indicator
+		t.UpdateTabBar() // Refresh to show mode indicator
 	})
 
 	// Set exit callback to auto-close tab when shell exits
@@ -154,7 +154,7 @@ func (t *Terminal) NewTab() {
 					if tab.GetID() == tabID {
 						if termTab, ok := tab.(*TerminalTab); ok {
 							termTab.title = title
-							t.updateTabBar()
+							t.UpdateTabBar()
 						}
 						break
 					}
@@ -196,11 +196,12 @@ func (t *Terminal) showNoTermsView() {
 // switchToTabByID switches to the specified tab by ID
 func (t *Terminal) switchToTabByID(id int) {
 	t.contentArea.SwitchToPage(fmt.Sprintf("term-%d", id))
-	t.updateTabBar()
+	t.UpdateTabBar()
 }
 
 // updateTabBar updates the title with tab information
-func (t *Terminal) updateTabBar() {
+// UpdateTabBar updates the tab bar display
+func (t *Terminal) UpdateTabBar() {
 	if !t.tabManager.HasTabs() {
 		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
 		return
@@ -216,7 +217,12 @@ func (t *Terminal) updateTabBar() {
 	}
 	
 	// Use BaseTabManager to generate tab bar text (same as Editor for consistency)
-	tabBarText := t.tabManager.GenerateTabBarText(availableWidth)
+	// Check if terminal has focus
+	hasFocus := false
+	if t.app != nil {
+		hasFocus = t.HasFocus(t.app.GetFocus())
+	}
+	tabBarText := t.tabManager.GenerateTabBarText(availableWidth, hasFocus)
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
 		t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)

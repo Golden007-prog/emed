@@ -130,7 +130,7 @@ func NewEditor() *Editor {
 		// Remove from content area
 		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
 		// Update the tab bar to reflect the change
-		e.updateTabBar()
+		e.UpdateTabBar()
 	})
 	
 	return e
@@ -157,7 +157,7 @@ func (e *Editor) switchToTabByID(id int) {
 	
 	if found {
 		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
-		e.updateTabBar()
+		e.UpdateTabBar()
 	}
 }
 
@@ -205,7 +205,7 @@ func (e *Editor) OpenFile(path string) {
 				t.SetModified(modified)
 				e.tabsMu.RUnlock()
 				// Always update tab bar when modified state changes
-				e.updateTabBar()
+				e.UpdateTabBar()
 				return
 			}
 		}
@@ -257,7 +257,7 @@ func (e *Editor) NewDocument() {
 				t.SetModified(modified)
 				e.tabsMu.RUnlock()
 				// Always update tab bar when modified state changes
-				e.updateTabBar()
+				e.UpdateTabBar()
 				return
 			}
 		}
@@ -304,7 +304,8 @@ func (e *Editor) switchToTab(index int) {
 }
 
 // updateTabBar updates the title with tab information
-func (e *Editor) updateTabBar() {
+// UpdateTabBar updates the tab bar display
+func (e *Editor) UpdateTabBar() {
 	if !e.tabManager.HasTabs() {
 		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 		return
@@ -320,7 +321,12 @@ func (e *Editor) updateTabBar() {
 	}
 	
 	// Use BaseTabManager to generate tab bar text
-	tabBarText := e.tabManager.GenerateTabBarText(availableWidth)
+	// Check if editor has focus
+	hasFocus := false
+	if e.app != nil {
+		hasFocus = e.HasFocus(e.app.GetFocus())
+	}
+	tabBarText := e.tabManager.GenerateTabBarText(availableWidth, hasFocus)
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
 		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
@@ -464,7 +470,7 @@ func (e *Editor) SaveCurrentFile() {
 		
 		// Update modified state in tab
 		tab.modified = false
-		e.updateTabBar()
+		e.UpdateTabBar()
 	}
 }
 
@@ -509,7 +515,7 @@ func (e *Editor) UpdateFilePath(oldPath, newPath string) {
 		if tab.path == oldPath {
 			tab.path = newPath
 			e.tabsMu.Unlock()
-			e.updateTabBar()
+			e.UpdateTabBar()
 			return
 		}
 	}
@@ -588,7 +594,7 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 					tab.lastModTime = info.ModTime()
 				}
 				tab.modified = false
-				e.updateTabBar()
+				e.UpdateTabBar()
 			}
 		},
 		func(copyPath string) {
@@ -602,7 +608,7 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 				if info, err := os.Stat(copyPath); err == nil {
 					tab.lastModTime = info.ModTime()
 				}
-				e.updateTabBar()
+				e.UpdateTabBar()
 			}
 		},
 		func() {
@@ -695,7 +701,7 @@ func (e *Editor) reloadTab(tab *EditorTab) {
 	
 	// Redraw if this is the active tab
 	if tab.id == e.tabManager.GetActiveTabID() {
-		e.updateTabBar()
+		e.UpdateTabBar()
 	}
 }
 
@@ -717,7 +723,7 @@ func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
 					tab.lastModTime = info.ModTime()
 				}
 				tab.modified = false
-				e.updateTabBar()
+				e.UpdateTabBar()
 			}
 		},
 		func() {

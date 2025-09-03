@@ -588,6 +588,9 @@ func (l *Layout) setupKeybindings() {
 func (l *Layout) focusFileManager() {
 	l.focusedPanel = 0
 	l.app.SetFocus(l.fileManager.GetView())
+	// Update tab bars to reflect focus change
+	l.editor.UpdateTabBar()
+	l.terminal.UpdateTabBar()
 }
 
 func (l *Layout) focusEditor() {
@@ -597,6 +600,9 @@ func (l *Layout) focusEditor() {
 	}
 	l.focusedPanel = 1
 	l.app.SetFocus(l.editor.GetView())
+	// Update tab bars to reflect focus change
+	l.editor.UpdateTabBar()
+	l.terminal.UpdateTabBar()
 }
 
 func (l *Layout) focusTerminal() {
@@ -606,6 +612,9 @@ func (l *Layout) focusTerminal() {
 	}
 	l.focusedPanel = 2
 	l.app.SetFocus(l.terminal.GetView())
+	// Update tab bars to reflect focus change
+	l.editor.UpdateTabBar()
+	l.terminal.UpdateTabBar()
 }
 
 // OpenFile opens a file in the editor
