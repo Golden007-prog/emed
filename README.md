@@ -1,16 +1,16 @@
 # Emed
 
 ## Motivation
-I found myself wanting to code on my iPad, connected via SSh to a remote server. I don't like the mainstream editors, they are too complex, I didn't wanted to remember dozens of keyboard shortcuts. Even micro was too complex, with all the panes and tabs and plugins. But I definitedly wanted more power than what nano could offer. Then, I imagined... I want a code editor that has a file manager on the left, a terminal on the bottom and a main area with tabbed documents, and intuitive keyboard shortcuts. I know, not original, this is the standard IDE layout, but I could not find a single tool that offer this without hours of initial configuration and learning.
+I found myself wanting to code on my iPad, connected via SSh to a remote server. I don't like traditional terminal-based editors, they are too complex, I didn't wanted to remember dozens of keyboard shortcuts. Even micro was too complex, with all the panes and tabs and plugins. But I definitedly wanted more power than what nano could offer. Then, I imagined... I want a code editor that has a file manager on the left, a terminal on the bottom and a main area with tabbed documents, and intuitive keyboard shortcuts. I know, not original, this is the standard desktop IDE layout, but I could not find a single tool that offered this experience in the terminal without hours of initial configuration, learning and practice.
 
 Then, I stumbled upon [tview](https://github.com/rivo/tview), and then made some research and found [chroma](https://github.com/alecthomas/chroma) and thought that creating my own TUI editor would be matter of just joining some pieces together (it was not). This was a great excuse to grab that Go book I purchased a couple of years ago when I was trying to get back to coding non-web stuff, and build something with a new language. This project was created as a learning exercise but aims to be a useful tool.
 
 ## Technical Description
 Emed is built on top of the tview framework, which handles all the heavy lifting for the terminal UI. The layout is a simple flex container system that tview provides - nothing fancy, just three panels arranged how I wanted them. The file manager uses a custom horizontal-scrolling tree widget (htree) that I built from scratch because tview's TreeView couldn't handle long file names properly. It maintains the expansion state during refreshes and supports file operations like create, rename, delete, and clipboard operations.
 
-The code editor is a custom tview primitive that handles text editing operations. An early version implemented chroma for syntax highlighting but it was poorly written and was hard to make code look good after a few edits. Chroma is great, my implementation was wrong. Still, I decided to use tree-sitter instead to maybe add advanced features in the future like code folding.
+The code editor is a custom tview primitive that handles text editing operations. Syntax highlighting is implemented using Chroma, with support for most languages. An early attempt was made with tree-sitter but it was too complex for such a tiny project like this. Before tree-sitter, the original, failed attempt was with Chroma, so the current implementation is the third attempt.
 
-The terminal emulator has probably been the most fun and hardest part to implement so far. I glued together creack/pty for pseudo-terminal handling and my fork of vt10x for VT100 emulation and escape sequence parsing. The tricky part was translating between vt10x's terminal state and tview's rendering system - especialy for colors, where I wrote a translation layer that handles ANSI colors (16 colors), 256 colors palette, RGB colors and even default FG and BG colors. Mouse events were another headache - I had to intercept and translate between tcell mouse events and terminal escape sequences. The scrollback buffer implementation was fun too, since I had to track when apps switch to alternate screen and vt10x was not very helpful to track lines that go out of screen, I added some helper code on my own fork to solve this. Its far from perfect and some TUI apps that uses specific escape sequences still render weird, but it's functional enough to run htop, nano, and even emed itself.
+The terminal emulator has probably been the most fun and the hardest part to implement so far. I glued together creack/pty for pseudo-terminal handling and my fork of vt10x for VT100 emulation and escape sequence parsing. The tricky part was translating between vt10x's terminal state and tview's rendering system - especialy for colors, where I wrote a translation layer that handles ANSI colors (16 colors), 256 colors palette, RGB colors and even default FG and BG colors. Mouse events were another headache - I had to intercept and translate between tcell mouse events and terminal escape sequences. The scrollback buffer implementation was fun too, since I had to track when apps switch to alternate screen and vt10x was not very helpful to track lines that go out of screen, I added some helper code on my own fork to solve this. Its far from perfect and some TUI apps that uses specific escape sequences still render weird, but it's functional enough to run htop, nano, and even emed itself.
 
 ## The Plan
 - [x] Simple 3-pane layout with easy keyboard navigation.
@@ -18,10 +18,10 @@ The terminal emulator has probably been the most fun and hardest part to impleme
 - [x] Fully functional terminal emulator on bottom panel.
 - [x] Code editor, able to save files, responsive to external file changes, ready for syntax-highlighting using tview's color system.
 - [x] File watcher to keep track of external changes on the project directory. Keeps the file manager in sync and updates unedited open tabs with new content.
-- [ ] Refactor for better file organization, modularity and best practices. In pogress.
-- [ ] Implement tree-sitter for syntax highlighting. A proof of concept was implemented using chroma but discarded in favor of tree-sitter for more features.
+- [x] Refactor for better file organization, modularity and best practices.
+- [x] Implement syntax highlighting. Final implementation was made with Chroma after finding out tree-sitter was too complex.
 - [ ] Implement project-wide and within-file search (using maybe [sahilm/fuzzy](https://github.com/sahilm/fuzzy) for project-wide fuzzy search, along a nice tview UI).
-- [ ] Add basic support for showing up changes made by agentic code assistants. Instead of adding specific support, I'm thinking of just use the alredy implemented file watcher to open and highligh changes made externally.
+- [ ] Add some kind of integration with agentic AI tools.
 - [ ] ???
 
 ## Screenshots
@@ -54,9 +54,12 @@ Struggles to render some specific apps, like OpenCode. This is going to improve 
 
 ### File Manager
 - Q / Ctrl+Q: Exit emed.
-- I: Shows file actions panel.
+- I: Shows file information panel.
 - Arrow keys: browse project file tree.
 - Enter: Opens the highlighted file on an editor tab.
+- Ctrl+C: Copy reference of highlighted file to internal clipboard.
+- Ctrl+X: "Cuts" highlighted file to internal clipboard (for moving).
+- Ctrl+V: Pastes (copies or moves) the file in internal clipboard to the highlighted position.
 
 ### Editor
 - Ctrl+S: Save file.
@@ -94,7 +97,7 @@ For cross-platform builds:
 A: One of my new year resolutions for 2025 was to code for fun again. A simple, easy to use terminal editor with decent features that does not require hours of reading and practice to use is a real need that I have.
 
 **Q: Can I use it alerady?**  
-A: I would not recommend it. It can edit files perfectly fine but without syntax highlighting its not a pleasant experience. Also things could break suddenly as I refactor the huge God objects into modular code.
+A: I would not recommend it. It can edit files perfectly fine but its not stable yet, and without search implementes yet its not a pleasant experience.
 
 **Q: Why "Emed"?**  
 A: My name is Emmanuel, and it's my editor. But we could give the acronym other meanings, like "Extremely Mediocre Editor".
