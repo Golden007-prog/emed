@@ -1,3 +1,4 @@
+// Package container provides dependency injection functionality.
 package container
 
 import (
@@ -14,6 +15,7 @@ type serviceDefinition struct {
 	instance interface{}
 }
 
+// DIContainer manages service dependencies and their lifecycles.
 type DIContainer struct {
 	services   map[reflect.Type]*serviceDefinition
 	singletons map[reflect.Type]interface{}
@@ -21,6 +23,7 @@ type DIContainer struct {
 	mu         sync.RWMutex
 }
 
+// New creates a new dependency injection container.
 func New() *DIContainer {
 	return &DIContainer{
 		services:   make(map[reflect.Type]*serviceDefinition),
@@ -28,6 +31,7 @@ func New() *DIContainer {
 	}
 }
 
+// Register adds a service to the container with specified lifetime.
 func (c *DIContainer) Register(serviceType reflect.Type, factory interface{}, lifetime interfaces.ServiceLifetime) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -52,14 +56,17 @@ func (c *DIContainer) Register(serviceType reflect.Type, factory interface{}, li
 	return nil
 }
 
+// RegisterSingleton registers a service as singleton with the container.
 func (c *DIContainer) RegisterSingleton(serviceType reflect.Type, factory interface{}) error {
 	return c.Register(serviceType, factory, interfaces.Singleton)
 }
 
+// RegisterTransient registers a service as transient with the container.
 func (c *DIContainer) RegisterTransient(serviceType reflect.Type, factory interface{}) error {
 	return c.Register(serviceType, factory, interfaces.Transient)
 }
 
+// RegisterInstance registers an existing instance with the container.
 func (c *DIContainer) RegisterInstance(serviceType reflect.Type, instance interface{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -80,6 +87,7 @@ func (c *DIContainer) RegisterInstance(serviceType reflect.Type, instance interf
 	return nil
 }
 
+// Resolve gets a service instance from the container.
 func (c *DIContainer) Resolve(serviceType reflect.Type) (interface{}, error) {
 	c.mu.RLock()
 	def, exists := c.services[serviceType]
@@ -107,6 +115,7 @@ func (c *DIContainer) Resolve(serviceType reflect.Type) (interface{}, error) {
 	}
 }
 
+// ResolveAll gets all service instances of the specified type from the container.
 func (c *DIContainer) ResolveAll(serviceType reflect.Type) ([]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -134,6 +143,7 @@ func (c *DIContainer) ResolveAll(serviceType reflect.Type) ([]interface{}, error
 	return results, nil
 }
 
+// CreateScope creates a new scoped container with current container as parent.
 func (c *DIContainer) CreateScope() interfaces.Container {
 	return &DIContainer{
 		services:   make(map[reflect.Type]*serviceDefinition),
@@ -142,6 +152,7 @@ func (c *DIContainer) CreateScope() interfaces.Container {
 	}
 }
 
+// Build validates all registered services in the container.
 func (c *DIContainer) Build() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

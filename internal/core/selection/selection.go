@@ -1,10 +1,13 @@
+// Package selection handles text selection functionality for the editor.
 package selection
 
+// Position represents a cursor position with row and column coordinates.
 type Position struct {
 	Row int
 	Col int
 }
 
+// Selection manages text selection state including keyboard and mouse selections.
 type Selection struct {
 	start        Position
 	end          Position
@@ -12,12 +15,14 @@ type Selection struct {
 	mouseDragging bool // Track if currently dragging with mouse
 }
 
+// New creates a new Selection instance with inactive state.
 func New() *Selection {
 	return &Selection{
 		active: false,
 	}
 }
 
+// Start begins a new keyboard selection at the given position.
 func (s *Selection) Start(row, col int) {
 	s.start = Position{Row: row, Col: col}
 	s.end = Position{Row: row, Col: col}
@@ -25,6 +30,7 @@ func (s *Selection) Start(row, col int) {
 	s.mouseDragging = false // This is for keyboard selection
 }
 
+// StartMouseDrag begins a new mouse drag selection at the given position.
 func (s *Selection) StartMouseDrag(row, col int) {
 	s.start = Position{Row: row, Col: col}
 	s.end = Position{Row: row, Col: col}
@@ -32,6 +38,7 @@ func (s *Selection) StartMouseDrag(row, col int) {
 	s.mouseDragging = true
 }
 
+// Extend extends the current keyboard selection to the given position.
 func (s *Selection) Extend(row, col int) {
 	if s.active && !s.mouseDragging {
 		// Keyboard selection - always extend
@@ -39,6 +46,7 @@ func (s *Selection) Extend(row, col int) {
 	}
 }
 
+// ExtendMouse extends the current mouse selection to the given position.
 func (s *Selection) ExtendMouse(row, col int) {
 	if s.active && s.mouseDragging {
 		// Mouse selection - only extend if dragging
@@ -46,6 +54,7 @@ func (s *Selection) ExtendMouse(row, col int) {
 	}
 }
 
+// StopMouseDrag stops the mouse drag operation and clears empty selections.
 func (s *Selection) StopMouseDrag() {
 	s.mouseDragging = false
 	// If selection is empty (start == end), clear it
@@ -54,10 +63,12 @@ func (s *Selection) StopMouseDrag() {
 	}
 }
 
+// IsMouseDragging returns true if currently dragging with mouse.
 func (s *Selection) IsMouseDragging() bool {
 	return s.mouseDragging
 }
 
+// Clear resets the selection to inactive state.
 func (s *Selection) Clear() {
 	s.active = false
 	s.mouseDragging = false
@@ -65,10 +76,12 @@ func (s *Selection) Clear() {
 	s.end = Position{}
 }
 
+// IsActive returns true if there is an active selection.
 func (s *Selection) IsActive() bool {
 	return s.active
 }
 
+// GetStart returns the normalized start position of the selection.
 func (s *Selection) GetStart() Position {
 	if !s.active {
 		return Position{}
@@ -80,6 +93,7 @@ func (s *Selection) GetStart() Position {
 	return s.end
 }
 
+// GetEnd returns the normalized end position of the selection.
 func (s *Selection) GetEnd() Position {
 	if !s.active {
 		return Position{}
@@ -91,6 +105,7 @@ func (s *Selection) GetEnd() Position {
 	return s.end
 }
 
+// GetNormalizedRange returns the selection range with start before end.
 func (s *Selection) GetNormalizedRange() (startRow, startCol, endRow, endCol int) {
 	if !s.active {
 		return 0, 0, 0, 0
@@ -101,6 +116,7 @@ func (s *Selection) GetNormalizedRange() (startRow, startCol, endRow, endCol int
 	return start.Row, start.Col, end.Row, end.Col
 }
 
+// IsPositionSelected checks if the given position is within the selection.
 func (s *Selection) IsPositionSelected(row, col int) bool {
 	if !s.active {
 		return false
@@ -127,12 +143,14 @@ func (s *Selection) IsPositionSelected(row, col int) bool {
 	return true
 }
 
+// SelectAll selects all content from start to end of the document.
 func (s *Selection) SelectAll(totalRows int, lastRowLength int) {
 	s.start = Position{Row: 0, Col: 0}
 	s.end = Position{Row: totalRows - 1, Col: lastRowLength}
 	s.active = true
 }
 
+// UpdateAfterEdit adjusts selection positions after text editing operations.
 func (s *Selection) UpdateAfterEdit(editRow, editCol int, rowDelta, colDelta int) {
 	if !s.active {
 		return

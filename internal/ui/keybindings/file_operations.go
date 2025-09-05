@@ -1,3 +1,4 @@
+// Package keybindings provides keyboard shortcut handlers and management for the editor.
 package keybindings
 
 import "github.com/gdamore/tcell/v2"
@@ -15,7 +16,7 @@ type FileOperationHandlers struct {
 	PasteFile    func() error
 }
 
-// RegisterFileOperationHandlers registers file operation keyboard shortcuts.
+// RegisterFileOperationHandlers registers file operation keyboard shortcuts with the manager.
 func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOperationHandlers) {
 	if handlers.Save != nil {
 		manager.RegisterHandler(KeyHandler{

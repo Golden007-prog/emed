@@ -1,3 +1,4 @@
+// Package ui provides user interface components and managers for the emed editor.
 package ui
 
 import (
@@ -6,9 +7,9 @@ import (
 )
 
 var (
-	mainAppRoot     tview.Primitive
-	modalIsOpen     bool
-	previousFocus   tview.Primitive
+	mainAppRoot   tview.Primitive
+	modalIsOpen   bool
+	previousFocus tview.Primitive
 )
 
 // EmModal represents a modal dialog that can overlay the application.
@@ -39,8 +40,7 @@ func NewEmModal(app *tview.Application, content tview.Primitive, cancellable boo
 		content:     content,
 		cancellable: cancellable,
 	}
-	
-	
+
 	return m
 }
 
@@ -60,9 +60,9 @@ func (m *EmModal) SetOnClose(handler func()) *EmModal {
 func (m *EmModal) Show() {
 	m.savedFocus = m.app.GetFocus()
 	previousFocus = m.savedFocus
-	
+
 	modalIsOpen = true
-	
+
 	m.app.SetRoot(m, true)
 	m.app.SetFocus(m.content)
 }
@@ -72,15 +72,15 @@ func (m *EmModal) Close() {
 	if m.onClose != nil {
 		m.onClose()
 	}
-	
+
 	modalIsOpen = false
-	
+
 	if m.previousRoot != nil {
 		m.app.SetRoot(m.previousRoot, true)
 	} else if mainAppRoot != nil {
 		m.app.SetRoot(mainAppRoot, true)
 	}
-	
+
 	// Restore previous focus
 	if m.savedFocus != nil {
 		m.app.SetFocus(m.savedFocus)
@@ -104,26 +104,26 @@ func (m *EmModal) Draw(screen tcell.Screen) {
 	} else if mainAppRoot != nil {
 		mainAppRoot.Draw(screen)
 	}
-	
+
 	if m.isWrapped {
 		m.content.Draw(screen)
 		return
 	}
-	
+
 	screenWidth, screenHeight := screen.Size()
-	
+
 	contentWidth, contentHeight := screenWidth/2, screenHeight/2
-	
+
 	if _, ok := m.content.(*tview.Box); ok {
 		contentWidth = screenWidth * 6 / 10
 		contentHeight = screenHeight * 4 / 10
 	}
-	
+
 	x := (screenWidth - contentWidth) / 2
 	y := (screenHeight - contentHeight) / 2
-	
+
 	m.content.SetRect(x, y, contentWidth, contentHeight)
-	
+
 	m.content.Draw(screen)
 }
 
@@ -149,9 +149,9 @@ func (w *modalWrapper) SetPreviousRoot(root tview.Primitive) {
 func (w *modalWrapper) Show() {
 	w.modal.savedFocus = w.modal.app.GetFocus()
 	previousFocus = w.modal.savedFocus
-	
+
 	modalIsOpen = true
-	
+
 	w.modal.app.SetRoot(w, true)
 	w.modal.app.SetFocus(w.modal.content)
 }
@@ -196,7 +196,6 @@ func (w *modalWrapper) PasteHandler() func(pastedText string, setFocus func(p tv
 	return w.modal.PasteHandler()
 }
 
-
 // SetRect sets the modal's rectangle.
 func (m *EmModal) SetRect(x, y, width, height int) {
 	m.container.SetRect(x, y, width, height)
@@ -209,11 +208,11 @@ func (m *EmModal) InputHandler() func(event *tcell.EventKey, setFocus func(p tvi
 			m.Cancel()
 			return
 		}
-		
+
 		if handler := m.content.InputHandler(); handler != nil {
 			handler(event, setFocus)
 		}
-		
+
 	}
 }
 
@@ -223,7 +222,7 @@ func (m *EmModal) MouseHandler() func(action tview.MouseAction, event *tcell.Eve
 		if action == tview.MouseLeftClick || action == tview.MouseScrollUp || action == tview.MouseScrollDown {
 			x, y, width, height := m.content.GetRect()
 			mouseX, mouseY := event.Position()
-			
+
 			if mouseX >= x && mouseX < x+width && mouseY >= y && mouseY < y+height {
 				if handler := m.content.MouseHandler(); handler != nil {
 					consumed, capture = handler(action, event, setFocus)
@@ -257,11 +256,12 @@ type EmModalConfig struct {
 }
 
 // NewConfiguredModal creates a new modal with the specified configuration.
+// NewConfiguredModal creates a new modal with the specified configuration.
 func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellable bool) (*modalWrapper, *tview.Flex) {
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
-	
+
 	var modalContent tview.Primitive
-	
+
 	if config.UseFixedSize {
 		bordered := tview.NewFlex().SetDirection(tview.FlexRow)
 		bordered.SetBorder(true).
@@ -270,7 +270,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 			SetBackgroundColor(tcell.ColorBlack).
 			SetBorderColor(config.BorderColor).
 			SetTitleColor(config.TitleColor)
-		
+
 		bordered.AddItem(contentFlex, 0, 1, true)
 		modalContent = bordered
 	} else {
@@ -281,22 +281,22 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 			SetBackgroundColor(tcell.ColorBlack).
 			SetBorderColor(config.BorderColor).
 			SetTitleColor(config.TitleColor)
-		
+
 		modalContent = &backgroundWithContent{
 			Box:        tview.NewBox(),
 			background: backgroundBox,
 			content:    contentFlex,
 		}
 	}
-	
+
 	modal := NewEmModal(app, modalContent, cancellable)
 	modal.isWrapped = true
-	
+
 	wrapper := &modalWrapper{
 		modal:  modal,
 		config: config,
 	}
-	
+
 	return wrapper, contentFlex
 }
 
@@ -313,19 +313,19 @@ func (w *modalWrapper) Draw(screen tcell.Screen) {
 	} else if mainAppRoot != nil {
 		mainAppRoot.Draw(screen)
 	}
-	
+
 	w.drawWithOwnDimensions(screen)
 }
 
 func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 	screenWidth, screenHeight := screen.Size()
-	
+
 	if screenWidth <= 0 || screenHeight <= 0 {
 		return
 	}
-	
+
 	var contentWidth, contentHeight int
-	
+
 	if w.config.UseFixedSize {
 		contentWidth = w.config.FixedWidth
 		contentHeight = w.config.FixedHeight
@@ -335,14 +335,14 @@ func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 			width = 60
 		}
 		contentWidth = screenWidth * width / 100
-		
+
 		height := w.config.Height
 		if height <= 0 || height > 100 {
 			height = 40
 		}
 		contentHeight = screenHeight * height / 100
 	}
-	
+
 	if !w.config.UseFixedSize {
 		if contentHeight < 5 {
 			contentHeight = 5
@@ -357,19 +357,19 @@ func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 			contentWidth = screenWidth - 4
 		}
 	}
-	
+
 	x := (screenWidth - contentWidth) / 2
 	y := (screenHeight - contentHeight) / 2
-	
+
 	if x < 0 {
 		x = 0
 	}
 	if y < 0 {
 		y = 0
 	}
-	
+
 	w.modal.content.SetRect(x, y, contentWidth, contentHeight)
-	
+
 	if w.config.UseFixedSize {
 		for row := y; row < y+contentHeight; row++ {
 			for col := x; col < x+contentWidth; col++ {
@@ -377,20 +377,23 @@ func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 			}
 		}
 	}
-	
+
 	w.modal.content.Draw(screen)
 }
 
+// SetMainAppRoot sets the main application root primitive.
 // SetMainAppRoot sets the main application root primitive.
 func SetMainAppRoot(root tview.Primitive) {
 	mainAppRoot = root
 }
 
 // GetMainAppRoot returns the main application root primitive.
+// GetMainAppRoot returns the main application root primitive.
 func GetMainAppRoot() tview.Primitive {
 	return mainAppRoot
 }
 
+// IsModalOpen returns true if a modal dialog is currently open.
 // IsModalOpen returns true if a modal dialog is currently open.
 func IsModalOpen() bool {
 	return modalIsOpen
@@ -403,9 +406,9 @@ type solidBackground struct {
 
 func (s *solidBackground) Draw(screen tcell.Screen) {
 	s.Box.DrawForSubclass(screen, s)
-	
+
 	x, y, width, height := s.GetInnerRect()
-	
+
 	s.content.SetRect(x, y, width, height)
 	s.content.Draw(screen)
 }
@@ -422,11 +425,12 @@ func (s *solidBackground) InputHandler() func(event *tcell.EventKey, setFocus fu
 	return s.content.InputHandler()
 }
 
-// MouseHandler returns the content's mouse handler  
+// MouseHandler returns the content's mouse handler
 func (s *solidBackground) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
 	return s.content.MouseHandler()
 }
 
+// ShowConfirmModal displays a confirmation dialog with Yes/No buttons.
 // ShowConfirmModal displays a confirmation dialog with Yes/No buttons.
 func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, onCancel func()) {
 	config := EmModalConfig{
@@ -439,55 +443,55 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
 	}
-	
+
 	modal, contentFlex := NewConfiguredModal(app, config, true)
 	modal.SetPreviousRoot(mainAppRoot)
-	
+
 	messageView := tview.NewTextView().
 		SetText(message).
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
-	
+
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
-	
+
 	yesButton := tview.NewButton("YES")
 	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
-	
+
 	noButton := tview.NewButton("NO")
 	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
-	
+
 	leftSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	middleSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	rightSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	
+
 	buttonsFlex.
 		AddItem(leftSpacer, 0, 1, false).
 		AddItem(yesButton, 10, 0, true).
 		AddItem(middleSpacer, 2, 0, false).
 		AddItem(noButton, 10, 0, false).
 		AddItem(rightSpacer, 0, 1, false)
-	
+
 	contentFlex.
 		AddItem(topSpacer, 0, 1, false).
 		AddItem(messageView, 0, 2, false).
 		AddItem(buttonsFlex, 3, 0, true).
 		AddItem(bottomSpacer, 0, 1, false)
-	
+
 	yesButton.SetSelectedFunc(func() {
 		modal.Close()
 		if onConfirm != nil {
 			onConfirm()
 		}
 	})
-	
+
 	noButton.SetSelectedFunc(func() {
 		modal.Cancel()
 	})
-	
+
 	yesButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
@@ -499,7 +503,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		}
 		return event
 	})
-	
+
 	noButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyTab, tcell.KeyRight:
@@ -511,7 +515,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		}
 		return event
 	})
-	
+
 	modal.modal.SetOnCancel(onCancel)
 	modal.Show()
 	app.SetFocus(yesButton)
@@ -525,28 +529,28 @@ type backgroundWithContent struct {
 
 func (b *backgroundWithContent) Draw(screen tcell.Screen) {
 	x, y, width, height := b.GetRect()
-	
+
 	// Safety check - if we haven't been given a proper rect, don't draw
 	if width <= 0 || height <= 0 {
 		return
 	}
-	
+
 	// Set the background box to fill the entire area
 	b.background.SetRect(x, y, width, height)
-	
+
 	// Draw the background box (with border and filled background)
 	b.background.DrawForSubclass(screen, b)
-	
+
 	// Get the inner rect (inside the border)
 	innerX, innerY, innerWidth, innerHeight := b.background.GetInnerRect()
-	
+
 	// Fill the background with black
 	for row := innerY; row < innerY+innerHeight; row++ {
 		for col := innerX; col < innerX+innerWidth; col++ {
 			screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
 		}
 	}
-	
+
 	// Set content rect to the inner area and draw it
 	b.content.SetRect(innerX, innerY, innerWidth, innerHeight)
 	b.content.Draw(screen)
@@ -580,33 +584,33 @@ func (b *backgroundWithContent) MouseHandler() func(action tview.MouseAction, ev
 	return b.content.MouseHandler()
 }
 
-
+// ShowHelpModal displays a help dialog with scrollable text.
 // ShowHelpModal displays a help dialog with scrollable text.
 func ShowHelpModal(app *tview.Application, helpText string) {
 	config := EmModalConfig{
 		UseFixedSize:    true,
-		FixedWidth:      70,  // 70 chars wide for comfortable reading
-		FixedHeight:     25,  // 25 lines for help content
-		BackgroundColor: tcell.ColorBlack,  // Use black background for consistency
+		FixedWidth:      70,               // 70 chars wide for comfortable reading
+		FixedHeight:     25,               // 25 lines for help content
+		BackgroundColor: tcell.ColorBlack, // Use black background for consistency
 		BorderColor:     tcell.ColorGray,
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " Help ",
 		TitleAlign:      tview.AlignCenter,
 	}
-	
+
 	modal, content := NewConfiguredModal(app, config, true)
 	modal.SetPreviousRoot(mainAppRoot)
-	
+
 	helpView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetText(helpText).
 		SetScrollable(true).
 		SetTextAlign(tview.AlignLeft)
-	
+
 	// Add padding and help text
 	content.
 		AddItem(helpView, 0, 1, true)
-	
+
 	// Help can be closed with ESC or by clicking outside
 	modal.Show()
 	app.SetFocus(helpView)

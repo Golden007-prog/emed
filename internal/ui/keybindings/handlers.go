@@ -1,4 +1,4 @@
-// Package keybindings provides keyboard shortcut management.
+// Package keybindings provides keyboard shortcut handlers and management for the editor.
 package keybindings
 
 import (

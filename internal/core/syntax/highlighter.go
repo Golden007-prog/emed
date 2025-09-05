@@ -1,3 +1,4 @@
+// Package syntax provides syntax highlighting functionality using Chroma.
 package syntax
 
 import (
@@ -37,7 +38,7 @@ type Highlighter struct {
 	maxFileSizeForFullTokenization int // Threshold to disable full tokenization
 }
 
-// NewHighlighter creates a new syntax highlighter for the given file
+// NewHighlighter creates a new syntax highlighter for the given file.
 func NewHighlighter(filename string) *Highlighter {
 	// Get lexer based on filename
 	lexer := lexers.Match(filename)
@@ -79,7 +80,7 @@ func NewHighlighter(filename string) *Highlighter {
 	}
 }
 
-// UpdateContent updates the highlighter with new content
+// UpdateContent updates the highlighter with new content.
 func (h *Highlighter) UpdateContent(lines []string) {
 	if h == nil || h.lexer == nil {
 		return
@@ -112,7 +113,7 @@ func (h *Highlighter) UpdateContent(lines []string) {
 	// For large files, wait for viewport update to tokenize only visible portion
 }
 
-// UpdateViewport updates the visible viewport and tokenizes the necessary region
+// UpdateViewport updates the visible viewport and tokenizes the necessary region.
 func (h *Highlighter) UpdateViewport(startLine, endLine int) {
 	if h == nil || h.lexer == nil {
 		return
@@ -310,7 +311,7 @@ func (h *Highlighter) tokenizeDocument() {
 	}
 }
 
-// GetLineTokens returns the syntax tokens for a specific line
+// GetLineTokens returns the syntax tokens for a specific line.
 func (h *Highlighter) GetLineTokens(lineNumber int) []TokenStyle {
 	if h == nil || h.lexer == nil {
 		return nil
@@ -465,7 +466,7 @@ func (h *Highlighter) tokenTypeToStyle(tokenType chroma.TokenType) tcell.Style {
 	return style
 }
 
-// Close frees any resources
+// Close frees any resources.
 func (h *Highlighter) Close() {
 	if h == nil {
 		return

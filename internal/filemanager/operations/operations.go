@@ -1,3 +1,4 @@
+// Package operations provides file and directory operations with safety checks.
 package operations
 
 import (
@@ -8,16 +9,19 @@ import (
 	"strings"
 )
 
+// FileOperations provides safe file and directory operations.
 type FileOperations struct {
 	workingDir string
 }
 
+// New creates a new FileOperations instance with the given working directory.
 func New(workingDir string) *FileOperations {
 	return &FileOperations{
 		workingDir: workingDir,
 	}
 }
 
+// CreateFile creates a new file in the specified directory.
 func (f *FileOperations) CreateFile(dirPath, name string) error {
 	if name == "" {
 		return fmt.Errorf("file name cannot be empty")
@@ -42,6 +46,7 @@ func (f *FileOperations) CreateFile(dirPath, name string) error {
 	return nil
 }
 
+// CreateDirectory creates a new directory in the specified path.
 func (f *FileOperations) CreateDirectory(dirPath, name string) error {
 	if name == "" {
 		return fmt.Errorf("directory name cannot be empty")
@@ -65,6 +70,7 @@ func (f *FileOperations) CreateDirectory(dirPath, name string) error {
 	return nil
 }
 
+// DeletePath deletes a file or directory at the given path.
 func (f *FileOperations) DeletePath(path string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -87,6 +93,7 @@ func (f *FileOperations) DeletePath(path string) error {
 	return os.RemoveAll(path)
 }
 
+// RenamePath renames a file or directory to a new name.
 func (f *FileOperations) RenamePath(oldPath, newName string) error {
 	if newName == "" {
 		return fmt.Errorf("new name cannot be empty")
@@ -106,6 +113,7 @@ func (f *FileOperations) RenamePath(oldPath, newName string) error {
 	return os.Rename(oldPath, newPath)
 }
 
+// CopyPath copies a file or directory from source to destination.
 func (f *FileOperations) CopyPath(src, dst string) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
@@ -119,6 +127,7 @@ func (f *FileOperations) CopyPath(src, dst string) error {
 	return f.copyFile(src, dst)
 }
 
+// MovePath moves a file or directory from source to destination.
 func (f *FileOperations) MovePath(src, dst string) error {
 	absPath, err := filepath.Abs(src)
 	if err != nil {
@@ -197,6 +206,7 @@ func (f *FileOperations) copyDirectory(src, dst string) error {
 	return nil
 }
 
+// ValidatePath checks if a path is within the working directory.
 func (f *FileOperations) ValidatePath(path string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {

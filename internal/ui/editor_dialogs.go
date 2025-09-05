@@ -1,3 +1,4 @@
+// Package ui provides the main user interface components for the emed text editor.
 package ui
 
 import (
@@ -152,6 +153,7 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 	dm.app.SetFocus(overwriteBtn)
 }
 
+// ShowDeletedFileDialog displays a dialog when a file has been deleted externally.
 func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	filePath string,
 	onCreate func(),
@@ -268,6 +270,7 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 	dm.app.SetFocus(createBtn)
 }
 
+// ShowUnsavedChangesDialog displays a dialog for unsaved changes confirmation.
 func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, onNo func()) {
 	if dm.app == nil {
 		return

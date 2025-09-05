@@ -1,3 +1,4 @@
+// Package logging provides structured logging functionality for the application.
 package logging
 
 import (
@@ -11,16 +12,23 @@ import (
 	"github.com/laborin/emed/internal/config"
 )
 
+// LogLevel represents the severity level for log messages.
 type LogLevel int
 
 const (
+	// DEBUG level for detailed diagnostic information.
 	DEBUG LogLevel = iota
+	// INFO level for general information messages.
 	INFO
+	// WARN level for warning messages that don't stop execution.
 	WARN
+	// ERROR level for error conditions that can be handled.
 	ERROR
+	// FATAL level for critical errors that cause program termination.
 	FATAL
 )
 
+// Logger provides thread-safe logging to file with level filtering.
 type Logger struct {
 	level      LogLevel
 	file       *os.File
@@ -122,22 +130,27 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 	l.fileLogger.Println(msg)
 }
 
+// Debug logs a message at DEBUG level with printf-style formatting.
 func (l *Logger) Debug(format string, args ...interface{}) {
 	l.log(DEBUG, format, args...)
 }
 
+// Info logs a message at INFO level with printf-style formatting.
 func (l *Logger) Info(format string, args ...interface{}) {
 	l.log(INFO, format, args...)
 }
 
+// Warn logs a message at WARN level with printf-style formatting.
 func (l *Logger) Warn(format string, args ...interface{}) {
 	l.log(WARN, format, args...)
 }
 
+// Error logs a message at ERROR level with printf-style formatting.
 func (l *Logger) Error(format string, args ...interface{}) {
 	l.log(ERROR, format, args...)
 }
 
+// Fatal logs a message at FATAL level and exits the program.
 func (l *Logger) Fatal(format string, args ...interface{}) {
 	l.log(FATAL, format, args...)
 	if l.file != nil {
@@ -147,12 +160,14 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+// SetLevel changes the minimum log level that will be written.
 func (l *Logger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.level = level
 }
 
+// Close flushes and closes the log file.
 func (l *Logger) Close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -165,23 +180,27 @@ func (l *Logger) Close() {
 	}
 }
 
-// Convenience functions for direct logging
+// Debug logs a message at DEBUG level using the singleton logger.
 func Debug(format string, args ...interface{}) {
 	GetLogger().Debug(format, args...)
 }
 
+// Info logs a message at INFO level using the singleton logger.
 func Info(format string, args ...interface{}) {
 	GetLogger().Info(format, args...)
 }
 
+// Warn logs a message at WARN level using the singleton logger.
 func Warn(format string, args ...interface{}) {
 	GetLogger().Warn(format, args...)
 }
 
+// Error logs a message at ERROR level using the singleton logger.
 func Error(format string, args ...interface{}) {
 	GetLogger().Error(format, args...)
 }
 
+// Fatal logs a message at FATAL level using the singleton logger and exits.
 func Fatal(format string, args ...interface{}) {
 	GetLogger().Fatal(format, args...)
 }

@@ -4,23 +4,23 @@ package components
 import (
 	"fmt"
 	"sync"
-	
+
 	"github.com/laborin/emed/pkg/interfaces"
 	"github.com/rivo/tview"
 )
 
 // BaseTabManager manages tabs and provides tab switching functionality.
 type BaseTabManager struct {
-	tabs              []interfaces.Tab
-	activeTab         int
-	nextTabID         int
-	mu                sync.RWMutex
-	
-	onTabClosed       func(id int)
-	onLastTabClosed   func()
-	
-	tabBar            *tview.TextView
-	container         *tview.Flex
+	tabs      []interfaces.Tab
+	activeTab int
+	nextTabID int
+	mu        sync.RWMutex
+
+	onTabClosed     func(id int)
+	onLastTabClosed func()
+
+	tabBar    *tview.TextView
+	container *tview.Flex
 }
 
 // NewBaseTabManager creates a new tab manager.
@@ -45,14 +45,14 @@ func (m *BaseTabManager) AddTab(tab interfaces.Tab) {
 // RemoveTab removes a tab by its ID.
 func (m *BaseTabManager) RemoveTab(id int) error {
 	m.mu.Lock()
-	
+
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
 			m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
-			
+
 			var lastTabCallback func()
 			var tabClosedCallback func(int)
-			
+
 			if len(m.tabs) == 0 {
 				m.activeTab = -1
 				lastTabCallback = m.onLastTabClosed
@@ -61,21 +61,21 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 			} else if m.activeTab > i {
 				m.activeTab--
 			}
-			
+
 			tabClosedCallback = m.onTabClosed
 			m.mu.Unlock()
-			
+
 			if tabClosedCallback != nil {
 				tabClosedCallback(id)
 			}
 			if lastTabCallback != nil {
 				lastTabCallback()
 			}
-			
+
 			return nil
 		}
 	}
-	
+
 	m.mu.Unlock()
 	return fmt.Errorf("tab with ID %d not found", id)
 }
@@ -84,7 +84,7 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 func (m *BaseTabManager) SwitchToTab(id int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	for i, tab := range m.tabs {
 		if tab.GetID() == id {
 			if m.activeTab == i {
@@ -94,7 +94,7 @@ func (m *BaseTabManager) SwitchToTab(id int) error {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
@@ -102,7 +102,7 @@ func (m *BaseTabManager) SwitchToTab(id int) error {
 func (m *BaseTabManager) GetActiveTabID() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.activeTab >= 0 && m.activeTab < len(m.tabs) {
 		return m.tabs[m.activeTab].GetID()
 	}
@@ -113,7 +113,7 @@ func (m *BaseTabManager) GetActiveTabID() int {
 func (m *BaseTabManager) GetActiveTab() interfaces.Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.activeTab >= 0 && m.activeTab < len(m.tabs) {
 		return m.tabs[m.activeTab]
 	}
@@ -138,7 +138,7 @@ func (m *BaseTabManager) HasTabs() bool {
 func (m *BaseTabManager) GetTabs() []interfaces.Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := make([]interfaces.Tab, len(m.tabs))
 	copy(result, m.tabs)
 	return result
@@ -148,7 +148,7 @@ func (m *BaseTabManager) GetTabs() []interfaces.Tab {
 func (m *BaseTabManager) NextTab() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if len(m.tabs) > 1 {
 		m.activeTab = (m.activeTab + 1) % len(m.tabs)
 	}
@@ -158,7 +158,7 @@ func (m *BaseTabManager) NextTab() {
 func (m *BaseTabManager) NextTabWithID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if len(m.tabs) > 1 {
 		m.activeTab = (m.activeTab + 1) % len(m.tabs)
 		if m.activeTab < len(m.tabs) {
@@ -172,7 +172,7 @@ func (m *BaseTabManager) NextTabWithID() int {
 func (m *BaseTabManager) PreviousTab() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if len(m.tabs) > 1 {
 		m.activeTab--
 		if m.activeTab < 0 {
@@ -185,7 +185,7 @@ func (m *BaseTabManager) PreviousTab() {
 func (m *BaseTabManager) PreviousTabWithID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if len(m.tabs) > 1 {
 		m.activeTab--
 		if m.activeTab < 0 {
@@ -198,19 +198,21 @@ func (m *BaseTabManager) PreviousTabWithID() int {
 	return -1
 }
 
+// GoToTabByIndex switches to the tab at the specified index.
 func (m *BaseTabManager) GoToTabByIndex(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if index >= 0 && index < len(m.tabs) {
 		m.activeTab = index
 	}
 }
 
+// GoToTabByIndexWithID switches to the tab at the specified index and returns its ID.
 func (m *BaseTabManager) GoToTabByIndexWithID(index int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if index >= 0 && index < len(m.tabs) {
 		m.activeTab = index
 		return m.tabs[m.activeTab].GetID()
@@ -232,6 +234,7 @@ func (m *BaseTabManager) SetOnLastTabClosed(callback func()) {
 	m.onLastTabClosed = callback
 }
 
+// SetOnTabSwitched sets the callback for when a tab is switched (currently not implemented).
 func (m *BaseTabManager) SetOnTabSwitched(callback func(id int)) {
 }
 
@@ -251,7 +254,7 @@ func (m *BaseTabManager) GenerateTabBarText(maxWidth int, hasFocus bool) string 
 // GenerateTabBarTextWithPositions generates tab bar text with click position info.
 func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus bool) (string, []TabClickInfo) {
 	m.mu.RLock()
-	
+
 	type tabData struct {
 		title    string
 		modified bool
@@ -266,25 +269,25 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		}
 	}
 	m.mu.RUnlock()
-	
+
 	if len(tabDataList) == 0 {
 		return "", nil
 	}
-	
+
 	type tabInfo struct {
-		text string
+		text  string
 		width int
 	}
 	var allTabs []tabInfo
 	totalWidth := 0
-	
+
 	for i, data := range tabDataList {
 		title := data.title
-		
+
 		if data.modified {
 			title = "● " + title
 		}
-		
+
 		var tabStr string
 		var displayWidth int
 		if data.isActive {
@@ -298,10 +301,10 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 			tabStr = fmt.Sprintf("[gray]%s[-]", title)
 			displayWidth = len(title)
 		}
-		
+
 		if i < len(tabDataList)-1 {
 			nextIsActive := tabDataList[i+1].isActive
-			
+
 			if !data.isActive && !nextIsActive {
 				tabStr += " [gray]|[-] "
 				displayWidth += 3 // " | "
@@ -310,16 +313,16 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 				displayWidth += 1
 			}
 		}
-		
+
 		allTabs = append(allTabs, tabInfo{text: tabStr, width: displayWidth})
 		totalWidth += displayWidth
 	}
-	
+
 	if maxWidth <= 0 || totalWidth <= maxWidth {
 		var result string
 		var clickInfo []TabClickInfo
 		currentX := 0
-		
+
 		for i, tab := range allTabs {
 			clickInfo = append(clickInfo, TabClickInfo{
 				TabIndex: i,
@@ -331,10 +334,10 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		}
 		return result, clickInfo
 	}
-	
+
 	var visibleTabs []int
 	usedWidth := 0
-	
+
 	activeIdx := -1
 	for i, data := range tabDataList {
 		if data.isActive {
@@ -345,44 +348,44 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	if activeIdx >= 0 {
 		visibleTabs = append(visibleTabs, activeIdx)
 		usedWidth += allTabs[activeIdx].width
-		
+
 		left := activeIdx - 1
 		right := activeIdx + 1
 		for (left >= 0 || right < len(tabDataList)) && usedWidth < maxWidth {
 			addedTab := false
-			
+
 			// Try to add tab on the right
-			if right < len(tabDataList) && usedWidth + allTabs[right].width <= maxWidth {
+			if right < len(tabDataList) && usedWidth+allTabs[right].width <= maxWidth {
 				visibleTabs = append(visibleTabs, right)
 				usedWidth += allTabs[right].width
 				right++
 				addedTab = true
 			}
-			
+
 			// Try to add tab on the left
-			if left >= 0 && usedWidth + allTabs[left].width <= maxWidth {
+			if left >= 0 && usedWidth+allTabs[left].width <= maxWidth {
 				visibleTabs = append([]int{left}, visibleTabs...)
 				usedWidth += allTabs[left].width
 				left--
 				addedTab = true
 			}
-			
+
 			// If we couldn't add any tab, break to avoid infinite loop
 			if !addedTab {
 				break
 			}
 		}
 	}
-	
+
 	var tabText string
 	var clickInfo []TabClickInfo
 	currentX := 0
-	
+
 	if len(visibleTabs) > 0 && visibleTabs[0] > 0 {
 		tabText += "[gray]◀ [-]"
 		currentX += 2
 	}
-	
+
 	for _, idx := range visibleTabs {
 		clickInfo = append(clickInfo, TabClickInfo{
 			TabIndex: idx,
@@ -392,11 +395,11 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		tabText += allTabs[idx].text
 		currentX += allTabs[idx].width
 	}
-	
+
 	if len(visibleTabs) > 0 && visibleTabs[len(visibleTabs)-1] < len(tabDataList)-1 {
 		tabText += " [gray]▶[-]"
 	}
-	
+
 	return tabText, clickInfo
 }
 
@@ -404,7 +407,7 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 func (m *BaseTabManager) GetNextTabID() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	id := m.nextTabID
 	m.nextTabID++
 	return id

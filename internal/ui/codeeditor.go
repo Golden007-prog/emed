@@ -1,3 +1,4 @@
+// Package ui provides the main user interface components for the emed text editor.
 package ui
 
 import (

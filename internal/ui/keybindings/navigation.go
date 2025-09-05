@@ -1,3 +1,4 @@
+// Package keybindings provides keyboard shortcut handlers and management for the editor.
 package keybindings
 
 import "github.com/gdamore/tcell/v2"
@@ -12,7 +13,7 @@ type NavigationHandlers struct {
 	CloseTab         func() error
 }
 
-// RegisterNavigationHandlers registers navigation keyboard shortcuts.
+// RegisterNavigationHandlers registers navigation keyboard shortcuts with the manager.
 func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationHandlers) {
 	if handlers.FocusFileManager != nil {
 		manager.RegisterHandler(KeyHandler{

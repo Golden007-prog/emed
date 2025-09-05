@@ -1,3 +1,4 @@
+// Package pty manages pseudo-terminal interfaces for shell processes.
 package pty
 
 import (
@@ -12,6 +13,7 @@ import (
 	"github.com/creack/pty"
 )
 
+// PTYManager handles pseudo-terminal creation and management.
 type PTYManager struct {
 	ptm      *os.File
 	cmd      *exec.Cmd
@@ -22,6 +24,7 @@ type PTYManager struct {
 	onExit   func()
 }
 
+// New creates a new PTYManager with the specified shell.
 func New(shell string) *PTYManager {
 	if shell == "" {
 		shell = os.Getenv("SHELL")
@@ -35,6 +38,7 @@ func New(shell string) *PTYManager {
 	}
 }
 
+// Start initiates the PTY with specified dimensions.
 func (p *PTYManager) Start(cols, rows int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -75,6 +79,7 @@ func (p *PTYManager) Start(cols, rows int) error {
 	return nil
 }
 
+// Stop terminates the PTY and associated shell process.
 func (p *PTYManager) Stop() error {
 	p.mu.Lock()
 	
@@ -120,6 +125,7 @@ func (p *PTYManager) Stop() error {
 	return nil
 }
 
+// Write sends data to the PTY.
 func (p *PTYManager) Write(data []byte) error {
 	p.mu.RLock()
 	
@@ -135,6 +141,7 @@ func (p *PTYManager) Write(data []byte) error {
 	return err
 }
 
+// Resize adjusts the PTY dimensions.
 func (p *PTYManager) Resize(cols, rows int) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -149,16 +156,19 @@ func (p *PTYManager) Resize(cols, rows int) error {
 	})
 }
 
+// IsRunning returns whether the PTY is active.
 func (p *PTYManager) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.running
 }
 
+// SetOnData sets the callback for receiving PTY output.
 func (p *PTYManager) SetOnData(fn func([]byte)) {
 	p.onData = fn
 }
 
+// SetOnExit sets the callback for PTY termination.
 func (p *PTYManager) SetOnExit(fn func()) {
 	p.onExit = fn
 }
@@ -175,15 +185,10 @@ func (p *PTYManager) readLoop() {
 		ptm := p.ptm
 		p.mu.RUnlock()
 		
-		// Log before read to detect if we're stuck here
-		//logging.Debug("PTY readLoop: about to read")
 		n, err := ptm.Read(buf)
 		if err != nil {
-			//logging.Error("PTY readLoop: read error: %v", err)
 			break
 		}
-		
-		//logging.Debug("PTY readLoop: read %d bytes", n)
 		if n > 0 && p.onData != nil {
 			p.onData(buf[:n])
 		}

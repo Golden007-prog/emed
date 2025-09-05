@@ -1,3 +1,4 @@
+// Package components provides reusable UI components for the emed editor.
 package components
 
 import (
@@ -36,11 +37,11 @@ func (h *FileChangeHandler) CheckFileModified(info *FileInfo) (bool, error) {
 		}
 		return false, err
 	}
-	
+
 	if !info.LastModTime.Equal(stat.ModTime()) {
 		return true, nil
 	}
-	
+
 	return false, nil
 }
 
@@ -51,7 +52,7 @@ func (h *FileChangeHandler) HandleFileModified(info *FileInfo) FileChangeAction 
 			return FileChangeActionNone
 		}
 	}
-	
+
 	if info.Modified {
 		info.ExternallyModified = true
 		return FileChangeActionMarkConflict

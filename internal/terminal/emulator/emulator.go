@@ -1,3 +1,4 @@
+// Package emulator provides terminal emulation functionality using vt10x.
 package emulator
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/laborin/vt10x"
 )
 
+// TerminalEmulator wraps vt10x terminal emulator with additional features.
 type TerminalEmulator struct {
 	vt              *vt10x.VT
 	mouseReporting  bool
@@ -17,6 +19,7 @@ type TerminalEmulator struct {
 	onUpdate        func()
 }
 
+// New creates a new terminal emulator with the given dimensions.
 func New(cols, rows int) *TerminalEmulator {
 	vt := vt10x.New(vt10x.WithSize(cols, rows))
 	
@@ -25,6 +28,7 @@ func New(cols, rows int) *TerminalEmulator {
 	}
 }
 
+// Write processes incoming data and updates the terminal state.
 func (e *TerminalEmulator) Write(data []byte) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -38,26 +42,31 @@ func (e *TerminalEmulator) Write(data []byte) {
 	}
 }
 
+// Resize changes the terminal dimensions.
 func (e *TerminalEmulator) Resize(cols, rows int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.vt.Resize(cols, rows)
 }
 
+// GetState returns the current terminal state in a thread-safe manner.
 func (e *TerminalEmulator) GetState() *vt10x.State {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.vt.State()
 }
 
+// Lock acquires a read lock on the terminal state.
 func (e *TerminalEmulator) Lock() {
 	e.mu.RLock()
 }
 
+// Unlock releases the read lock on the terminal state.
 func (e *TerminalEmulator) Unlock() {
 	e.mu.RUnlock()
 }
 
+// Cell returns the character and attributes at the given position.
 func (e *TerminalEmulator) Cell(col, row int) vt10x.Glyph {
 	// Note: this assumes state is already locked by caller
 	state := e.vt.State()
@@ -76,6 +85,7 @@ func (e *TerminalEmulator) Cell(col, row int) vt10x.Glyph {
 	}
 }
 
+// Cursor returns the current cursor position.
 func (e *TerminalEmulator) Cursor() vt10x.Cursor {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -86,6 +96,7 @@ func (e *TerminalEmulator) Cursor() vt10x.Cursor {
 	}
 }
 
+// CursorVisible returns true if the cursor should be displayed.
 func (e *TerminalEmulator) CursorVisible() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -93,6 +104,7 @@ func (e *TerminalEmulator) CursorVisible() bool {
 	return state.CursorVisible
 }
 
+// Mode returns the current terminal mode flags.
 func (e *TerminalEmulator) Mode() uint32 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -105,6 +117,7 @@ func (e *TerminalEmulator) Mode() uint32 {
 	return mode
 }
 
+// SetMaxScrollback sets the maximum number of scrollback lines.
 func (e *TerminalEmulator) SetMaxScrollback(lines int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -112,6 +125,7 @@ func (e *TerminalEmulator) SetMaxScrollback(lines int) {
 	_ = lines
 }
 
+// ScrollbackLines returns the current number of scrollback lines available.
 func (e *TerminalEmulator) ScrollbackLines() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -119,6 +133,7 @@ func (e *TerminalEmulator) ScrollbackLines() int {
 	return 0
 }
 
+// GetScrollbackLine returns a specific line from the scrollback buffer.
 func (e *TerminalEmulator) GetScrollbackLine(index int) []vt10x.Glyph {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -127,24 +142,28 @@ func (e *TerminalEmulator) GetScrollbackLine(index int) []vt10x.Glyph {
 	return nil
 }
 
+// SetOnUpdate sets a callback function to be called when the terminal updates.
 func (e *TerminalEmulator) SetOnUpdate(fn func()) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.onUpdate = fn
 }
 
+// IsMouseReporting returns true if mouse events are being reported.
 func (e *TerminalEmulator) IsMouseReporting() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.mouseReporting
 }
 
+// IsMouseSGRMode returns true if SGR mouse reporting mode is active.
 func (e *TerminalEmulator) IsMouseSGRMode() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.mouseSGRMode
 }
 
+// IsAlternateScreen returns true if alternate screen buffer is active.
 func (e *TerminalEmulator) IsAlternateScreen() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -176,6 +195,7 @@ func (e *TerminalEmulator) scanForControlSequences(data []byte) {
 	}
 }
 
+// ConvertVT10xToTcellStyle converts vt10x attributes to tcell style.
 func ConvertVT10xToTcellStyle(attr vt10x.Attr) tcell.Style {
 	style := tcell.StyleDefault
 	
@@ -272,6 +292,7 @@ func ConvertVT10xToTcellStyle(attr vt10x.Attr) tcell.Style {
 	return style
 }
 
+// GenerateMouseSequence creates mouse event sequences for terminal input.
 func GenerateMouseSequence(col, row int, button tcell.ButtonMask, sgrMode bool) []byte {
 	if sgrMode {
 		buttonCode := 0

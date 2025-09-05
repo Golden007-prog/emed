@@ -1,3 +1,4 @@
+// Package components provides reusable UI components for the emed editor.
 package components
 
 import (
@@ -77,14 +78,14 @@ made with ♥ in Sonora[-]
 		SetText(helpText).
 		SetDynamicColors(true)
 	helpTextView.SetBackgroundColor(tcell.ColorBlack)
-	
+
 	helpTextView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil
 	})
 
 	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
 	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	
+
 	topSpacer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil
 	})
@@ -97,7 +98,7 @@ made with ♥ in Sonora[-]
 		AddItem(helpTextView, 11, 0, false).
 		AddItem(bottomSpacer, 0, 1, false)
 	centerFlex.SetBackgroundColor(tcell.ColorBlack)
-	
+
 	// Make the entire flex container ignore mouse events
 	centerFlex.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil

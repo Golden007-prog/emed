@@ -1,3 +1,4 @@
+// Package ui provides user interface components and managers for the emed editor.
 package ui
 
 import (
@@ -30,7 +31,7 @@ func naturalLess(a, b string) bool {
 	bRunes := []rune(b)
 	aLen := len(aRunes)
 	bLen := len(bRunes)
-	
+
 	i, j := 0, 0
 	for i < aLen && j < bLen {
 		if unicode.IsDigit(aRunes[i]) && unicode.IsDigit(bRunes[j]) {
@@ -39,16 +40,16 @@ func naturalLess(a, b string) bool {
 				numA += string(aRunes[i])
 				i++
 			}
-			
+
 			numB := ""
 			for j < bLen && unicode.IsDigit(bRunes[j]) {
 				numB += string(bRunes[j])
 				j++
 			}
-			
+
 			intA, _ := strconv.Atoi(numA)
 			intB, _ := strconv.Atoi(numB)
-			
+
 			if intA != intB {
 				return intA < intB
 			}
@@ -60,7 +61,7 @@ func naturalLess(a, b string) bool {
 			j++
 		}
 	}
-	
+
 	return aLen < bLen
 }
 
@@ -72,13 +73,13 @@ func hasCodeExtension(filename string) bool {
 		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
 		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r", ".R",
 	}
-	
+
 	for _, ext := range extensions {
 		if strings.HasSuffix(strings.ToLower(filename), ext) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -87,14 +88,14 @@ func sortNodes(nodes []*HTreeNode) {
 	sort.Slice(nodes, func(i, j int) bool {
 		nodeA := nodes[i]
 		nodeB := nodes[j]
-		
+
 		aIsDotDir := nodeA.IsDir && strings.HasPrefix(nodeA.Text, ".")
 		bIsDotDir := nodeB.IsDir && strings.HasPrefix(nodeB.Text, ".")
 		aIsNormalDir := nodeA.IsDir && !strings.HasPrefix(nodeA.Text, ".")
 		bIsNormalDir := nodeB.IsDir && !strings.HasPrefix(nodeB.Text, ".")
 		aIsDotFile := !nodeA.IsDir && strings.HasPrefix(nodeA.Text, ".")
 		bIsDotFile := !nodeB.IsDir && strings.HasPrefix(nodeB.Text, ".")
-		
+
 		aCat := 4
 		if aIsDotDir {
 			aCat = 1
@@ -103,7 +104,7 @@ func sortNodes(nodes []*HTreeNode) {
 		} else if aIsDotFile {
 			aCat = 3
 		}
-		
+
 		bCat := 4
 		if bIsDotDir {
 			bCat = 1
@@ -112,11 +113,11 @@ func sortNodes(nodes []*HTreeNode) {
 		} else if bIsDotFile {
 			bCat = 3
 		}
-		
+
 		if aCat != bCat {
 			return aCat < bCat
 		}
-		
+
 		return naturalLess(nodeA.Text, nodeB.Text)
 	})
 }
@@ -124,33 +125,33 @@ func sortNodes(nodes []*HTreeNode) {
 // HTree is a hierarchical tree widget for displaying file system structures.
 type HTree struct {
 	*tview.Box
-	
+
 	root         *HTreeNode
 	selected     *HTreeNode
 	visibleNodes []*HTreeNode
-	
-	scrollY      int
-	scrollX      int
-	
-	onSelected       func(node *HTreeNode)
-	onInfo           func(node *HTreeNode)
-	onCreateFile     func(node *HTreeNode)
+
+	scrollY int
+	scrollX int
+
+	onSelected        func(node *HTreeNode)
+	onInfo            func(node *HTreeNode)
+	onCreateFile      func(node *HTreeNode)
 	onCreateDirectory func(node *HTreeNode)
-	onCopy           func(node *HTreeNode)
-	onCut            func(node *HTreeNode)
-	onPaste          func(node *HTreeNode)
-	onDelete         func(node *HTreeNode)
-	onRename         func(node *HTreeNode)
-	hasFocus         bool
-	app              *tview.Application
+	onCopy            func(node *HTreeNode)
+	onCut             func(node *HTreeNode)
+	onPaste           func(node *HTreeNode)
+	onDelete          func(node *HTreeNode)
+	onRename          func(node *HTreeNode)
+	hasFocus          bool
+	app               *tview.Application
 }
 
 // NewHTree creates a new hierarchical tree widget.
 func NewHTree() *HTree {
 	return &HTree{
-		Box:      tview.NewBox(),
-		scrollY:  0,
-		scrollX:  0,
+		Box:     tview.NewBox(),
+		scrollY: 0,
+		scrollX: 0,
 	}
 }
 
@@ -172,7 +173,7 @@ func (t *HTree) buildVisibleNodes() {
 func (t *HTree) addVisibleNode(node *HTreeNode, depth int) {
 	node.depth = depth
 	t.visibleNodes = append(t.visibleNodes, node)
-	
+
 	if node.IsExpanded {
 		for _, child := range node.Children {
 			t.addVisibleNode(child, depth+1)
@@ -183,27 +184,27 @@ func (t *HTree) addVisibleNode(node *HTreeNode, depth int) {
 // Draw renders the tree to the screen.
 func (t *HTree) Draw(screen tcell.Screen) {
 	t.Box.DrawForSubclass(screen, t)
-	
+
 	x, y, width, height := t.GetInnerRect()
 	if width <= 0 || height <= 0 {
 		return
 	}
-	
+
 	t.buildVisibleNodes()
-	
+
 	if t.selected != nil {
-		
+
 		if t.selected.depth <= 3 {
 			t.scrollX = 0
 		} else {
-			
+
 			minVisibleDepth := t.selected.depth - 2
 			if minVisibleDepth < 0 {
 				minVisibleDepth = 0
 			}
-			
+
 			targetScrollX := minVisibleDepth * 2
-			
+
 			diff := targetScrollX - t.scrollX
 			if diff > 10 || diff < -10 {
 				t.scrollX = targetScrollX
@@ -213,12 +214,12 @@ func (t *HTree) Draw(screen tcell.Screen) {
 				t.scrollX -= 2
 			}
 		}
-		
+
 		if t.scrollX < 0 {
 			t.scrollX = 0
 		}
 	}
-	
+
 	selectedIndex := -1
 	for i, node := range t.visibleNodes {
 		if node == t.selected {
@@ -226,7 +227,7 @@ func (t *HTree) Draw(screen tcell.Screen) {
 			break
 		}
 	}
-	
+
 	if selectedIndex >= 0 {
 		if selectedIndex < t.scrollY {
 			t.scrollY = selectedIndex
@@ -234,17 +235,17 @@ func (t *HTree) Draw(screen tcell.Screen) {
 			t.scrollY = selectedIndex - height + 1
 		}
 	}
-	
+
 	for i := 0; i < height && t.scrollY+i < len(t.visibleNodes); i++ {
 		node := t.visibleNodes[t.scrollY+i]
-		
+
 		var line strings.Builder
-		
+
 		indent := node.depth * 2
 		for j := 0; j < indent; j++ {
 			line.WriteRune(' ')
 		}
-		
+
 		if node.IsDir {
 			if node.IsExpanded {
 				line.WriteString("▼ ")
@@ -254,14 +255,14 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		} else if node.depth > 0 {
 			line.WriteString("  ")
 		}
-		
+
 		line.WriteString(node.Text)
-		
+
 		fullLine := line.String()
-		
+
 		fgColor := node.Color
 		bgColor := tcell.ColorBlack
-		
+
 		if node == t.selected {
 			if t.hasFocus {
 				fgColor = tcell.ColorBlack
@@ -271,46 +272,46 @@ func (t *HTree) Draw(screen tcell.Screen) {
 				bgColor = tcell.NewRGBColor(60, 60, 60)
 			}
 		}
-		
+
 		drawX := 0
 		for j, ch := range fullLine {
 			if j < t.scrollX {
 				continue
 			}
-			
+
 			if drawX >= width {
 				break
 			}
-			
+
 			screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
 			drawX++
 		}
-		
+
 		if node == t.selected {
 			for ; drawX < width; drawX++ {
 				screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Background(bgColor))
 			}
 		}
 	}
-	
+
 }
 
 func (t *HTree) getRelativePath(node *HTreeNode) string {
 	if node == nil || node == t.root {
 		return "/"
 	}
-	
+
 	var parts []string
 	current := node
 	for current != nil && current != t.root {
 		parts = append([]string{current.Text}, parts...)
 		current = current.Parent
 	}
-	
+
 	if len(parts) == 0 {
 		return "/"
 	}
-	
+
 	return filepath.Join(parts...)
 }
 
@@ -325,7 +326,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 		if t.selected == nil {
 			return
 		}
-		
+
 		switch event.Key() {
 		case tcell.KeyUp:
 			t.moveUp()
@@ -352,7 +353,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 				t.onSelected(t.selected)
 			}
 		case tcell.KeyCtrlN:
-			if event.Modifiers() == (tcell.ModCtrl|tcell.ModAlt) {
+			if event.Modifiers() == (tcell.ModCtrl | tcell.ModAlt) {
 				if t.onCreateDirectory != nil && t.selected != nil {
 					t.onCreateDirectory(t.selected)
 				}
@@ -439,12 +440,12 @@ func (t *HTree) loadChildren(node *HTreeNode) {
 	if !node.IsDir || len(node.Children) > 0 {
 		return
 	}
-	
+
 	files, err := os.ReadDir(node.Path)
 	if err != nil {
 		return
 	}
-	
+
 	for _, file := range files {
 		childPath := filepath.Join(node.Path, file.Name())
 		child := &HTreeNode{
@@ -453,7 +454,7 @@ func (t *HTree) loadChildren(node *HTreeNode) {
 			IsDir:  file.IsDir(),
 			Parent: node,
 		}
-		
+
 		if file.Name()[0] == '.' {
 			child.Color = tcell.NewRGBColor(80, 80, 80)
 		} else if file.IsDir() {
@@ -463,10 +464,10 @@ func (t *HTree) loadChildren(node *HTreeNode) {
 		} else {
 			child.Color = tcell.ColorSilver
 		}
-		
+
 		node.Children = append(node.Children, child)
 	}
-	
+
 	sortNodes(node.Children)
 }
 
@@ -532,22 +533,22 @@ func (t *HTree) findNodeByPathRecursive(node *HTreeNode, path string) *HTreeNode
 func (t *HTree) ExpandPath(path string) {
 	parts := strings.Split(path, string(filepath.Separator))
 	current := t.root
-	
+
 	for i := range parts {
 		if current == nil {
 			break
 		}
-		
+
 		partialPath := filepath.Join(parts[:i+1]...)
 		if partialPath == "" {
 			partialPath = "/"
 		}
-		
+
 		if current.IsDir && !current.IsExpanded {
 			current.IsExpanded = true
 			t.loadChildren(current)
 		}
-		
+
 		for _, child := range current.Children {
 			if strings.HasPrefix(child.Path, partialPath) {
 				current = child
@@ -563,23 +564,23 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 		if !t.InRect(event.Position()) {
 			return false, nil
 		}
-		
+
 		x, y, _, height := t.GetInnerRect()
 		mx, my := event.Position()
 		relY := my - y
-		
+
 		switch action {
 		case tview.MouseLeftClick:
 			setFocus(t)
-			
+
 			if relY >= 0 && relY < height {
 				index := t.scrollY + relY
 				if index < len(t.visibleNodes) {
 					clickedNode := t.visibleNodes[index]
-					
+
 					relX := mx - x
 					nodeX := clickedNode.depth * 2
-					
+
 					if clickedNode.IsDir && relX >= nodeX-t.scrollX && relX <= nodeX+2-t.scrollX {
 						clickedNode.IsExpanded = !clickedNode.IsExpanded
 						if clickedNode.IsExpanded {
@@ -594,19 +595,19 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 				}
 			}
 			return true, nil
-			
+
 		case tview.MouseScrollUp:
 			if t.scrollY > 0 {
 				t.scrollY--
 			}
 			return true, nil
-			
+
 		case tview.MouseScrollDown:
 			if t.scrollY < len(t.visibleNodes)-height {
 				t.scrollY++
 			}
 			return true, nil
-			
+
 		case tview.MouseScrollLeft:
 			if t.scrollX > 0 {
 				t.scrollX -= 3
@@ -615,12 +616,12 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 				}
 			}
 			return true, nil
-			
+
 		case tview.MouseScrollRight:
 			t.scrollX += 3
 			return true, nil
 		}
-		
+
 		return false, nil
 	})
 }
@@ -630,20 +631,20 @@ func (t *HTree) RefreshNode(node *HTreeNode) {
 	if node == nil || !node.IsDir {
 		return
 	}
-	
+
 	var selectedPath string
 	if t.selected != nil {
 		selectedPath = t.selected.Path
 	}
-	
+
 	expandedPaths := make(map[string]bool)
 	t.saveExpansionState(node, expandedPaths)
-	
+
 	node.Children = nil
 	t.loadChildren(node)
-	
+
 	t.restoreExpansionState(node, expandedPaths)
-	
+
 	if selectedPath != "" {
 		if selectedNode := t.FindNodeByPath(selectedPath); selectedNode != nil {
 			t.selected = selectedNode

@@ -1,3 +1,4 @@
+// Package ui provides user interface components and managers for the emed editor.
 package ui
 
 import (
@@ -6,11 +7,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-	
+
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/terminal/pty"
 	"github.com/laborin/emed/internal/terminal/scrollback"
-	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/vt10x"
 	"github.com/rivo/tview"
 )
@@ -27,38 +28,38 @@ const (
 // VT10XTerminal provides VT10X terminal emulation functionality.
 type VT10XTerminal struct {
 	*tview.Box
-	
+
 	ptyMgr    *pty.PTYManager
 	scrollbuf *scrollback.ScrollbackBuffer
-	
+
 	vt        vt10x.Terminal
 	vtMutex   sync.Mutex
 	writeChan chan []byte
-	
-	mode      TerminalMode
-	hasFocus  bool
-	app       *tview.Application
-	
-	mouseReporting   bool
-	mouseSGRMode     bool
-	alternateScreen  bool
-	
-	onModeChange func(mode TerminalMode)
-	onExit       func()
+
+	mode     TerminalMode
+	hasFocus bool
+	app      *tview.Application
+
+	mouseReporting  bool
+	mouseSGRMode    bool
+	alternateScreen bool
+
+	onModeChange  func(mode TerminalMode)
+	onExit        func()
 	onTitleChange func(title string)
-	
+
 	rows int
 	cols int
-	
-	lastTitle   string
-	
+
+	lastTitle string
+
 	needsRedraw bool
 	redrawMutex sync.Mutex
 	done        chan struct{}
-	
-	writeBuf    []byte
-	writeMutex  sync.Mutex
-	writeTimer  *time.Timer
+
+	writeBuf   []byte
+	writeMutex sync.Mutex
+	writeTimer *time.Timer
 }
 
 // NewVT10XTerminal creates a new VT10X terminal emulator instance.
@@ -67,7 +68,7 @@ func NewVT10XTerminal() *VT10XTerminal {
 	if shell == "" {
 		shell = "/bin/bash"
 	}
-	
+
 	t := &VT10XTerminal{
 		Box:       tview.NewBox(),
 		ptyMgr:    pty.New(shell),
@@ -78,16 +79,16 @@ func NewVT10XTerminal() *VT10XTerminal {
 		done:      make(chan struct{}),
 		writeChan: make(chan []byte, 1000),
 	}
-	
+
 	t.vt = vt10x.New(vt10x.WithSize(t.cols, t.rows))
-	
+
 	t.ptyMgr.SetOnData(t.onPTYData)
 	t.ptyMgr.SetOnExit(t.onPTYExit)
-	
+
 	go t.writeProcessor()
-	
+
 	go t.refreshLoop()
-	
+
 	return t
 }
 
@@ -101,14 +102,14 @@ func (t *VT10XTerminal) Start() error {
 	if t.ptyMgr.IsRunning() {
 		return nil
 	}
-	
+
 	if err := t.ptyMgr.Start(t.cols, t.rows); err != nil {
 		logging.Error("Failed to start PTY: %v", err)
 		return err
 	}
-	
+
 	t.vt.SetMaxScrollback(1000)
-	
+
 	return nil
 }
 
@@ -130,7 +131,7 @@ func (t *VT10XTerminal) flushWrites() {
 		data := t.writeBuf
 		t.writeBuf = nil
 		t.writeMutex.Unlock()
-		
+
 		if err := t.ptyMgr.Write(data); err != nil {
 			logging.Error("PTY write error: %v", err)
 		}
@@ -144,14 +145,14 @@ func (t *VT10XTerminal) Write(data []byte) (int, error) {
 	if !t.ptyMgr.IsRunning() {
 		return 0, nil
 	}
-	
+
 	t.writeMutex.Lock()
 	t.writeBuf = append(t.writeBuf, data...)
-	
+
 	if t.writeTimer != nil {
 		t.writeTimer.Stop()
 	}
-	
+
 	if len(t.writeBuf) > 128 {
 		t.writeMutex.Unlock()
 		t.flushWrites()
@@ -159,7 +160,7 @@ func (t *VT10XTerminal) Write(data []byte) (int, error) {
 		t.writeTimer = time.AfterFunc(time.Millisecond, t.flushWrites)
 		t.writeMutex.Unlock()
 	}
-	
+
 	return len(data), nil
 }
 
@@ -204,7 +205,7 @@ func (t *VT10XTerminal) pollTitle() {
 	t.vtMutex.Lock()
 	title := t.vt.Title()
 	t.vtMutex.Unlock()
-	
+
 	if title != t.lastTitle && title != "" {
 		t.lastTitle = title
 		if t.onTitleChange != nil {
@@ -212,8 +213,6 @@ func (t *VT10XTerminal) pollTitle() {
 		}
 	}
 }
-
-
 
 func (t *VT10XTerminal) writeProcessor() {
 	for {
@@ -224,7 +223,7 @@ func (t *VT10XTerminal) writeProcessor() {
 			t.vtMutex.Lock()
 			t.vt.Write(data)
 			t.vtMutex.Unlock()
-			
+
 			t.pollTitle()
 			t.markNeedsRedraw()
 		}
@@ -232,12 +231,12 @@ func (t *VT10XTerminal) writeProcessor() {
 }
 
 func (t *VT10XTerminal) onPTYData(data []byte) {
-	
+
 	t.scanForControlSequences(data)
-	
+
 	dataCopy := make([]byte, len(data))
 	copy(dataCopy, data)
-	
+
 	select {
 	case t.writeChan <- dataCopy:
 	default:
@@ -259,7 +258,7 @@ func (t *VT10XTerminal) markNeedsRedraw() {
 func (t *VT10XTerminal) refreshLoop() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-t.done:
@@ -282,47 +281,46 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	if len(data) < 5 {
 		return
 	}
-	
+
 	str := string(data)
-	
+
 	lastEnablePos := -1
 	lastDisablePos := -1
-	
+
 	for _, pattern := range []string{"1000h", "1001h", "1002h", "1003h", "1005h", "1015h"} {
 		if pos := strings.LastIndex(str, pattern); pos > lastEnablePos {
 			lastEnablePos = pos
 		}
 	}
-	
-  
+
 	for _, pattern := range []string{"1000l", "1001l", "1002l", "1003l", "1005l", "1015l"} {
 		if pos := strings.LastIndex(str, pattern); pos > lastDisablePos {
 			lastDisablePos = pos
 		}
 	}
-	
+
 	if lastEnablePos > lastDisablePos && lastEnablePos >= 0 {
 		t.mouseReporting = true
 	} else if lastDisablePos > lastEnablePos && lastDisablePos >= 0 {
 		t.mouseReporting = false
 	}
-	
+
 	lastSGREnablePos := strings.LastIndex(str, "1006h")
 	lastSGRDisablePos := strings.LastIndex(str, "1006l")
-	
+
 	if lastSGREnablePos > lastSGRDisablePos && lastSGREnablePos >= 0 {
 		t.mouseSGRMode = true
 	} else if lastSGRDisablePos > lastSGREnablePos && lastSGRDisablePos >= 0 {
 		t.mouseSGRMode = false
 	}
-	
+
 	if strings.Contains(str, "\x1b[?1049h") || strings.Contains(str, "\x1b[?47h") ||
-	   strings.Contains(str, "\x1b[?1047h") {
+		strings.Contains(str, "\x1b[?1047h") {
 		t.alternateScreen = true
 		t.scrollbuf.ResetScroll()
 	}
 	if strings.Contains(str, "\x1b[?1049l") || strings.Contains(str, "\x1b[?47l") ||
-	   strings.Contains(str, "\x1b[?1047l") {
+		strings.Contains(str, "\x1b[?1047l") {
 		t.alternateScreen = false
 	}
 }
@@ -330,35 +328,35 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 // Draw renders the terminal content to the screen.
 func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 	t.Box.DrawForSubclass(screen, t)
-	
+
 	x, y, width, height := t.GetInnerRect()
-	
+
 	if height != t.rows || width != t.cols {
 		t.rows = height
 		t.cols = width
-		
+
 		t.vtMutex.Lock()
 		t.vt.Resize(width, height)
 		t.vtMutex.Unlock()
-		
+
 		if t.ptyMgr.IsRunning() {
 			t.ptyMgr.Resize(width, height)
 		}
-		
+
 		t.markNeedsRedraw()
 	}
-	
+
 	if t.mode == ModePassthrough && t.hasFocus {
 		modeText := "[TERMINAL MODE]"
 		modeX := x + width - len(modeText)
 		if modeX > x {
 			for i, ch := range modeText {
-				screen.SetContent(modeX+i, y, ch, nil, 
+				screen.SetContent(modeX+i, y, ch, nil,
 					tcell.StyleDefault.Foreground(tcell.ColorBlue).Bold(true))
 			}
 		}
 	}
-	
+
 	if t.scrollbuf.IsScrolled() {
 		scrollText := fmt.Sprintf("[SCROLLED: -%d lines]", t.scrollbuf.GetOffset())
 		scrollX := x + width - len(scrollText)
@@ -370,7 +368,7 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 			}
 		}
 	}
-	
+
 	t.drawTerminalContent(screen, x, y, width, height)
 }
 
@@ -381,11 +379,11 @@ func isControlChar(ch rune) bool {
 func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, height int) {
 	t.vtMutex.Lock()
 	defer t.vtMutex.Unlock()
-	
+
 	if t.scrollbuf.IsScrolled() {
 		scrollbackSize := t.vt.ScrollbackLines()
 		totalLines := scrollbackSize + t.rows
-		
+
 		viewportOffset := t.scrollbuf.GetOffset()
 		viewEnd := totalLines - viewportOffset
 		viewStart := viewEnd - height
@@ -395,7 +393,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 		if viewEnd > totalLines {
 			viewEnd = totalLines
 		}
-		
+
 		screenRow := 0
 		for i := viewStart; i < viewEnd && screenRow < height; i++ {
 			if i >= 0 {
@@ -430,23 +428,23 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 			}
 			screenRow++
 		}
-		
+
 		for ; screenRow < height; screenRow++ {
 			for col := 0; col < width; col++ {
 				screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
 			}
 		}
-		
+
 		return
 	}
-	
+
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			glyph := t.vt.Cell(col, row)
-			
-			hasReverse := (glyph.Mode & (1<<0)) != 0
+
+			hasReverse := (glyph.Mode & (1 << 0)) != 0
 			isInverted := (glyph.FG == vt10x.DefaultBG && glyph.BG == vt10x.DefaultFG)
-			
+
 			if hasReverse || isInverted {
 				ch := glyph.Char
 				if ch == 0 || isControlChar(ch) {
@@ -466,11 +464,11 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 			}
 		}
 	}
-	
+
 	if t.hasFocus {
 		cursorX, cursorY := t.getCursorPos()
 		cursorVisible := t.vt.CursorVisible()
-		
+
 		if cursorVisible {
 			if cursorX >= 0 && cursorX < width && cursorY >= 0 && cursorY < height {
 				glyph := t.vt.Cell(cursorX, cursorY)
@@ -478,11 +476,11 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 				if ch == 0 || isControlChar(ch) {
 					ch = ' '
 				}
-				
+
 				cursorStyle := tcell.StyleDefault.
 					Background(tcell.ColorWhite).
 					Foreground(tcell.ColorBlack)
-				
+
 				screen.SetContent(x+cursorX, y+cursorY, ch, nil, cursorStyle)
 			}
 		}
@@ -521,29 +519,37 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		if !t.ptyMgr.IsRunning() {
 			return false, nil
 		}
-		
+
 		x, y := event.Position()
 		rectX, rectY, width, height := t.GetInnerRect()
-		
+
 		termX := x - rectX + 1
 		termY := y - rectY + 1
-		
-		if termX < 1 { termX = 1 }
-		if termY < 1 { termY = 1 }
-		if termX > width { termX = width }
-		if termY > height { termY = height }
-		
+
+		if termX < 1 {
+			termX = 1
+		}
+		if termY < 1 {
+			termY = 1
+		}
+		if termX > width {
+			termX = width
+		}
+		if termY > height {
+			termY = height
+		}
+
 		inBounds := x >= rectX && x < rectX+width && y >= rectY && y < rectY+height
-		
+
 		if inBounds {
 			switch action {
 			case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick,
-				 tview.MouseRightClick, tview.MouseRightDown,
-				 tview.MouseMiddleClick, tview.MouseMiddleDown:
+				tview.MouseRightClick, tview.MouseRightDown,
+				tview.MouseMiddleClick, tview.MouseMiddleDown:
 				setFocus(t)
 			}
 		}
-		
+
 		if t.mouseReporting && t.ptyMgr.IsRunning() {
 			mouseSeq := t.generateMouseSequence(action, event, termX, termY)
 			if mouseSeq != "" {
@@ -551,7 +557,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 			}
 			return true, nil
 		}
-		
+
 		if inBounds {
 			switch action {
 			case tview.MouseScrollUp:
@@ -559,12 +565,12 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 					t.vtMutex.Lock()
 					scrollbackSize := t.vt.ScrollbackLines()
 					t.vtMutex.Unlock()
-					
+
 					maxOffset := scrollbackSize
 					if maxOffset < 0 {
 						maxOffset = 0
 					}
-					
+
 					t.scrollbuf.ScrollUpWithLimit(1, maxOffset)
 				}
 				return true, nil
@@ -574,7 +580,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				}
 				return true, nil
 			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
-				 tview.MouseRightClick, tview.MouseMiddleClick:
+				tview.MouseRightClick, tview.MouseMiddleClick:
 				if !t.alternateScreen {
 					t.scrollbuf.ResetScroll()
 				}
@@ -585,7 +591,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				return true, nil
 			}
 		}
-		
+
 		return false, nil
 	}
 }
@@ -593,7 +599,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *tcell.EventMouse, x, y int) string {
 	var button int
 	var isRelease bool
-	
+
 	switch action {
 	case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick:
 		button = 0
@@ -628,7 +634,7 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 	default:
 		return ""
 	}
-	
+
 	modifiers := event.Modifiers()
 	if modifiers&tcell.ModShift != 0 {
 		button += 4
@@ -639,7 +645,7 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 	if modifiers&tcell.ModCtrl != 0 {
 		button += 16
 	}
-	
+
 	if t.mouseSGRMode {
 		suffix := "M"
 		if isRelease {
@@ -650,10 +656,14 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		if isRelease {
 			button += 3
 		}
-		
-		if x > 223 { x = 223 }
-		if y > 223 { y = 223 }
-		
+
+		if x > 223 {
+			x = 223
+		}
+		if y > 223 {
+			y = 223
+		}
+
 		return fmt.Sprintf("\x1b[M%c%c%c", byte(button+32), byte(x+32), byte(y+32))
 	}
 }
@@ -664,12 +674,12 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 		if !t.hasFocus || !t.ptyMgr.IsRunning() {
 			return
 		}
-		
+
 		if t.scrollbuf.IsScrolled() {
 			t.scrollbuf.ResetScroll()
 		}
-		
-		if (event.Key() == tcell.KeyRune && strings.ToLower(string(event.Rune())) == "t" && event.Modifiers()&tcell.ModAlt != 0) {
+
+		if event.Key() == tcell.KeyRune && strings.ToLower(string(event.Rune())) == "t" && event.Modifiers()&tcell.ModAlt != 0 {
 			if t.mode == ModeApplication {
 				t.SetMode(ModePassthrough)
 			} else {
@@ -677,7 +687,7 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			}
 			return
 		}
-		
+
 		if t.mode == ModeApplication {
 			switch event.Key() {
 			case tcell.KeyF1, tcell.KeyF2, tcell.KeyF3, tcell.KeyF4, tcell.KeyF5, tcell.KeyF6, tcell.KeyF7:
@@ -685,12 +695,12 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			case tcell.KeyCtrlA, tcell.KeyCtrlE, tcell.KeyCtrlT, tcell.KeyCtrlW, tcell.KeyCtrlL, tcell.KeyCtrlP, tcell.KeyCtrlQ:
 				return
 			}
-			
+
 			if event.Modifiers()&tcell.ModCtrl != 0 && event.Modifiers()&tcell.ModShift != 0 {
 				return
 			}
 		}
-		
+
 		data := t.convertInputToBytes(event)
 		if len(data) > 0 {
 			t.Write(data)
@@ -764,7 +774,7 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		return []byte{0x1f}
 	case tcell.KeyBackspace2:
 		return []byte{0x7f}
-	
+
 	case tcell.KeyUp:
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOA")
@@ -789,7 +799,7 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		} else {
 			return []byte("\x1b[D")
 		}
-	
+
 	case tcell.KeyHome:
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOH")
@@ -802,17 +812,17 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		} else {
 			return []byte("\x1b[F")
 		}
-	
+
 	// Page Up/Down
 	case tcell.KeyPgUp:
 		return []byte("\x1b[5~")
 	case tcell.KeyPgDn:
 		return []byte("\x1b[6~")
-	
+
 	// Delete
 	case tcell.KeyDelete:
 		return []byte("\x1b[3~")
-	
+
 	// Function keys
 	case tcell.KeyF1:
 		return []byte("\x1bOP")
@@ -838,7 +848,7 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		return []byte("\x1b[23~")
 	case tcell.KeyF12:
 		return []byte("\x1b[24~")
-	
+
 	// Regular characters
 	case tcell.KeyRune:
 		if event.Modifiers()&tcell.ModCtrl != 0 {
@@ -854,7 +864,7 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 			return []byte(string(event.Rune()))
 		}
 	}
-	
+
 	return nil
 }
 
@@ -862,10 +872,10 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	// Start with a clean style
 	style := tcell.StyleDefault.Italic(false)
-	
+
 	// Convert foreground color
 	fg := glyph.FG
-	
+
 	if fg == vt10x.DefaultFG {
 		style = style.Foreground(tcell.ColorLightGray)
 	} else if fg == vt10x.DefaultBG {
@@ -894,7 +904,7 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 		r := uint8((fg >> 16) & 0xFF)
 		g := uint8((fg >> 8) & 0xFF)
 		b := uint8(fg & 0xFF)
-		
+
 		if r == 153 && g == 153 && b == 153 {
 			style = style.Foreground(tcell.ColorDarkGray)
 		} else {
@@ -903,10 +913,10 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	} else {
 		style = style.Foreground(tcell.ColorWhite)
 	}
-	
+
 	// Convert background color
 	bg := glyph.BG
-	
+
 	if bg == vt10x.DefaultBG {
 		style = style.Background(tcell.ColorBlack)
 	} else if bg == vt10x.DefaultFG {
@@ -935,13 +945,13 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	} else {
 		style = style.Background(tcell.ColorBlack)
 	}
-	
+
 	// Apply text attributes from Mode field
 	mode := glyph.Mode
 	if mode&(1<<0) != 0 { // Reverse
 		style = style.Reverse(true)
 	}
-	if mode&(1<<1) != 0 { // Underline  
+	if mode&(1<<1) != 0 { // Underline
 		style = style.Underline(true)
 	}
 	if mode&(1<<2) != 0 { // Bold
@@ -953,6 +963,6 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	if mode&(1<<5) != 0 { // Blink
 		style = style.Blink(true)
 	}
-	
+
 	return style
 }

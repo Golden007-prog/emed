@@ -1,3 +1,4 @@
+// Package clipboard provides cross-platform clipboard operations.
 package clipboard
 
 import (
@@ -7,12 +8,15 @@ import (
 	"strings"
 )
 
+// Clipboard provides system clipboard operations.
 type Clipboard struct{}
 
+// New creates a new Clipboard instance.
 func New() *Clipboard {
 	return &Clipboard{}
 }
 
+// Copy puts text on the system clipboard.
 func (c *Clipboard) Copy(text string) error {
 	if text == "" {
 		return nil
@@ -40,6 +44,7 @@ func (c *Clipboard) Copy(text string) error {
 	return cmd.Run()
 }
 
+// Paste retrieves text from the system clipboard.
 func (c *Clipboard) Paste() (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

@@ -1,3 +1,4 @@
+// Package config defines application constants and configuration values.
 package config
 
 import "time"
@@ -67,7 +68,7 @@ const (
 	RenderBatchSize = 1000
 )
 
-// File Extensions for code files
+// CodeFileExtensions contains file extensions recognized as code files.
 var CodeFileExtensions = []string{
 	".go", ".py", ".js", ".ts", ".jsx", ".tsx",
 	".java", ".c", ".cpp", ".h", ".hpp", ".cs",

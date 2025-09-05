@@ -1,3 +1,4 @@
+// Package buffer provides text buffer functionality with undo/redo support.
 package buffer
 
 import (
@@ -41,6 +42,7 @@ func linesEqual(a, b [][]rune) bool {
 	return true
 }
 
+// TextBuffer represents a text buffer with undo/redo functionality.
 type TextBuffer struct {
 	lines       [][]rune
 	lineEndings string
@@ -57,6 +59,7 @@ type TextBuffer struct {
 	recordingUndo bool
 }
 
+// New creates a new empty text buffer.
 func New() *TextBuffer {
 	initialLines := [][]rune{{}}
 	return &TextBuffer{
@@ -72,6 +75,7 @@ func New() *TextBuffer {
 	}
 }
 
+// LoadFile loads content from a file into the buffer.
 func (b *TextBuffer) LoadFile(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -106,6 +110,7 @@ func (b *TextBuffer) LoadFile(path string) error {
 	return nil
 }
 
+// SaveFile saves the buffer content to a file.
 func (b *TextBuffer) SaveFile(path string) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -134,6 +139,7 @@ func (b *TextBuffer) SaveFile(path string) error {
 	return err
 }
 
+// SetContent sets the buffer content from a string.
 func (b *TextBuffer) SetContent(content string) {
 	if content == "" {
 		b.lines = [][]rune{{}}
@@ -147,6 +153,7 @@ func (b *TextBuffer) SetContent(content string) {
 	b.modified = true
 }
 
+// GetContent returns the buffer content as a string.
 func (b *TextBuffer) GetContent() string {
 	var builder strings.Builder
 	for i, line := range b.lines {
@@ -158,10 +165,12 @@ func (b *TextBuffer) GetContent() string {
 	return builder.String()
 }
 
+// GetLines returns all lines in the buffer.
 func (b *TextBuffer) GetLines() [][]rune {
 	return b.lines
 }
 
+// GetLine returns a specific line from the buffer.
 func (b *TextBuffer) GetLine(row int) []rune {
 	if row < 0 || row >= len(b.lines) {
 		return []rune{}
@@ -169,10 +178,12 @@ func (b *TextBuffer) GetLine(row int) []rune {
 	return b.lines[row]
 }
 
+// GetLineCount returns the total number of lines in the buffer.
 func (b *TextBuffer) GetLineCount() int {
 	return len(b.lines)
 }
 
+// GetLineLength returns the length of a specific line.
 func (b *TextBuffer) GetLineLength(row int) int {
 	if row < 0 || row >= len(b.lines) {
 		return 0
@@ -180,6 +191,7 @@ func (b *TextBuffer) GetLineLength(row int) int {
 	return len(b.lines[row])
 }
 
+// InsertRune inserts a rune at the specified position.
 func (b *TextBuffer) InsertRune(row, col int, r rune) {
 	if row < 0 || row >= len(b.lines) {
 		return
@@ -198,6 +210,7 @@ func (b *TextBuffer) InsertRune(row, col int, r rune) {
 	b.modified = true
 }
 
+// InsertNewline inserts a newline at the specified position.
 func (b *TextBuffer) InsertNewline(row, col int) (newRow, newCol int) {
 	if row < 0 || row >= len(b.lines) {
 		return row, col
@@ -223,6 +236,7 @@ func (b *TextBuffer) InsertNewline(row, col int) (newRow, newCol int) {
 	return row + 1, 0
 }
 
+// DeleteCharBackward deletes the character before the cursor position.
 func (b *TextBuffer) DeleteCharBackward(row, col int) (newRow, newCol int, deleted bool) {
 	if row < 0 || row >= len(b.lines) {
 		return row, col, false
@@ -256,6 +270,7 @@ func (b *TextBuffer) DeleteCharBackward(row, col int) (newRow, newCol int, delet
 	return row, col, false
 }
 
+// DeleteCharForward deletes the character at the cursor position.
 func (b *TextBuffer) DeleteCharForward(row, col int) (deleted bool) {
 	if row < 0 || row >= len(b.lines) {
 		return false
@@ -286,6 +301,7 @@ func (b *TextBuffer) DeleteCharForward(row, col int) (deleted bool) {
 	return false
 }
 
+// DeleteRange deletes text between two positions.
 func (b *TextBuffer) DeleteRange(startRow, startCol, endRow, endCol int) {
 	if startRow < 0 || startRow >= len(b.lines) || endRow < 0 || endRow >= len(b.lines) {
 		return
@@ -329,6 +345,7 @@ func (b *TextBuffer) DeleteRange(startRow, startCol, endRow, endCol int) {
 	b.modified = true
 }
 
+// InsertText inserts text at the specified position.
 func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) {
 	if row < 0 || row >= len(b.lines) {
 		return row, col
@@ -379,18 +396,22 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 	return row + len(lines) - 1, len([]rune(lines[len(lines)-1]))
 }
 
+// IsModified returns true if the buffer has been modified.
 func (b *TextBuffer) IsModified() bool {
 	return b.modified
 }
 
+// SetModified sets the modified state of the buffer.
 func (b *TextBuffer) SetModified(modified bool) {
 	b.modified = modified
 }
 
+// GetTabSize returns the tab size setting.
 func (b *TextBuffer) GetTabSize() int {
 	return b.tabSize
 }
 
+// SetTabSize sets the tab size setting.
 func (b *TextBuffer) SetTabSize(size int) {
 	if size > 0 {
 		b.tabSize = size
@@ -413,6 +434,7 @@ func (b *TextBuffer) detectLineEndings(path string) {
 	}
 }
 
+// GetTextRange returns text content between two positions.
 func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string {
 	if startRow < 0 || startRow >= len(b.lines) || endRow < 0 || endRow >= len(b.lines) {
 		return ""
@@ -452,7 +474,7 @@ func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string
 	return result.String()
 }
 
-// SaveState saves the current buffer state to the undo stack
+// SaveState saves the current buffer state to the undo stack.
 func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
 	if !b.recordingUndo {
 		return
@@ -478,7 +500,7 @@ func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
 	b.redoStack = b.redoStack[:0]
 }
 
-// Undo reverts to the previous state
+// Undo reverts to the previous state.
 func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
 	
 	if len(b.undoStack) == 0 {
@@ -514,7 +536,7 @@ func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
 	return state.cursorX, state.cursorY, true
 }
 
-// Redo reapplies a previously undone change
+// Redo reapplies a previously undone change.
 func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	if len(b.redoStack) == 0 {
 		return 0, 0, false
@@ -548,17 +570,17 @@ func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	return state.cursorX, state.cursorY, true
 }
 
-// CanUndo returns true if undo is available
+// CanUndo returns true if undo is available.
 func (b *TextBuffer) CanUndo() bool {
 	return len(b.undoStack) > 0
 }
 
-// CanRedo returns true if redo is available
+// CanRedo returns true if redo is available.
 func (b *TextBuffer) CanRedo() bool {
 	return len(b.redoStack) > 0
 }
 
-// ClearUndoHistory clears both undo and redo stacks
+// ClearUndoHistory clears both undo and redo stacks.
 func (b *TextBuffer) ClearUndoHistory() {
 	b.undoStack = b.undoStack[:0]
 	b.redoStack = b.redoStack[:0]

@@ -1,3 +1,4 @@
+// Package container provides service registration for the dependency injection container.
 package container
 
 import (
@@ -10,6 +11,8 @@ import (
 	"github.com/rivo/tview"
 )
 
+// RegisterServices registers all application services in the dependency injection container.
+// It sets up logger, status bar, tab manager, file manager, editor, terminal and layout components.
 func RegisterServices(container *DIContainer) error {
 	if err := container.RegisterInstance(
 		reflect.TypeOf((*interfaces.Logger)(nil)).Elem(),
