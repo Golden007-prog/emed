@@ -47,7 +47,7 @@ run: build
 
 # Install the binary
 install: build
-	sudo cp $(BINARY_NAME) $(INSTALL_PATH)
+	sudo install -m 755 $(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
 
 # Clean build artifacts
 clean:
