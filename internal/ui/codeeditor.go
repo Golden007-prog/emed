@@ -3,7 +3,9 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/core/buffer"
@@ -12,6 +14,21 @@ import (
 	"github.com/laborin/emed/internal/core/syntax"
 	"github.com/rivo/tview"
 )
+
+// SearchOptions contains options for search operations.
+type SearchOptions struct {
+	CaseSensitive bool
+	WholeWord     bool
+	UseRegex      bool
+}
+
+// SearchMatch represents a single search match.
+type SearchMatch struct {
+	StartRow int
+	StartCol int
+	EndRow   int
+	EndCol   int
+}
 
 // CodeEditor provides text editing functionality with syntax highlighting.
 type CodeEditor struct {
@@ -204,6 +221,15 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		if isSelected {
 			fg, _, _ := style.Decompose()
 			style = tcell.StyleDefault.Background(tcell.ColorDarkGray).Foreground(fg)
+		}
+		
+		isMatch, isCurrent := e.isSearchMatch(lineNum, realCol)
+		if isMatch {
+			if isCurrent {
+				style = tcell.StyleDefault.Background(tcell.ColorOrange).Foreground(tcell.ColorBlack)
+			} else {
+				style = tcell.StyleDefault.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack)
+			}
 		}
 
 		if ch == '\t' {
@@ -1128,4 +1154,234 @@ func (e *CodeEditor) Close() {
 		e.highlighter.Close()
 		e.highlighter = nil
 	}
+}
+
+// Search performs a search in the editor content.
+func (e *CodeEditor) Search(text string, caseSensitive, wholeWord, useRegex bool) []buffer.SearchMatch {
+	lines := e.buffer.GetLines()
+	runeLines := make([][]rune, len(lines))
+	for i, line := range lines {
+		runeLines[i] = []rune(line)
+	}
+	
+	options := SearchOptions{
+		CaseSensitive: caseSensitive,
+		WholeWord:     wholeWord,
+		UseRegex:      useRegex,
+	}
+	
+	matches := performTextSearch(runeLines, text, options)
+	
+	bufferMatches := make([]buffer.SearchMatch, len(matches))
+	for i, match := range matches {
+		bufferMatches[i] = buffer.SearchMatch{
+			StartRow: match.StartRow,
+			StartCol: match.StartCol,
+			EndRow:   match.EndRow,
+			EndCol:   match.EndCol,
+		}
+	}
+	
+	e.buffer.SetSearchMatches(bufferMatches)
+	
+	if useRegex {
+		flags := ""
+		if !caseSensitive {
+			flags = "(?i)"
+		}
+		if wholeWord {
+			text = `\b` + text + `\b`
+		}
+		re, err := regexp.Compile(flags + text)
+		if err == nil {
+			e.buffer.SetSearchPattern(text, re)
+		}
+	} else {
+		e.buffer.SetSearchPattern(text, nil)
+	}
+	
+	return bufferMatches
+}
+
+// ClearSearchHighlights clears all search highlights.
+func (e *CodeEditor) ClearSearchHighlights() {
+	e.buffer.ClearSearchMatches()
+}
+
+// GetSelectedText returns the currently selected text.
+func (e *CodeEditor) GetSelectedText() string {
+	if !e.selection.IsActive() {
+		return ""
+	}
+	
+	startRow, startCol, endRow, endCol := e.selection.GetNormalizedRange()
+	return e.buffer.GetTextRange(startRow, startCol, endRow, endCol)
+}
+
+// SetCursor sets the cursor position.
+func (e *CodeEditor) SetCursor(row, col int) {
+	lines := e.buffer.GetLines()
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(lines) {
+		row = len(lines) - 1
+	}
+	if col < 0 {
+		col = 0
+	}
+	if row >= 0 && row < len(lines) {
+		lineLen := len([]rune(lines[row]))
+		if col > lineLen {
+			col = lineLen
+		}
+	}
+	
+	e.cursorRow = row
+	e.cursorCol = col
+	e.ensureCursorVisible()
+}
+
+// ScrollToCursor scrolls the view to make the cursor visible.
+func (e *CodeEditor) ScrollToCursor() {
+	e.ensureCursorVisible()
+}
+
+// isSearchMatch checks if a position is part of a search match.
+func (e *CodeEditor) isSearchMatch(row, col int) (isMatch, isCurrent bool) {
+	matches := e.buffer.GetSearchMatches()
+	if len(matches) == 0 {
+		return false, false
+	}
+	
+	currentIndex, _ := e.buffer.GetCurrentMatch()
+	for i, match := range matches {
+		if row == match.StartRow && col >= match.StartCol && col < match.EndCol {
+			return true, i == currentIndex-1
+		}
+	}
+	return false, false
+}
+
+func performTextSearch(lines [][]rune, pattern string, options SearchOptions) []SearchMatch {
+	if pattern == "" {
+		return nil
+	}
+	
+	var matches []SearchMatch
+	
+	if options.UseRegex {
+		matches = searchWithRegex(lines, pattern, options)
+	} else {
+		matches = searchPlainText(lines, pattern, options)
+	}
+	
+	return matches
+}
+
+func searchPlainText(lines [][]rune, pattern string, options SearchOptions) []SearchMatch {
+	var matches []SearchMatch
+	searchPattern := pattern
+	
+	if !options.CaseSensitive {
+		searchPattern = strings.ToLower(pattern)
+	}
+	
+	patternRunes := []rune(searchPattern)
+	patternLen := len(patternRunes)
+	
+	for row, line := range lines {
+		lineStr := string(line)
+		if !options.CaseSensitive {
+			lineStr = strings.ToLower(lineStr)
+		}
+		lineRunes := []rune(lineStr)
+		
+		for col := 0; col <= len(lineRunes)-patternLen; col++ {
+			if matchesAt(lineRunes, patternRunes, col) {
+				if options.WholeWord {
+					if !isWordBoundary(lineRunes, col, col+patternLen) {
+						continue
+					}
+				}
+				matches = append(matches, SearchMatch{
+					StartRow: row,
+					StartCol: col,
+					EndRow:   row,
+					EndCol:   col + patternLen,
+				})
+			}
+		}
+	}
+	
+	return matches
+}
+
+func searchWithRegex(lines [][]rune, pattern string, options SearchOptions) []SearchMatch {
+	var matches []SearchMatch
+	
+	flags := ""
+	if !options.CaseSensitive {
+		flags = "(?i)"
+	}
+	
+	if options.WholeWord {
+		pattern = `\b` + pattern + `\b`
+	}
+	
+	re, err := regexp.Compile(flags + pattern)
+	if err != nil {
+		return nil
+	}
+	
+	for row, line := range lines {
+		lineStr := string(line)
+		allMatches := re.FindAllStringIndex(lineStr, -1)
+		
+		for _, match := range allMatches {
+			startCol := len([]rune(lineStr[:match[0]]))
+			endCol := len([]rune(lineStr[:match[1]]))
+			
+			matches = append(matches, SearchMatch{
+				StartRow: row,
+				StartCol: startCol,
+				EndRow:   row,
+				EndCol:   endCol,
+			})
+		}
+	}
+	
+	return matches
+}
+
+func matchesAt(line, pattern []rune, pos int) bool {
+	if pos+len(pattern) > len(line) {
+		return false
+	}
+	
+	for i, r := range pattern {
+		if line[pos+i] != r {
+			return false
+		}
+	}
+	
+	return true
+}
+
+func isWordBoundary(line []rune, start, end int) bool {
+	if start > 0 {
+		prevChar := line[start-1]
+		if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) || prevChar == '_' {
+			return false
+		}
+	}
+	
+	if end < len(line) {
+		nextChar := line[end]
+		if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) || nextChar == '_' {
+			return false
+		}
+	}
+	
+	return true
 }

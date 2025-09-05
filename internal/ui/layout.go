@@ -274,11 +274,11 @@ func (l *Layout) getHelpText() string {
   Ctrl+R         Rename File/Directory
   
 [blue]EDITOR:[-]
-  Ctrl+S         Save File (coming soon)
+  Ctrl+S         Save File
   Ctrl+W         Close Current Tab
-  Ctrl+F         Search in Document
-  Ctrl+Z         Undo (coming soon)
-  Ctrl+Y         Redo (coming soon)
+  Ctrl+F         Find/Replace in Document
+  Ctrl+Z         Undo
+  Ctrl+Y         Redo
   
 [blue]NAVIGATION:[-]
   Ctrl+A         Focus File Manager

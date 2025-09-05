@@ -4,6 +4,7 @@ package buffer
 import (
 	"bufio"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -57,6 +58,20 @@ type TextBuffer struct {
 	
 	// Track if we should record this change
 	recordingUndo bool
+	
+	// Search state
+	searchMatches []SearchMatch
+	currentMatch  int
+	searchPattern string
+	searchRegex   *regexp.Regexp
+}
+
+// SearchMatch represents a search match in the buffer.
+type SearchMatch struct {
+	StartRow int
+	StartCol int
+	EndRow   int
+	EndCol   int
 }
 
 // New creates a new empty text buffer.
@@ -498,6 +513,138 @@ func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
 	
 	// Clear redo stack when new change is made
 	b.redoStack = b.redoStack[:0]
+}
+
+// SetSearchMatches sets the search matches for the buffer.
+func (b *TextBuffer) SetSearchMatches(matches []SearchMatch) {
+	b.searchMatches = matches
+	b.currentMatch = 0
+}
+
+// SetSearchPattern sets the search pattern and regex for replacements.
+func (b *TextBuffer) SetSearchPattern(pattern string, regex *regexp.Regexp) {
+	b.searchPattern = pattern
+	b.searchRegex = regex
+}
+
+// GetSearchMatches returns the current search matches.
+func (b *TextBuffer) GetSearchMatches() []SearchMatch {
+	return b.searchMatches
+}
+
+// GetCurrentMatch returns the current match index and total matches.
+func (b *TextBuffer) GetCurrentMatch() (int, int) {
+	if len(b.searchMatches) == 0 {
+		return 0, 0
+	}
+	return b.currentMatch + 1, len(b.searchMatches)
+}
+
+// NextMatch moves to the next search match.
+func (b *TextBuffer) NextMatch() (row, col int, found bool) {
+	if len(b.searchMatches) == 0 {
+		return 0, 0, false
+	}
+	
+	b.currentMatch = (b.currentMatch + 1) % len(b.searchMatches)
+	match := b.searchMatches[b.currentMatch]
+	return match.StartRow, match.StartCol, true
+}
+
+// PreviousMatch moves to the previous search match.
+func (b *TextBuffer) PreviousMatch() (row, col int, found bool) {
+	if len(b.searchMatches) == 0 {
+		return 0, 0, false
+	}
+	
+	b.currentMatch--
+	if b.currentMatch < 0 {
+		b.currentMatch = len(b.searchMatches) - 1
+	}
+	match := b.searchMatches[b.currentMatch]
+	return match.StartRow, match.StartCol, true
+}
+
+// ClearSearchMatches clears all search matches.
+func (b *TextBuffer) ClearSearchMatches() {
+	b.searchMatches = nil
+	b.currentMatch = 0
+	b.searchPattern = ""
+	b.searchRegex = nil
+}
+
+// ReplaceCurrentMatch replaces the current search match with replacement text.
+func (b *TextBuffer) ReplaceCurrentMatch(replacement string) bool {
+	if len(b.searchMatches) == 0 || b.currentMatch >= len(b.searchMatches) {
+		return false
+	}
+	
+	match := b.searchMatches[b.currentMatch]
+	if match.StartRow != match.EndRow {
+		return false
+	}
+	
+	b.SaveState(match.StartRow, match.StartCol)
+	
+	actualReplacement := replacement
+	if b.searchRegex != nil {
+		matchedText := string(b.lines[match.StartRow][match.StartCol:match.EndCol])
+		actualReplacement = b.searchRegex.ReplaceAllString(matchedText, replacement)
+	}
+	
+	b.DeleteRange(match.StartRow, match.StartCol, match.EndRow, match.EndCol)
+	b.InsertText(match.StartRow, match.StartCol, actualReplacement)
+	
+	replacementLen := len([]rune(actualReplacement))
+	matchLen := match.EndCol - match.StartCol
+	adjustment := replacementLen - matchLen
+	
+	for i := b.currentMatch + 1; i < len(b.searchMatches); i++ {
+		if b.searchMatches[i].StartRow == match.StartRow {
+			b.searchMatches[i].StartCol += adjustment
+			b.searchMatches[i].EndCol += adjustment
+		}
+	}
+	
+	b.searchMatches = append(b.searchMatches[:b.currentMatch], b.searchMatches[b.currentMatch+1:]...)
+	if b.currentMatch >= len(b.searchMatches) && len(b.searchMatches) > 0 {
+		b.currentMatch = len(b.searchMatches) - 1
+	}
+	
+	return true
+}
+
+// ReplaceAllMatches replaces all search matches with replacement text.
+func (b *TextBuffer) ReplaceAllMatches(replacement string) int {
+	if len(b.searchMatches) == 0 {
+		return 0
+	}
+	
+	b.SaveState(0, 0)
+	
+	count := 0
+	
+	for i := len(b.searchMatches) - 1; i >= 0; i-- {
+		match := b.searchMatches[i]
+		if match.StartRow != match.EndRow {
+			continue
+		}
+		
+		actualReplacement := replacement
+		if b.searchRegex != nil {
+			matchedText := string(b.lines[match.StartRow][match.StartCol:match.EndCol])
+			actualReplacement = b.searchRegex.ReplaceAllString(matchedText, replacement)
+		}
+		
+		b.DeleteRange(match.StartRow, match.StartCol, match.EndRow, match.EndCol)
+		b.InsertText(match.StartRow, match.StartCol, actualReplacement)
+		count++
+	}
+	
+	b.searchMatches = nil
+	b.currentMatch = 0
+	
+	return count
 }
 
 // Undo reverts to the previous state.

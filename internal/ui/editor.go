@@ -22,6 +22,9 @@ type EditorTab struct {
 	codeEditor         *CodeEditor
 	externallyModified bool
 	lastModTime        time.Time
+	searchBar          *SearchBar
+	searchVisible      bool
+	container          *tview.Flex
 }
 
 // GetID returns the unique identifier for this editor tab.
@@ -39,7 +42,7 @@ func (t *EditorTab) GetTitle() string {
 
 // GetContent returns the tview primitive that represents the tab content.
 func (t *EditorTab) GetContent() tview.Primitive {
-	return t.codeEditor
+	return t.container
 }
 
 // SetModified sets the modified state of the editor tab.
@@ -230,6 +233,10 @@ func (e *Editor) OpenFile(path string) {
 		lastModTime = info.ModTime()
 	}
 	
+	searchBar := NewSearchBar()
+	container := tview.NewFlex().SetDirection(tview.FlexRow)
+	container.AddItem(codeEditor, 0, 1, true)
+	
 	tab := &EditorTab{
 		id:                 tabID,
 		path:               path,
@@ -237,12 +244,17 @@ func (e *Editor) OpenFile(path string) {
 		codeEditor:         codeEditor,
 		externallyModified: false,
 		lastModTime:        lastModTime,
+		searchBar:          searchBar,
+		searchVisible:      false,
+		container:          container,
 	}
+	
+	e.setupSearchBar(tab)
 	
 	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
 	e.tabsMu.Unlock()
-	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), codeEditor, true, false)
+	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
 	
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
@@ -270,6 +282,10 @@ func (e *Editor) NewDocument() {
 		e.tabsMu.RUnlock()
 	})
 	
+	searchBar := NewSearchBar()
+	container := tview.NewFlex().SetDirection(tview.FlexRow)
+	container.AddItem(codeEditor, 0, 1, true)
+	
 	tab := &EditorTab{
 		id:                 tabID,
 		path:               "",
@@ -277,12 +293,17 @@ func (e *Editor) NewDocument() {
 		codeEditor:         codeEditor,
 		externallyModified: false,
 		lastModTime:        time.Time{},
+		searchBar:          searchBar,
+		searchVisible:      false,
+		container:          container,
 	}
+	
+	e.setupSearchBar(tab)
 	
 	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
 	e.tabsMu.Unlock()
-	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), codeEditor, true, false)
+	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
 	
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
@@ -453,10 +474,6 @@ func (e *Editor) SaveCurrentFile() {
 	}
 }
 
-// ShowSearch displays the search dialog for the current file.
-func (e *Editor) ShowSearch() {
-	// TODO: Implement search functionality
-}
 
 // GetView returns the root primitive for the editor component.
 func (e *Editor) GetView() tview.Primitive {
@@ -688,5 +705,143 @@ func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
 		func() {
 		},
 	)
+}
+
+// setupSearchBar configures the search bar for a tab.
+func (e *Editor) setupSearchBar(tab *EditorTab) {
+	tab.searchBar.SetCallbacks(
+		func(text string, caseSensitive, wholeWord, useRegex bool) {
+			e.performSearch(tab, text, caseSensitive, wholeWord, useRegex)
+		},
+		func(searchText, replaceText string) {
+			e.replaceCurrentMatch(tab, replaceText)
+		},
+		func(searchText, replaceText string) {
+			e.replaceAllMatches(tab, replaceText)
+		},
+		func() {
+			e.findNext(tab)
+		},
+		func() {
+			e.findPrevious(tab)
+		},
+		func() {
+			e.hideSearch(tab)
+		},
+	)
+}
+
+// ShowSearch shows the search bar for the current tab.
+func (e *Editor) ShowSearch() {
+	e.tabsMu.RLock()
+	currentTab := e.getCurrentTab()
+	e.tabsMu.RUnlock()
+	
+	if currentTab == nil {
+		return
+	}
+	
+	if !currentTab.searchVisible {
+		currentTab.searchVisible = true
+		currentTab.container.RemoveItem(currentTab.codeEditor)
+		currentTab.container.AddItem(currentTab.codeEditor, 0, 1, false)
+		currentTab.container.AddItem(currentTab.searchBar, 13, 0, true)
+		
+		selectedText := currentTab.codeEditor.GetSelectedText()
+		if selectedText != "" {
+			currentTab.searchBar.SetSearchText(selectedText)
+		}
+		
+		if e.app != nil {
+			e.app.SetFocus(currentTab.searchBar)
+		}
+	}
+}
+
+// hideSearch hides the search bar for the specified tab.
+func (e *Editor) hideSearch(tab *EditorTab) {
+	if tab.searchVisible {
+		tab.searchVisible = false
+		tab.container.RemoveItem(tab.searchBar)
+		tab.container.RemoveItem(tab.codeEditor)
+		tab.container.AddItem(tab.codeEditor, 0, 1, true)
+		
+		tab.codeEditor.ClearSearchHighlights()
+		tab.codeEditor.buffer.ClearSearchMatches()
+		
+		if e.app != nil {
+			e.app.SetFocus(tab.codeEditor)
+		}
+	}
+}
+
+// performSearch performs a search in the specified tab.
+func (e *Editor) performSearch(tab *EditorTab, text string, caseSensitive, wholeWord, useRegex bool) {
+	if text == "" {
+		tab.codeEditor.ClearSearchHighlights()
+		tab.codeEditor.buffer.ClearSearchMatches()
+		tab.searchBar.UpdateMatches(0, 0)
+		return
+	}
+	
+	matches := tab.codeEditor.Search(text, caseSensitive, wholeWord, useRegex)
+	tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
+	
+	if len(matches) > 0 {
+		row, col, _ := tab.codeEditor.buffer.NextMatch()
+		tab.codeEditor.SetCursor(row, col)
+		tab.codeEditor.ScrollToCursor()
+	}
+}
+
+// findNext moves to the next search match.
+func (e *Editor) findNext(tab *EditorTab) {
+	row, col, found := tab.codeEditor.buffer.NextMatch()
+	if found {
+		tab.codeEditor.SetCursor(row, col)
+		tab.codeEditor.ScrollToCursor()
+		tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
+	}
+}
+
+// findPrevious moves to the previous search match.
+func (e *Editor) findPrevious(tab *EditorTab) {
+	row, col, found := tab.codeEditor.buffer.PreviousMatch()
+	if found {
+		tab.codeEditor.SetCursor(row, col)
+		tab.codeEditor.ScrollToCursor()
+		tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
+	}
+}
+
+// replaceCurrentMatch replaces the current search match.
+func (e *Editor) replaceCurrentMatch(tab *EditorTab, replaceText string) {
+	if tab.codeEditor.buffer.ReplaceCurrentMatch(replaceText) {
+		tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
+		tab.SetModified(true)
+		e.UpdateTabBar()
+	}
+}
+
+// replaceAllMatches replaces all search matches.
+func (e *Editor) replaceAllMatches(tab *EditorTab, replaceText string) {
+	count := tab.codeEditor.buffer.ReplaceAllMatches(replaceText)
+	if count > 0 {
+		tab.codeEditor.ClearSearchHighlights()
+		tab.searchBar.UpdateMatches(0, 0)
+		tab.SetModified(true)
+		e.UpdateTabBar()
+	}
+}
+
+// getCurrentTab returns the currently active tab.
+func (e *Editor) getCurrentTab() *EditorTab {
+	activeID := e.tabManager.GetActiveTabID()
+	for _, tab := range e.tabs {
+		if tab.id == activeID {
+			return tab
+		}
+	}
+	return nil
 }
 
