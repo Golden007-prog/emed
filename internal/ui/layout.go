@@ -60,25 +60,7 @@ type Layout struct {
 	proportionDir    int
 }
 
-// NewLayoutWithDependencies creates a new Layout with provided dependencies.
-func NewLayoutWithDependencies(app *tview.Application, fileManager *FileManager, editor *Editor, terminal *Terminal, statusBar *StatusBar) *Layout {
-	l := &Layout{
-		app:              app,
-		fileManager:      fileManager,
-		editor:          editor,
-		terminal:        terminal,
-		statusBar:       statusBar,
-		focusedPanel:     0,
-		terminalPosition: "bottom",
-		proportionIndex:  1,
-		proportionDir:    1,
-	}
-	
-	l.initialize()
-	return l
-}
-
-// NewLayout creates a new Layout with default components.
+// NewLayout creates a new Layout with all UI components.
 func NewLayout(app *tview.Application) *Layout {
 	l := &Layout{
 		app:              app,
