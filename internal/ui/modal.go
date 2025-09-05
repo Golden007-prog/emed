@@ -80,6 +80,11 @@ func (m *EmModal) Close() {
 	} else if mainAppRoot != nil {
 		m.app.SetRoot(mainAppRoot, true)
 	}
+	
+	// Restore previous focus
+	if m.savedFocus != nil {
+		m.app.SetFocus(m.savedFocus)
+	}
 }
 
 // Cancel cancels the modal dialog if it's cancellable.
