@@ -53,8 +53,8 @@ Struggles to render some specific apps, like OpenCode. This is going to improve 
 - Ctrl+P: Toggles terminal placement, bottom or right.
 
 ### File Manager
-- Q / Ctrl+Q: Exit emed.
-- I: Shows file information panel.
+- Ctrl+Q: Exit emed.
+- Ctrl+I: Shows file information panel.
 - Arrow keys: browse project file tree.
 - Enter: Opens the highlighted file on an editor tab.
 - Ctrl+C: Copy reference of highlighted file to internal clipboard.

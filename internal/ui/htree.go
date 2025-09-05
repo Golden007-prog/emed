@@ -7,9 +7,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/filemanager"
 	"github.com/rivo/tview"
 )
 
@@ -144,14 +146,17 @@ type HTree struct {
 	onRename          func(node *HTreeNode)
 	hasFocus          bool
 	app               *tview.Application
+	
+	typeAhead        *filemanager.TypeAheadBuffer
 }
 
 // NewHTree creates a new hierarchical tree widget.
 func NewHTree() *HTree {
 	return &HTree{
-		Box:     tview.NewBox(),
-		scrollY: 0,
-		scrollX: 0,
+		Box:       tview.NewBox(),
+		scrollY:   0,
+		scrollX:   0,
+		typeAhead: filemanager.NewTypeAheadBuffer(500 * time.Millisecond),
 	}
 }
 
@@ -386,6 +391,12 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 					t.onDelete(t.selected)
 				}
 			}
+		case tcell.KeyCtrlI:
+			if event.Modifiers() == tcell.ModCtrl {
+				if t.onInfo != nil && t.selected != nil {
+					t.onInfo(t.selected)
+				}
+			}
 		case tcell.KeyCtrlR:
 			if event.Modifiers() == tcell.ModCtrl {
 				if t.onRename != nil && t.selected != nil {
@@ -397,8 +408,9 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 				if t.onCopy != nil && t.selected != nil {
 					t.onCopy(t.selected)
 				}
-			} else {
-				switch event.Rune() {
+			} else if event.Modifiers() == 0 {
+				r := event.Rune()
+				switch r {
 				case ' ':
 					if t.selected.IsDir {
 						t.selected.IsExpanded = !t.selected.IsExpanded
@@ -406,9 +418,9 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 							t.loadChildren(t.selected)
 						}
 					}
-				case 'i', 'I':
-					if t.onInfo != nil && t.selected != nil {
-						t.onInfo(t.selected)
+				default:
+					if unicode.IsLetter(r) || unicode.IsDigit(r) {
+						t.handleTypeAhead(r)
 					}
 				}
 			}
@@ -723,4 +735,56 @@ func (t *HTree) SetDeleteFunc(fn func(node *HTreeNode)) *HTree {
 func (t *HTree) SetRenameFunc(fn func(node *HTreeNode)) *HTree {
 	t.onRename = fn
 	return t
+}
+
+// handleTypeAhead processes alphanumeric input for quick file navigation.
+func (t *HTree) handleTypeAhead(r rune) {
+	if t.selected == nil {
+		return
+	}
+	
+	searchTerm := t.typeAhead.AddChar(r)
+	if searchTerm == "" {
+		return
+	}
+	
+	siblings := t.getSiblings()
+	if len(siblings) == 0 {
+		return
+	}
+	
+	// First try prefix matching
+	for _, node := range siblings {
+		if t.typeAhead.FileMatch(node.Text, searchTerm) {
+			t.selected = node
+			return
+		}
+	}
+	
+	// If no prefix match, try contains matching
+	for _, node := range siblings {
+		if t.typeAhead.FileContains(node.Text, searchTerm) {
+			t.selected = node
+			return
+		}
+	}
+}
+
+// getSiblings returns all sibling nodes of the currently selected node.
+func (t *HTree) getSiblings() []*HTreeNode {
+	if t.selected == nil {
+		return nil
+	}
+	
+	// If root is selected, it has no siblings
+	if t.selected == t.root {
+		return []*HTreeNode{t.root}
+	}
+	
+	// Get parent's children (which are the siblings)
+	if t.selected.Parent != nil {
+		return t.selected.Parent.Children
+	}
+	
+	return nil
 }

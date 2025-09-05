@@ -264,7 +264,7 @@ func (l *Layout) getHelpText() string {
 
 [blue]FILE MANAGER (when focused):[-]
   Enter          Open File / Toggle Directory
-  i              File Info Dialog
+  Ctrl+I         File Info Dialog
   Ctrl+N         Create New File
   Ctrl+Alt+N     Create New Directory
   Ctrl+C         Copy File/Directory
@@ -272,7 +272,6 @@ func (l *Layout) getHelpText() string {
   Ctrl+V         Paste File/Directory
   Ctrl+D         Delete File/Directory
   Ctrl+R         Rename File/Directory
-  q              Quit Application
   
 [blue]EDITOR:[-]
   Ctrl+S         Save File (coming soon)
@@ -307,7 +306,7 @@ func (l *Layout) getHelpText() string {
   Ctrl+Q         Quit
 
 [blue]FILE MANAGEMENT:[-]
-When the file manager has focus, you can manage your files easily. Use arrow keys to navegate through your project tree. Press Ctrl+N to create new files right were you need them. Copy files with Ctrl+C, then move to another folder and paste with Ctrl+V. Delete unwanted files with Ctrl+D - but be carefull, there's no undo for this! Rename files with Ctrl+R and use Ctrl+X to cut (move) files in combination with Ctrl+V.
+When the file manager has focus, you can manage your files easily. Use arrow keys to navegate through your project tree. Press Ctrl+N to create new files right were you need them. Copy files with Ctrl+C, then move to another folder and paste with Ctrl+V. Delete unwanted files with Ctrl+D - but be carefull, there's no undo for this! Rename files with Ctrl+R and use Ctrl+X to cut (move) files in combination with Ctrl+V. Type to highlight the file that matches your input.
 
 [blue]TERMINAL PASSTHROUGH MODE:[-]
 The terminal has two modes. Normal mode lets you use keyboard shortcuts normaly. But sometimes you need to send special keys directly to the terminal program (like when using vim or other CLI tools). Press Alt+T to toggle passthrough mode. In this mode, all keystrokes go straight to the terminal - only Alt+T works to switch back. The terminal tab title shows when passthru mode is active for that particular tab with an asterisk.
@@ -336,11 +335,6 @@ func (l *Layout) setupKeybindings() {
 		
 		if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
 			return event
-		}
-		
-		if l.focusedPanel == 0 && event.Key() == tcell.KeyRune && event.Rune() == 'q' && event.Modifiers() == 0 {
-			l.tryQuit()
-			return nil
 		}
 		
 		switch event.Key() {
