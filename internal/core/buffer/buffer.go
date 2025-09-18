@@ -732,3 +732,17 @@ func (b *TextBuffer) ClearUndoHistory() {
 	b.undoStack = b.undoStack[:0]
 	b.redoStack = b.redoStack[:0]
 }
+
+// SetLine replaces the content of a specific line
+func (b *TextBuffer) SetLine(row int, content []rune) {
+	if row >= 0 && row < len(b.lines) {
+		b.lines[row] = content
+		b.modified = true
+	}
+}
+
+// ClearTokenCache clears the syntax highlighting token cache
+func (b *TextBuffer) ClearTokenCache() {
+	// Token cache is handled in the CodeEditor, not the buffer
+	// This is a no-op for now
+}

@@ -58,6 +58,17 @@ type Layout struct {
 	terminalPosition string
 	proportionIndex  int
 	proportionDir    int
+	
+	// Project search
+	projectSearchModal *ProjectSearchModal
+	projectSearchModalWrapper *modalWrapper
+	projectSearchState struct {
+		searchTerm    string
+		replaceTerm   string
+		caseSensitive bool
+		wholeWord     bool
+		useRegex      bool
+	}
 }
 
 // NewLayout creates a new Layout with all UI components.
@@ -449,8 +460,10 @@ func (l *Layout) setupKeybindings() {
 				return nil
 			case tcell.KeyCtrlF:
 				if l.focusedPanel == 0 {
-					l.fileManager.ShowSearch()
+					// In file manager, show project search
+					l.showProjectSearch()
 				} else if l.focusedPanel == 1 {
+					// In editor, show within-document search
 					l.editor.ShowSearch()
 				}
 				return nil
@@ -545,6 +558,24 @@ func (l *Layout) OpenFile(path string) {
 	hadNoTabs := !l.editor.HasTabs()
 	
 	l.editor.OpenFile(path)
+	
+	if l.fileWatcher != nil {
+		l.fileWatcher.AddOpenFile(path)
+		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+	}
+	
+	if hadNoTabs && l.editor.HasTabs() {
+		l.rebuildLayout()
+	}
+	
+	l.focusEditor()
+}
+
+// OpenFileAtLine opens a file at a specific line and column
+func (l *Layout) OpenFileAtLine(path string, line int, column int) {
+	hadNoTabs := !l.editor.HasTabs()
+	
+	l.editor.OpenFileAtLine(path, line, column)
 	
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
@@ -695,6 +726,84 @@ func (l *Layout) tryQuit() {
 	} else {
 		l.app.Stop()
 	}
+}
+
+// showProjectSearch displays the project search modal
+func (l *Layout) showProjectSearch() {
+	if l.projectSearchModal != nil {
+		l.projectSearchModal.Stop()
+		l.projectSearchModal = nil
+	}
+	
+	l.projectSearchModal = NewProjectSearchModal(l.app)
+	
+	l.projectSearchModal.SetCallbacks(
+		func(path string, line int, column int) {
+			if l.projectSearchModal != nil {
+				l.projectSearchModal.Stop()
+			}
+			
+			if l.projectSearchModalWrapper != nil {
+				l.projectSearchModalWrapper.Close()
+				l.projectSearchModalWrapper = nil
+			}
+			
+			absPath, err := filepath.Abs(path)
+			if err == nil {
+				l.OpenFileAtLine(absPath, line, column)
+			}
+		},
+		func() map[string]*EditorTab {
+			return l.editor.GetOpenTabs()
+		},
+		func() {
+			if l.projectSearchModal != nil {
+				search, replace, caseSens, wholeWord, useRegex := l.projectSearchModal.GetState()
+				l.projectSearchState.searchTerm = search
+				l.projectSearchState.replaceTerm = replace
+				l.projectSearchState.caseSensitive = caseSens
+				l.projectSearchState.wholeWord = wholeWord
+				l.projectSearchState.useRegex = useRegex
+				
+				l.projectSearchModal.Stop()
+			}
+			
+			if l.projectSearchModalWrapper != nil {
+				l.projectSearchModalWrapper.Close()
+				l.projectSearchModalWrapper = nil
+			}
+			
+			l.projectSearchModal = nil
+		},
+	)
+	
+	l.projectSearchModal.RestoreState(
+		l.projectSearchState.searchTerm,
+		l.projectSearchState.replaceTerm,
+		l.projectSearchState.caseSensitive,
+		l.projectSearchState.wholeWord,
+		l.projectSearchState.useRegex,
+	)
+	
+	l.projectSearchModal.ActivateHandlers()
+	config := EmModalConfig{
+		UseFixedSize: true,
+		FixedWidth:   80,
+		FixedHeight:  25,
+		BorderColor:  tcell.ColorDarkGray,
+		TitleColor:   tcell.ColorWhite,
+		Title:        " Project Search & Replace ",
+		TitleAlign:   tview.AlignCenter,
+	}
+	
+	var content *tview.Flex
+	l.projectSearchModalWrapper, content = NewConfiguredModal(l.app, config, true)
+	l.projectSearchModalWrapper.SetPreviousRoot(l.root)
+	
+	content.AddItem(l.projectSearchModal.GetContainer(), 0, 1, true)
+	
+	l.projectSearchModalWrapper.Show()
+	l.projectSearchModal.Focus()
 }
 
 // Stop shuts down the layout and cleans up resources.

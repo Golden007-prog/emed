@@ -82,13 +82,11 @@ func (e *CodeEditor) LoadFile(path string) error {
 	e.offsetCol = 0
 	e.selection.Clear()
 
-	// Initialize syntax highlighter
 	if e.highlighter != nil {
 		e.highlighter.Close()
 	}
 	e.highlighter = syntax.NewHighlighter(path)
 	if e.highlighter != nil {
-		// Convert buffer content to lines for the highlighter
 		content := e.buffer.GetContent()
 		lines := strings.Split(content, "\n")
 		e.highlighter.UpdateContent(lines)
@@ -121,7 +119,6 @@ func (e *CodeEditor) SaveFile(path string) error {
 		return err
 	}
 
-	// Update highlighter if file extension changed
 	if path != e.filePath {
 		if e.highlighter != nil {
 			e.highlighter.Close()
@@ -572,14 +569,12 @@ func (e *CodeEditor) adjustCursorColumn() {
 }
 
 func (e *CodeEditor) ensureCursorVisible() {
-	// Vertical scrolling
 	if e.cursorRow < e.offsetRow {
 		e.offsetRow = e.cursorRow
 	} else if e.cursorRow >= e.offsetRow+e.viewportHeight {
 		e.offsetRow = e.cursorRow - e.viewportHeight + 1
 	}
 
-	// Horizontal scrolling with tab support
 	visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
 	if visualCol < e.offsetCol {
 		e.offsetCol = visualCol
@@ -621,7 +616,6 @@ func (e *CodeEditor) scrollLeft(cols int) {
 
 func (e *CodeEditor) scrollRight(cols int) {
 	e.offsetCol += cols
-	// Find the longest visual line to determine max offset
 	maxVisualLength := 0
 	lines := e.buffer.GetLines()
 	for i, line := range lines {
@@ -1245,6 +1239,50 @@ func (e *CodeEditor) SetCursor(row, col int) {
 // ScrollToCursor scrolls the view to make the cursor visible.
 func (e *CodeEditor) ScrollToCursor() {
 	e.ensureCursorVisible()
+}
+
+// CenterCursor centers the cursor in the viewport
+func (e *CodeEditor) CenterCursor() {
+	if e.viewportHeight <= 0 {
+		_, _, _, height := e.GetInnerRect()
+		if height > 0 {
+			e.viewportHeight = height
+		} else {
+			e.viewportHeight = 30
+		}
+	}
+	
+	targetOffset := e.cursorRow - (e.viewportHeight / 2)
+	
+	if targetOffset < 0 {
+		e.offsetRow = 0
+	} else {
+		maxOffset := len(e.buffer.GetLines()) - e.viewportHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if targetOffset > maxOffset {
+			e.offsetRow = maxOffset
+		} else {
+			e.offsetRow = targetOffset
+		}
+	}
+	
+	visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
+	
+	if visualCol < e.offsetCol {
+		e.offsetCol = visualCol - 10
+		if e.offsetCol < 0 {
+			e.offsetCol = 0
+		}
+	} else if e.viewportWidth > 0 && visualCol >= e.offsetCol + e.viewportWidth {
+		e.offsetCol = visualCol - e.viewportWidth + 10
+		if e.offsetCol < 0 {
+			e.offsetCol = 0
+		}
+	} else if e.offsetCol > 0 && e.viewportWidth > 0 && visualCol < e.viewportWidth {
+		e.offsetCol = 0
+	}
 }
 
 // isSearchMatch checks if a position is part of a search match.

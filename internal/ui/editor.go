@@ -260,6 +260,26 @@ func (e *Editor) OpenFile(path string) {
 	e.switchToTabByID(tabID)
 }
 
+// OpenFileAtLine opens a file and jumps to a specific line and column
+func (e *Editor) OpenFileAtLine(path string, line int, column int) {
+	e.OpenFile(path)
+	
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return
+	}
+	
+	if line > 0 {
+		row := line - 1
+		col := column
+		if col < 0 {
+			col = 0
+		}
+		tab.codeEditor.SetCursor(row, col)
+		tab.codeEditor.CenterCursor()
+	}
+}
+
 // NewDocument creates a new untitled document tab.
 func (e *Editor) NewDocument() {
 	codeEditor := NewCodeEditor()
@@ -375,7 +395,6 @@ func (e *Editor) CloseCurrentTab() {
 		return
 	}
 	
-	// Find the active tab
 	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
@@ -424,7 +443,6 @@ func (e *Editor) SaveCurrentFile() {
 		return
 	}
 	
-	// Find the active tab
 	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
@@ -843,5 +861,16 @@ func (e *Editor) getCurrentTab() *EditorTab {
 		}
 	}
 	return nil
+}
+
+// GetOpenTabs returns a map of all open tabs keyed by their file path
+func (e *Editor) GetOpenTabs() map[string]*EditorTab {
+	openTabs := make(map[string]*EditorTab)
+	for _, tab := range e.tabs {
+		if tab.path != "" {
+			openTabs[tab.path] = tab
+		}
+	}
+	return openTabs
 }
 
