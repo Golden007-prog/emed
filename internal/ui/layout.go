@@ -13,7 +13,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gdamore/tcell/v2"
-	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/git"
 	"github.com/rivo/tview"
 )
@@ -80,6 +79,10 @@ type Layout struct {
 	claudeStateDir    string
 	claudeCmdWatcher  *fsnotify.Watcher
 	stopClaudeWatcher chan bool
+
+	// Dynamic sizing
+	lastTerminalWidth int
+	fileManagerWidth  int
 }
 
 // NewLayout creates a new Layout with all UI components.
@@ -90,6 +93,7 @@ func NewLayout(app *tview.Application) *Layout {
 		terminalPosition: "bottom",
 		proportionIndex:  1,
 		proportionDir:    1,
+		fileManagerWidth: 30,
 	}
 	
 	l.fileManager = NewFileManager()
@@ -160,9 +164,13 @@ func (l *Layout) initialize() {
 	})
 	
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
-	
+
 	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
 	l.mainArea.SetBackgroundColor(tcell.ColorBlack)
+	l.mainArea.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		l.checkAndUpdateWidth()
+		return x, y, width, height
+	})
 	
 	l.rightSide = tview.NewFlex()
 	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
@@ -202,6 +210,27 @@ func (l *Layout) initialize() {
 // GetRoot returns the root primitive for the layout.
 func (l *Layout) GetRoot() tview.Primitive {
 	return l.root
+}
+
+func (l *Layout) calculateFileManagerWidth(terminalWidth int) int {
+	if terminalWidth > 190 {
+		return 40
+	}
+	return 30
+}
+
+func (l *Layout) checkAndUpdateWidth() {
+	_, _, width, _ := l.mainArea.GetRect()
+	if width == l.lastTerminalWidth {
+		return
+	}
+	l.lastTerminalWidth = width
+
+	newWidth := l.calculateFileManagerWidth(width)
+	if newWidth != l.fileManagerWidth {
+		l.fileManagerWidth = newWidth
+		l.rebuildLayout()
+	}
 }
 
 func (l *Layout) rebuildLayout() {
@@ -256,7 +285,7 @@ func (l *Layout) rebuildLayout() {
 	}
 	
 	l.mainArea.
-		AddItem(l.fileManager.GetView(), config.LayoutFileManagerProportion+10, 0, false).
+		AddItem(l.fileManager.GetView(), l.fileManagerWidth, 0, false).
 		AddItem(l.rightSide, 0, 1, false)
 }
 
