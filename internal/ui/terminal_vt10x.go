@@ -40,9 +40,10 @@ type VT10XTerminal struct {
 	hasFocus bool
 	app      *tview.Application
 
-	mouseReporting  bool
-	mouseSGRMode    bool
-	alternateScreen bool
+	mouseReporting      bool
+	mouseSGRMode        bool
+	alternateScreen     bool
+	bracketedPasteMode  bool
 
 	onModeChange  func(mode TerminalMode)
 	onExit        func()
@@ -330,6 +331,15 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	if strings.Contains(str, "\x1b[?1049l") || strings.Contains(str, "\x1b[?47l") ||
 		strings.Contains(str, "\x1b[?1047l") {
 		t.alternateScreen = false
+	}
+
+	lastBracketEnablePos := strings.LastIndex(str, "2004h")
+	lastBracketDisablePos := strings.LastIndex(str, "2004l")
+
+	if lastBracketEnablePos > lastBracketDisablePos && lastBracketEnablePos >= 0 {
+		t.bracketedPasteMode = true
+	} else if lastBracketDisablePos > lastBracketEnablePos && lastBracketDisablePos >= 0 {
+		t.bracketedPasteMode = false
 	}
 }
 
@@ -714,6 +724,33 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 	}
 }
 
+// PasteHandler returns the paste handler for the terminal.
+func (t *VT10XTerminal) PasteHandler() func(text string, setFocus func(p tview.Primitive)) {
+	return func(text string, setFocus func(p tview.Primitive)) {
+		if !t.hasFocus || !t.ptyMgr.IsRunning() || text == "" {
+			return
+		}
+
+		if t.scrollbuf.IsScrolled() {
+			t.scrollbuf.ResetScroll()
+		}
+
+		var data []byte
+		if t.bracketedPasteMode {
+			data = make([]byte, 0, len(text)+12)
+			data = append(data, "\x1b[200~"...)
+			data = append(data, text...)
+			data = append(data, "\x1b[201~"...)
+		} else {
+			data = []byte(text)
+		}
+
+		if err := t.ptyMgr.Write(data); err != nil {
+			logging.Error("PTY paste write error: %v", err)
+		}
+	}
+}
+
 // InputHandler returns the keyboard input handler for the terminal.
 func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return t.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
@@ -755,6 +792,20 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 }
 
 func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
+	if event.Key() == tcell.KeyEnter {
+		if event.Modifiers()&tcell.ModAlt != 0 {
+			return []byte("\x1b\r")
+		}
+		return []byte{0x0d}
+	}
+
+	if event.Key() == tcell.KeyBackspace2 {
+		if event.Modifiers()&tcell.ModAlt != 0 {
+			return []byte("\x1b\x7f")
+		}
+		return []byte{0x7f}
+	}
+
 	switch event.Key() {
 	case tcell.KeyCtrlSpace:
 		return []byte{0x00}
@@ -818,8 +869,6 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		return []byte{0x1e}
 	case tcell.KeyCtrlUnderscore:
 		return []byte{0x1f}
-	case tcell.KeyBackspace2:
-		return []byte{0x7f}
 
 	case tcell.KeyUp:
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
@@ -834,12 +883,18 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 			return []byte("\x1b[B")
 		}
 	case tcell.KeyRight:
+		if event.Modifiers()&tcell.ModAlt != 0 {
+			return []byte("\x1bf")
+		}
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOC")
 		} else {
 			return []byte("\x1b[C")
 		}
 	case tcell.KeyLeft:
+		if event.Modifiers()&tcell.ModAlt != 0 {
+			return []byte("\x1bb")
+		}
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOD")
 		} else {
@@ -897,8 +952,11 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 
 	// Regular characters
 	case tcell.KeyRune:
+		r := event.Rune()
+		if event.Modifiers()&tcell.ModAlt != 0 {
+			return []byte{0x1b, byte(r)}
+		}
 		if event.Modifiers()&tcell.ModCtrl != 0 {
-			r := event.Rune()
 			if r >= 'a' && r <= 'z' {
 				return []byte{byte(r - 'a' + 1)}
 			} else if r >= 'A' && r <= 'Z' {
@@ -907,7 +965,7 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 				return []byte(string(r))
 			}
 		} else {
-			return []byte(string(event.Rune()))
+			return []byte(string(r))
 		}
 	}
 

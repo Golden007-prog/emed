@@ -94,7 +94,7 @@ func main() {
 		}
 	}()
 	
-	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).Run(); err != nil {
+	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).EnablePaste(true).Run(); err != nil {
 		fmt.Print(config.TerminalExitAltScreen)
 		fmt.Print(config.TerminalShowCursor)
 		panic(err)
