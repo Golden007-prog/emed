@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
-	
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/ui/components"
@@ -893,6 +894,163 @@ func (e *Editor) GetCurrentFileAndLine() (string, int) {
 	}
 	row, _ := tab.codeEditor.GetCursor()
 	return tab.path, row + 1
+}
+
+// GetOpenFilePaths returns a list of all open file paths.
+func (e *Editor) GetOpenFilePaths() []string {
+	paths := make([]string, 0, len(e.tabs))
+	for _, tab := range e.tabs {
+		if tab.path != "" {
+			paths = append(paths, tab.path)
+		}
+	}
+	return paths
+}
+
+// GetActiveFilePath returns the path of the currently active file.
+func (e *Editor) GetActiveFilePath() string {
+	path, _ := e.GetCurrentFileAndLine()
+	return path
+}
+
+// GetActiveCursorLine returns the 1-based line number of the cursor in the active file.
+func (e *Editor) GetActiveCursorLine() int {
+	_, line := e.GetCurrentFileAndLine()
+	return line
+}
+
+// GoToLine moves the cursor to the specified 1-based line number in the active file.
+func (e *Editor) GoToLine(line int) {
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return
+	}
+	tab.codeEditor.SetCursor(line-1, 0)
+	tab.codeEditor.CenterViewOnCursor()
+}
+
+// GoToPosition moves the cursor to the specified 1-based line and column.
+func (e *Editor) GoToPosition(line, col int) {
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return
+	}
+	tab.codeEditor.SetCursor(line-1, col-1)
+	tab.codeEditor.CenterViewOnCursor()
+}
+
+// SaveFileByPath saves a specific file by path.
+func (e *Editor) SaveFileByPath(path string) bool {
+	for _, tab := range e.tabs {
+		if tab.path == path && tab.codeEditor != nil {
+			if err := tab.codeEditor.SaveFile(tab.path); err == nil {
+				tab.modified = false
+				e.UpdateTabBar()
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetBufferContent returns the content of a file's buffer (includes unsaved changes).
+func (e *Editor) GetBufferContent(path string) string {
+	for _, tab := range e.tabs {
+		if tab.path == path && tab.codeEditor != nil {
+			lines := tab.codeEditor.buffer.GetLines()
+			strLines := make([]string, len(lines))
+			for i, line := range lines {
+				strLines[i] = string(line)
+			}
+			return strings.Join(strLines, "\n")
+		}
+	}
+	return ""
+}
+
+// GetCurrentBufferContent returns the content of the active file's buffer.
+func (e *Editor) GetCurrentBufferContent() string {
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return ""
+	}
+	lines := tab.codeEditor.buffer.GetLines()
+	strLines := make([]string, len(lines))
+	for i, line := range lines {
+		strLines[i] = string(line)
+	}
+	return strings.Join(strLines, "\n")
+}
+
+// GetSelection returns the currently selected text in the active editor.
+func (e *Editor) GetSelection() string {
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return ""
+	}
+	return tab.codeEditor.GetSelectedText()
+}
+
+// GetModifiedFiles returns a list of file paths with unsaved changes.
+func (e *Editor) GetModifiedFiles() []string {
+	var modified []string
+	for _, tab := range e.tabs {
+		if tab.modified && tab.path != "" {
+			modified = append(modified, tab.path)
+		}
+	}
+	return modified
+}
+
+// IsFileModified returns true if the specified file has unsaved changes.
+func (e *Editor) IsFileModified(path string) bool {
+	for _, tab := range e.tabs {
+		if tab.path == path {
+			return tab.modified
+		}
+	}
+	return false
+}
+
+// CloseTabByPath closes a file tab without prompting for save.
+func (e *Editor) CloseTabByPath(path string) bool {
+	e.tabsMu.RLock()
+	var tabID int = -1
+	for _, tab := range e.tabs {
+		if tab.path == path {
+			tabID = tab.id
+			break
+		}
+	}
+	e.tabsMu.RUnlock()
+
+	if tabID != -1 {
+		e.tabManager.RemoveTab(tabID)
+		return true
+	}
+	return false
+}
+
+// SaveAllModifiedFiles saves all files with unsaved changes.
+func (e *Editor) SaveAllModifiedFiles() int {
+	saved := 0
+	for _, tab := range e.tabs {
+		if tab.modified && tab.path != "" && tab.codeEditor != nil {
+			if err := tab.codeEditor.SaveFile(tab.path); err == nil {
+				tab.modified = false
+				saved++
+			}
+		}
+	}
+	if saved > 0 {
+		e.UpdateTabBar()
+	}
+	return saved
+}
+
+// GetTabCount returns the number of open editor tabs.
+func (e *Editor) GetTabCount() int {
+	return len(e.tabs)
 }
 
 // GetCursor returns the current cursor position (row, col) for the code editor.

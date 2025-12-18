@@ -2,14 +2,17 @@
 package pty
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-	
+
 	"github.com/creack/pty"
 )
 
@@ -59,7 +62,12 @@ func (p *PTYManager) Start(cols, rows int) error {
 			filtered = append(filtered, e)
 		}
 	}
-	p.cmd.Env = append(filtered, "TERM=xterm-256color")
+	cwd, _ := os.Getwd()
+	homeDir, _ := os.UserHomeDir()
+	hash := md5.Sum([]byte(cwd))
+	stateDir := filepath.Join(homeDir, ".emed", hex.EncodeToString(hash[:])[:12])
+	os.MkdirAll(stateDir, 0755)
+	p.cmd.Env = append(filtered, "TERM=xterm-256color", "EMED_STATE_DIR="+stateDir)
 	
 	ptm, err := pty.StartWithSize(p.cmd, &pty.Winsize{
 		Rows: uint16(rows),

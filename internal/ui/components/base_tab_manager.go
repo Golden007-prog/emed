@@ -294,11 +294,11 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 			if hasFocus {
 				tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
 			} else {
-				tabStr = fmt.Sprintf("[gray][ %s ][-]", title)
+				tabStr = fmt.Sprintf("[white][ %s ][-]", title)
 			}
 			displayWidth = len(title) + 4 // "[ " + title + " ]"
 		} else {
-			tabStr = fmt.Sprintf("[gray]%s[-]", title)
+			tabStr = fmt.Sprintf("[#666666]%s[-]", title)
 			displayWidth = len(title)
 		}
 
@@ -306,7 +306,7 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 			nextIsActive := tabDataList[i+1].isActive
 
 			if !data.isActive && !nextIsActive {
-				tabStr += " [gray]|[-] "
+				tabStr += " [#666666]|[-] "
 				displayWidth += 3 // " | "
 			} else {
 				tabStr += " "
@@ -382,7 +382,7 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	currentX := 0
 
 	if len(visibleTabs) > 0 && visibleTabs[0] > 0 {
-		tabText += "[gray]◀ [-]"
+		tabText += "[#666666]◀ [-]"
 		currentX += 2
 	}
 
@@ -397,7 +397,7 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	}
 
 	if len(visibleTabs) > 0 && visibleTabs[len(visibleTabs)-1] < len(tabDataList)-1 {
-		tabText += " [gray]▶[-]"
+		tabText += " [#666666]▶[-]"
 	}
 
 	return tabText, clickInfo

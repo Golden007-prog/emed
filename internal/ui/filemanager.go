@@ -893,6 +893,54 @@ func copyToSystemClipboard(text string) error {
 	return cmd.Wait()
 }
 
+// RevealFile expands directories and selects the file in the tree.
+func (fm *FileManager) RevealFile(path string) {
+	if path == "" || !strings.HasPrefix(path, fm.rootPath) {
+		return
+	}
+
+	relPath, err := filepath.Rel(fm.rootPath, path)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return
+	}
+
+	parts := strings.Split(relPath, string(filepath.Separator))
+	current := fm.root
+	currentPath := fm.rootPath
+
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		currentPath = filepath.Join(currentPath, part)
+		isLast := i == len(parts)-1
+
+		if current.IsDir && !current.IsExpanded {
+			current.IsExpanded = true
+			fm.htree.RefreshNode(current)
+		}
+
+		var found *HTreeNode
+		for _, child := range current.Children {
+			if child.Text == part {
+				found = child
+				break
+			}
+		}
+
+		if found == nil {
+			return
+		}
+
+		if isLast {
+			fm.htree.SetCurrentNode(found)
+		} else {
+			current = found
+		}
+	}
+}
+
 func getFileSize(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {

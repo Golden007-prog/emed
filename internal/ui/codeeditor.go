@@ -1607,6 +1607,32 @@ func isWordBoundary(line []rune, start, end int) bool {
 			return false
 		}
 	}
-	
+
 	return true
+}
+
+// CenterViewOnCursor adjusts the scroll offset to center the cursor vertically.
+func (c *CodeEditor) CenterViewOnCursor() {
+	_, _, _, height := c.GetInnerRect()
+	if height <= 0 {
+		height = 24
+	}
+
+	lines := c.buffer.GetLines()
+	lineCount := len(lines)
+
+	targetOffset := c.cursorRow - height/2
+	if targetOffset < 0 {
+		targetOffset = 0
+	}
+
+	maxOffset := lineCount - height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if targetOffset > maxOffset {
+		targetOffset = maxOffset
+	}
+
+	c.offsetRow = targetOffset
 }

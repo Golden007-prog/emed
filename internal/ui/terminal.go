@@ -57,6 +57,7 @@ type Terminal struct {
 	noTermsView     *tview.TextView
 	app             *tview.Application
 	onLastTabClosed func()
+	onEmedCommand   func(cmd string, args []string)
 	tabClickInfo    []components.TabClickInfo
 }
 
@@ -171,6 +172,12 @@ func (t *Terminal) NewTab() {
 					}
 				}
 			})
+		}
+	})
+
+	emulator.SetOnEmedCommand(func(cmd string, args []string) {
+		if t.onEmedCommand != nil {
+			t.onEmedCommand(cmd, args)
 		}
 	})
 
@@ -294,6 +301,11 @@ func (t *Terminal) HasTabs() bool {
 // SetOnLastTabClosed sets a callback for when the last terminal tab is closed.
 func (t *Terminal) SetOnLastTabClosed(handler func()) {
 	t.onLastTabClosed = handler
+}
+
+// SetOnEmedCommand sets a callback for emed OSC commands from any terminal tab.
+func (t *Terminal) SetOnEmedCommand(handler func(cmd string, args []string)) {
+	t.onEmedCommand = handler
 }
 
 // IsInPassthroughMode returns true if the active terminal is in passthrough mode.
