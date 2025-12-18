@@ -151,6 +151,7 @@ func (m *ProjectSearchModal) setupUI() {
 	m.previewText.SetTitle(" Preview ")
 	m.previewText.SetDynamicColors(true)
 	m.previewText.SetWordWrap(false)
+	m.previewText.SetBorderColor(tcell.NewRGBColor(102, 102, 102))
 
 	resultsPanel := tview.NewFlex().
 		AddItem(m.resultsList, 0, 30, false).
@@ -707,29 +708,36 @@ func (m *ProjectSearchModal) updatePreview() {
 	m.previewText.Clear()
 
 	if m.selectedIdx < 0 || m.selectedIdx >= len(m.results) {
+		m.previewText.SetTitle(" Preview ")
 		return
 	}
 
 	result := m.results[m.selectedIdx]
 
-	fmt.Fprintf(m.previewText, "[gray]%s:%d[white]\n\n", result.FilePath, result.Line)
+	relPath, _ := filepath.Rel(".", result.FilePath)
+	m.previewText.SetTitle(fmt.Sprintf(" %s ", relPath))
 
-	for _, line := range result.ContextBefore {
-		fmt.Fprintf(m.previewText, "  %s\n", line)
+	lineNumWidth := 4
+	startLine := result.Line - len(result.ContextBefore)
+
+	for i, line := range result.ContextBefore {
+		lineNum := startLine + i
+		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(line))
 	}
 
 	matchLine := result.MatchText
-	if result.Column > 0 && result.Column+result.MatchLength <= len(matchLine) {
-		before := matchLine[:result.Column]
-		match := matchLine[result.Column : result.Column+result.MatchLength]
-		after := matchLine[result.Column+result.MatchLength:]
-		fmt.Fprintf(m.previewText, "▶ %s[yellow::b]%s[white::-]%s\n", before, match, after)
+	if result.Column >= 0 && result.Column+result.MatchLength <= len(matchLine) {
+		before := tview.Escape(matchLine[:result.Column])
+		match := tview.Escape(matchLine[result.Column : result.Column+result.MatchLength])
+		after := tview.Escape(matchLine[result.Column+result.MatchLength:])
+		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s[black:yellow]%s[-:-]%s\n", lineNumWidth, result.Line, before, match, after)
 	} else {
-		fmt.Fprintf(m.previewText, "▶ %s\n", matchLine)
+		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s\n", lineNumWidth, result.Line, tview.Escape(matchLine))
 	}
 
-	for _, line := range result.ContextAfter {
-		fmt.Fprintf(m.previewText, "  %s\n", line)
+	for i, line := range result.ContextAfter {
+		lineNum := result.Line + 1 + i
+		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(line))
 	}
 }
 

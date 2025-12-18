@@ -270,12 +270,12 @@ func (e *Editor) OpenFile(path string) {
 // OpenFileAtLine opens a file and jumps to a specific line and column
 func (e *Editor) OpenFileAtLine(path string, line int, column int) {
 	e.OpenFile(path)
-	
+
 	tab := e.getCurrentTab()
 	if tab == nil || tab.codeEditor == nil {
 		return
 	}
-	
+
 	if line > 0 {
 		row := line - 1
 		col := column
@@ -283,7 +283,7 @@ func (e *Editor) OpenFileAtLine(path string, line int, column int) {
 			col = 0
 		}
 		tab.codeEditor.SetCursor(row, col)
-		tab.codeEditor.CenterCursor()
+		tab.codeEditor.RequestCenterCursor()
 	}
 }
 

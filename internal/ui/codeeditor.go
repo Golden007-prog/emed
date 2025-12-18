@@ -77,6 +77,8 @@ type CodeEditor struct {
 	blameRow       int
 	blameTimer     *time.Timer
 	blameMutex     sync.Mutex
+
+	pendingCenterCursor bool
 }
 
 // NewCodeEditor creates a new code editor instance with default settings.
@@ -186,6 +188,11 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 
 	e.viewportHeight = height
 	e.viewportWidth = width - lineNumWidth - 1
+
+	if e.pendingCenterCursor {
+		e.pendingCenterCursor = false
+		e.CenterCursor()
+	}
 
 	if e.highlighter != nil {
 		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+height-1)
@@ -1426,6 +1433,11 @@ func (e *CodeEditor) SetCursor(row, col int) {
 // ScrollToCursor scrolls the view to make the cursor visible.
 func (e *CodeEditor) ScrollToCursor() {
 	e.ensureCursorVisible()
+}
+
+// RequestCenterCursor schedules cursor centering for the next draw cycle.
+func (e *CodeEditor) RequestCenterCursor() {
+	e.pendingCenterCursor = true
 }
 
 // CenterCursor centers the cursor in the viewport
