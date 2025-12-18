@@ -348,7 +348,13 @@ func (l *Layout) showBlameModal() {
 		return
 	}
 
-	blameText := git.FormatDetailedBlameInfo(blameInfo, filePath, lineNum)
+	repoRoot := git.FindRepoRoot(filePath)
+	repoName := ""
+	if repoRoot != "" {
+		repoName = filepath.Base(repoRoot)
+	}
+
+	blameText := git.FormatDetailedBlameInfo(blameInfo, filePath, lineNum, repoName)
 	ShowBlameModal(l.app, blameText, blameInfo.Hash)
 }
 

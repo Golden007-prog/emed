@@ -617,7 +617,7 @@ func ShowBlameModal(app *tview.Application, blameText string, commitHash string)
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      55,
-		FixedHeight:     17,
+		FixedHeight:     19,
 		BackgroundColor: tcell.ColorBlack,
 		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
@@ -634,7 +634,14 @@ func ShowBlameModal(app *tview.Application, blameText string, commitHash string)
 		SetScrollable(true).
 		SetTextAlign(tview.AlignLeft)
 
-	copyButton := tview.NewButton("Copy Commit Hash")
+	closeButton := tview.NewButton("Close")
+	closeButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	closeButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	closeButton.SetSelectedFunc(func() {
+		modal.Close()
+	})
+
+	copyButton := tview.NewButton("Copy Hash")
 	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
 	copyButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	copyButton.SetSelectedFunc(func() {
@@ -642,16 +649,34 @@ func ShowBlameModal(app *tview.Application, blameText string, commitHash string)
 		modal.Close()
 	})
 
+	closeButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyTab || event.Key() == tcell.KeyRight {
+			app.SetFocus(copyButton)
+			return nil
+		}
+		return event
+	})
+
+	copyButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyTab || event.Key() == tcell.KeyLeft {
+			app.SetFocus(closeButton)
+			return nil
+		}
+		return event
+	})
+
 	buttonFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(nil, 0, 1, false).
-		AddItem(copyButton, 20, 0, true).
+		AddItem(closeButton, 10, 0, true).
+		AddItem(nil, 2, 0, false).
+		AddItem(copyButton, 13, 0, false).
 		AddItem(nil, 0, 1, false)
 
 	content.AddItem(blameView, 0, 1, false)
 	content.AddItem(buttonFlex, 3, 0, true)
 
 	modal.Show()
-	app.SetFocus(copyButton)
+	app.SetFocus(closeButton)
 }
 
 // ShowAlertModal displays a simple alert message.

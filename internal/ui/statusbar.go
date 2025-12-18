@@ -19,6 +19,7 @@ type StatusBar struct {
 	*tview.TextView
 	projectPath   string
 	gitBranch     string
+	gitRepoName   string
 	clipboardPath string
 	clipboardCut  bool
 	watchedDirs   int
@@ -89,7 +90,11 @@ func (sb *StatusBar) updateTextParts() {
 	parts = append(parts, fmt.Sprintf("project: %s", sb.projectPath))
 
 	if sb.gitBranch != "" {
-		parts = append(parts, fmt.Sprintf("git: %s", sb.gitBranch))
+		if sb.gitRepoName != "" {
+			parts = append(parts, fmt.Sprintf("git: %s (%s)", sb.gitRepoName, sb.gitBranch))
+		} else {
+			parts = append(parts, fmt.Sprintf("git: %s", sb.gitBranch))
+		}
 	}
 
 	if sb.clipboardPath != "" {
@@ -169,8 +174,15 @@ func (sb *StatusBar) UpdateGitBranchForFile(filePath string) {
 	}
 	go func() {
 		branch := git.GetBranch(filePath)
-		if branch != sb.gitBranch {
+		repoRoot := git.FindRepoRoot(filePath)
+		repoName := ""
+		if repoRoot != "" {
+			repoName = filepath.Base(repoRoot)
+		}
+
+		if branch != sb.gitBranch || repoName != sb.gitRepoName {
 			sb.gitBranch = branch
+			sb.gitRepoName = repoName
 			sb.updateTextParts()
 			if sb.app != nil {
 				sb.app.QueueUpdateDraw(func() {})

@@ -47,7 +47,7 @@ func (p *PTYManager) Start(cols, rows int) error {
 		return fmt.Errorf("PTY already running")
 	}
 	
-	p.cmd = exec.Command(p.shell, "-i")
+	p.cmd = exec.Command(p.shell, "-l", "-i")
 	// Set environment to prevent OSC sequences from leaking
 	env := os.Environ()
 	// Filter out any existing TERM_PROGRAM variables that might cause issues

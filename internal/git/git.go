@@ -123,7 +123,7 @@ func FormatBlameInfo(info *BlameInfo) string {
 }
 
 // FormatDetailedBlameInfo formats blame information for modal display.
-func FormatDetailedBlameInfo(info *BlameInfo, filePath string, lineNum int) string {
+func FormatDetailedBlameInfo(info *BlameInfo, filePath string, lineNum int, repoName string) string {
 	if info == nil {
 		return ""
 	}
@@ -136,7 +136,12 @@ func FormatDetailedBlameInfo(info *BlameInfo, filePath string, lineNum int) stri
 	dateStr := info.Timestamp.Format("2006-01-02 15:04:05")
 	age := formatTimeAgo(info.Timestamp)
 
-	return fmt.Sprintf(`[yellow]Commit:[white]  %s
+	repoInfo := ""
+	if repoName != "" {
+		repoInfo = fmt.Sprintf("[yellow]Repo:[white]    %s\n\n", repoName)
+	}
+
+	return fmt.Sprintf(`%s[yellow]Commit:[white]  %s
 
 [yellow]Author:[white]  %s <%s>
 
@@ -146,11 +151,12 @@ func FormatDetailedBlameInfo(info *BlameInfo, filePath string, lineNum int) stri
 %s
 
 [gray]File: %s, Line: %d[-]`,
+		repoInfo,
 		shortHash,
 		info.Author, info.Email,
 		dateStr, age,
 		info.Summary,
-		filePath, lineNum)
+		filepath.Base(filePath), lineNum)
 }
 
 func formatTimeAgo(t time.Time) string {

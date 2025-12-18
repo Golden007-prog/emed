@@ -365,20 +365,24 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 	if row < 0 || row >= len(b.lines) {
 		return row, col
 	}
-	
-	lines := strings.Split(text, "\n")
-	if len(lines) == 1 {
-		for _, r := range text {
-			b.InsertRune(row, col, r)
-			col++
-		}
-		return row, col
-	}
+
 	currentLine := b.lines[row]
 	if col > len(currentLine) {
 		col = len(currentLine)
 	}
-	
+
+	lines := strings.Split(text, "\n")
+	if len(lines) == 1 {
+		textRunes := []rune(text)
+		newLine := make([]rune, 0, len(currentLine)+len(textRunes))
+		newLine = append(newLine, currentLine[:col]...)
+		newLine = append(newLine, textRunes...)
+		newLine = append(newLine, currentLine[col:]...)
+		b.lines[row] = newLine
+		b.modified = true
+		return row, col + len(textRunes)
+	}
+
 	before := make([]rune, col)
 	copy(before, currentLine[:col])
 	after := make([]rune, len(currentLine)-col)
