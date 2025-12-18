@@ -391,11 +391,9 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 					t.onDelete(t.selected)
 				}
 			}
-		case tcell.KeyCtrlI:
-			if event.Modifiers() == tcell.ModCtrl {
-				if t.onInfo != nil && t.selected != nil {
-					t.onInfo(t.selected)
-				}
+		case tcell.KeyTab:
+			if t.onInfo != nil && t.selected != nil {
+				t.onInfo(t.selected)
 			}
 		case tcell.KeyCtrlR:
 			if event.Modifiers() == tcell.ModCtrl {
