@@ -905,6 +905,9 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 	case tcell.KeyCtrlUnderscore:
 		return []byte{0x1f}
 
+	case tcell.KeyEscape:
+		return []byte{0x1b}
+
 	case tcell.KeyUp:
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOA")
