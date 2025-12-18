@@ -38,7 +38,7 @@ func NewSearchBar() *SearchBar {
 	
 	sb.form = tview.NewForm()
 	sb.form.SetBorder(true)
-	sb.form.SetBorderColor(tcell.ColorDarkGray)
+	sb.form.SetBorderColor(tcell.NewRGBColor(102, 102, 102))
 	sb.form.SetTitle(" Find & Replace ")
 	sb.form.SetTitleAlign(tview.AlignLeft)
 	sb.form.SetBackgroundColor(tcell.ColorBlack)

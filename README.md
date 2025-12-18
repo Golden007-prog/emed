@@ -20,7 +20,7 @@ The terminal emulator has probably been the most fun and the hardest part to imp
 - [x] File watcher to keep track of external changes on the project directory. Keeps the file manager in sync and updates unedited open tabs with new content.
 - [x] Refactor for better file organization, modularity and best practices.
 - [x] Implement syntax highlighting. Final implementation was made with Chroma after finding out tree-sitter was too complex.
-- [ ] Implement project-wide and within-file search (using maybe [sahilm/fuzzy](https://github.com/sahilm/fuzzy) for project-wide fuzzy search, along a nice tview UI).
+- [x] Implement project-wide and within-file search with regex support and advanced options.
 - [ ] Add some kind of integration with agentic AI tools.
 - [ ] ???
 

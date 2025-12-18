@@ -438,7 +438,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		FixedWidth:      50,
 		FixedHeight:     12,
 		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.ColorGray,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
@@ -591,8 +591,8 @@ func ShowHelpModal(app *tview.Application, helpText string) {
 		UseFixedSize:    true,
 		FixedWidth:      70,               // 70 chars wide for comfortable reading
 		FixedHeight:     25,               // 25 lines for help content
-		BackgroundColor: tcell.ColorBlack, // Use black background for consistency
-		BorderColor:     tcell.ColorGray,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " Help ",
 		TitleAlign:      tview.AlignCenter,

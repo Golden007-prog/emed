@@ -80,7 +80,7 @@ func NewTerminal() *Terminal {
 	t.container.
 		AddItem(t.contentArea, 0, 1, true).
 		SetBorder(true).
-		SetBorderColor(tcell.ColorGray).
+		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
 		SetTitle(" Terminal ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)

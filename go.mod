@@ -6,7 +6,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gdamore/tcell/v2 v2.8.1
-	github.com/laborin/vt10x v0.0.0-20250820105957-f656d76b1ed3
+	github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8
 	github.com/rivo/tview v0.0.0-20250625164341-a4a78f1e05cb
 )
 

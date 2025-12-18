@@ -146,7 +146,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.Box.DrawForSubclass(screen, e)
 	x, y, width, height := e.GetInnerRect()
 
-	style := tcell.StyleDefault.Background(tcell.ColorBlack)
+	style := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0))
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			screen.SetContent(x+col, y+row, ' ', nil, style)
@@ -191,7 +191,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		return
 	}
 
-	defaultStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+	defaultStyle := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
 
 	var tokens []syntax.TokenStyle
 	if e.highlighter != nil {
@@ -217,7 +217,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		isSelected := e.selection.IsPositionSelected(lineNum, realCol)
 		if isSelected {
 			fg, _, _ := style.Decompose()
-			style = tcell.StyleDefault.Background(tcell.ColorDarkGray).Foreground(fg)
+			style = tcell.StyleDefault.Background(tcell.NewRGBColor(50, 50, 50)).Foreground(fg)
 		}
 		
 		isMatch, isCurrent := e.isSearchMatch(lineNum, realCol)
@@ -415,13 +415,19 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 	modifiers := event.Modifiers()
 	shiftHeld := modifiers&tcell.ModShift != 0
+	key := event.Key()
 
-	if shiftHeld && !e.selection.IsActive() {
+	// Workaround: some terminals (e.g. Terminal.app) don't send Shift modifier for Up/Down.
+	// If selection is active and user presses Up/Down, assume they want to extend selection.
+	isVertical := key == tcell.KeyUp || key == tcell.KeyDown
+	extendSelection := shiftHeld || (isVertical && e.selection.IsActive())
+
+	if extendSelection && !e.selection.IsActive() {
 		e.selection.Start(e.cursorRow, e.cursorCol)
 	}
 
 	if modifiers&tcell.ModCtrl != 0 || modifiers&tcell.ModMeta != 0 {
-		switch event.Key() {
+		switch key {
 		case tcell.KeyLeft:
 			e.ctrlLeft()
 		case tcell.KeyRight:
@@ -432,19 +438,19 @@ func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 			e.ctrlDown()
 		}
 	} else if modifiers&tcell.ModAlt != 0 {
-		switch event.Key() {
+		switch key {
 		case tcell.KeyLeft:
 			e.wordLeft()
 		case tcell.KeyRight:
 			e.wordRight()
 		default:
-			e.handleNavigation(event.Key())
+			e.handleNavigation(key)
 		}
 	} else {
-		e.handleNavigation(event.Key())
+		e.handleNavigation(key)
 	}
 
-	if shiftHeld && e.selection.IsActive() {
+	if extendSelection && e.selection.IsActive() {
 		e.selection.Extend(e.cursorRow, e.cursorCol)
 	} else if !shiftHeld && e.selection.IsActive() {
 		e.selection.Clear()
@@ -1038,7 +1044,7 @@ func (e *CodeEditor) getLineNumberWidth() int {
 func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, width int) {
 	numStr := fmt.Sprintf("%*d", width, lineNum)
 
-	style := tcell.StyleDefault.Foreground(tcell.ColorGray).Background(tcell.NewRGBColor(40, 40, 40))
+	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(102, 102, 102)).Background(tcell.NewRGBColor(40, 40, 40))
 	for i, ch := range numStr {
 		if i < width {
 			screen.SetContent(x+i, y, ch, nil, style)

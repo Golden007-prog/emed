@@ -215,6 +215,12 @@ func (t *VT10XTerminal) pollTitle() {
 }
 
 func (t *VT10XTerminal) writeProcessor() {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("writeProcessor panic: %v", r)
+		}
+	}()
+
 	for {
 		select {
 		case <-t.done:
@@ -256,6 +262,12 @@ func (t *VT10XTerminal) markNeedsRedraw() {
 }
 
 func (t *VT10XTerminal) refreshLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("refreshLoop panic: %v", r)
+		}
+	}()
+
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -278,10 +290,6 @@ func (t *VT10XTerminal) refreshLoop() {
 }
 
 func (t *VT10XTerminal) scanForControlSequences(data []byte) {
-	if len(data) < 5 {
-		return
-	}
-
 	str := string(data)
 
 	lastEnablePos := -1
@@ -330,20 +338,25 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 	t.Box.DrawForSubclass(screen, t)
 
 	x, y, width, height := t.GetInnerRect()
+	if width <= 0 || height <= 0 {
+		return
+	}
 
-	if height != t.rows || width != t.cols {
+	if !t.vtMutex.TryLock() {
+		return
+	}
+
+	currentCols, currentRows := t.vt.Size()
+	needsResize := height != currentRows || width != currentCols
+	if needsResize {
+		t.vt.Resize(width, height)
 		t.rows = height
 		t.cols = width
+	}
+	t.vtMutex.Unlock()
 
-		t.vtMutex.Lock()
-		t.vt.Resize(width, height)
-		t.vtMutex.Unlock()
-
-		if t.ptyMgr.IsRunning() {
-			t.ptyMgr.Resize(width, height)
-		}
-
-		t.markNeedsRedraw()
+	if needsResize && t.ptyMgr.IsRunning() {
+		t.ptyMgr.Resize(width, height)
 	}
 
 	if t.mode == ModePassthrough && t.hasFocus {
@@ -377,12 +390,25 @@ func isControlChar(ch rune) bool {
 }
 
 func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, height int) {
-	t.vtMutex.Lock()
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("drawTerminalContent panic: %v", r)
+		}
+	}()
+
+	if !t.vtMutex.TryLock() {
+		return
+	}
 	defer t.vtMutex.Unlock()
+
+	vtCols, vtRows := t.vt.Size()
+	if vtCols <= 0 || vtRows <= 0 {
+		return
+	}
 
 	if t.scrollbuf.IsScrolled() {
 		scrollbackSize := t.vt.ScrollbackLines()
-		totalLines := scrollbackSize + t.rows
+		totalLines := scrollbackSize + vtRows
 
 		viewportOffset := t.scrollbuf.GetOffset()
 		viewEnd := totalLines - viewportOffset
@@ -413,8 +439,8 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 					}
 				} else {
 					row := i - scrollbackSize
-					if row >= 0 && row < t.rows {
-						for col := 0; col < width; col++ {
+					if row >= 0 && row < vtRows {
+						for col := 0; col < width && col < vtCols; col++ {
 							glyph := t.vt.Cell(col, row)
 							style := t.vt10xToTcellStyle(glyph)
 							ch := glyph.Char
@@ -422,6 +448,9 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 								ch = ' '
 							}
 							screen.SetContent(x+col, y+screenRow, ch, nil, style)
+						}
+						for col := vtCols; col < width; col++ {
+							screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
 						}
 					}
 				}
@@ -438,8 +467,11 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 		return
 	}
 
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	drawRows := min(height, vtRows)
+	drawCols := min(width, vtCols)
+
+	for row := 0; row < drawRows; row++ {
+		for col := 0; col < drawCols; col++ {
 			glyph := t.vt.Cell(col, row)
 
 			hasReverse := (glyph.Mode & (1 << 0)) != 0
@@ -463,6 +495,15 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 				screen.SetContent(x+col, y+row, ch, nil, style)
 			}
 		}
+		for col := drawCols; col < width; col++ {
+			screen.SetContent(x+col, y+row, ' ', nil, tcell.StyleDefault)
+		}
+	}
+
+	for row := drawRows; row < height; row++ {
+		for col := 0; col < width; col++ {
+			screen.SetContent(x+col, y+row, ' ', nil, tcell.StyleDefault)
+		}
 	}
 
 	if t.hasFocus {
@@ -470,7 +511,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 		cursorVisible := t.vt.CursorVisible()
 
 		if cursorVisible {
-			if cursorX >= 0 && cursorX < width && cursorY >= 0 && cursorY < height {
+			if cursorX >= 0 && cursorX < drawCols && cursorY >= 0 && cursorY < drawRows {
 				glyph := t.vt.Cell(cursorX, cursorY)
 				ch := glyph.Char
 				if ch == 0 || isControlChar(ch) {
@@ -550,12 +591,12 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 			}
 		}
 
-		if t.mouseReporting && t.ptyMgr.IsRunning() {
+		if t.ptyMgr.IsRunning() && (t.mouseReporting || t.alternateScreen) {
 			mouseSeq := t.generateMouseSequence(action, event, termX, termY)
 			if mouseSeq != "" {
 				t.ptyMgr.Write([]byte(mouseSeq))
+				return true, nil
 			}
-			return true, nil
 		}
 
 		if inBounds {
@@ -599,6 +640,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *tcell.EventMouse, x, y int) string {
 	var button int
 	var isRelease bool
+	isScrollEvent := false
 
 	switch action {
 	case tview.MouseLeftClick, tview.MouseLeftDown, tview.MouseLeftDoubleClick:
@@ -618,8 +660,10 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		isRelease = true
 	case tview.MouseScrollUp:
 		button = 64
+		isScrollEvent = true
 	case tview.MouseScrollDown:
 		button = 65
+		isScrollEvent = true
 	case tview.MouseMove:
 		buttons := event.Buttons()
 		if buttons&tcell.Button1 != 0 {
@@ -646,7 +690,9 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		button += 16
 	}
 
-	if t.mouseSGRMode {
+	useSGR := t.mouseSGRMode || t.alternateScreen || isScrollEvent
+
+	if useSGR {
 		suffix := "M"
 		if isRelease {
 			suffix = "m"

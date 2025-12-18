@@ -13,6 +13,8 @@ github.com/gdamore/tcell/v2 v2.8.1/go.mod h1:bj8ori1BG3OYMjmb3IklZVWfZUJ1UBQt9JX
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/laborin/vt10x v0.0.0-20250820105957-f656d76b1ed3 h1:JQC1ATpC0mQyoxP/flEoYrEyzLbZcOu/SIGDnULszqs=
 github.com/laborin/vt10x v0.0.0-20250820105957-f656d76b1ed3/go.mod h1:P3TWJ88EQWA6Jevwvnm2Y+AWHHJWs0XhE4emWmJ8i7s=
+github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8 h1:lKzHJ/NeyvKvval3IBQDz2kiq7JgNwgNo/7003eISXg=
+github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8/go.mod h1:P3TWJ88EQWA6Jevwvnm2Y+AWHHJWs0XhE4emWmJ8i7s=
 github.com/lucasb-eyer/go-colorful v1.2.0 h1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=
 github.com/lucasb-eyer/go-colorful v1.2.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.16 h1:E5ScNMtiwvlvB5paMFdw9p4kSQzbXFikJ5SQO6TULQc=

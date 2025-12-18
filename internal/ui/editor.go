@@ -82,7 +82,7 @@ func NewEditor() *Editor {
 		dialogManager:     nil,
 	}
 	
-	e.contentArea.SetBackgroundColor(tcell.ColorBlack)
+	e.contentArea.SetBackgroundColor(tcell.NewRGBColor(0, 0, 0))
 
 	splashScreen := components.NewSplashScreen()
 	e.noDocsView = splashScreen.CreateNoDocsView()
@@ -92,7 +92,7 @@ func NewEditor() *Editor {
 	e.container.
 		AddItem(e.contentArea, 0, 1, true).
 		SetBorder(true).
-		SetBorderColor(tcell.ColorGray).
+		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
 		SetTitle(" Editor ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)

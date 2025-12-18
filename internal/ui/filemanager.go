@@ -59,7 +59,7 @@ func NewFileManager() *FileManager {
 		SetRoot(fm.root).
 		SetCurrentNode(fm.root).
 		SetBorder(true).
-		SetBorderColor(tcell.ColorGray).
+		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
 		SetTitle(" Project ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
@@ -466,7 +466,7 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 		FixedWidth:      50,
 		FixedHeight:     7,
 		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.ColorGray,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " Rename ",
 		TitleAlign:      tview.AlignCenter,
@@ -663,7 +663,7 @@ func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, tit
 		FixedWidth:      50,
 		FixedHeight:     10,
 		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.ColorGray,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
@@ -767,7 +767,7 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 		FixedWidth:      65,
 		FixedHeight:     14,
 		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.ColorGray,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
 		Title:           " File Information ",
 		TitleAlign:      tview.AlignCenter,

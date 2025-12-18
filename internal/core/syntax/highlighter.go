@@ -330,7 +330,7 @@ func (h *Highlighter) GetLineTokens(lineNumber int) []TokenStyle {
 
 // tokenTypeToStyle converts Chroma token types to tcell styles
 func (h *Highlighter) tokenTypeToStyle(tokenType chroma.TokenType) tcell.Style {
-	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+	style := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
 	
 	switch tokenType {
 	// Comments

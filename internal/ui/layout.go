@@ -790,7 +790,7 @@ func (l *Layout) showProjectSearch() {
 		UseFixedSize: true,
 		FixedWidth:   80,
 		FixedHeight:  25,
-		BorderColor:  tcell.ColorDarkGray,
+		BorderColor:  tcell.NewRGBColor(102, 102, 102),
 		TitleColor:   tcell.ColorWhite,
 		Title:        " Project Search & Replace ",
 		TitleAlign:   tview.AlignCenter,
