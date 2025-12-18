@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
@@ -12,6 +14,7 @@ import (
 	"github.com/laborin/emed/internal/core/clipboard"
 	"github.com/laborin/emed/internal/core/selection"
 	"github.com/laborin/emed/internal/core/syntax"
+	"github.com/laborin/emed/internal/git"
 	"github.com/rivo/tview"
 )
 
@@ -28,6 +31,14 @@ type SearchMatch struct {
 	StartCol int
 	EndRow   int
 	EndCol   int
+}
+
+// GhostText represents overlay text that appears in the editor but isn't part of the buffer.
+type GhostText struct {
+	Row       int      // Buffer row where ghost text starts
+	Col       int      // Column position (-1 means after end of line)
+	Lines     []string // Text content (supports multiline)
+	StyleFunc func() tcell.Style // Optional custom style function
 }
 
 // CodeEditor provides text editing functionality with syntax highlighting.
@@ -56,16 +67,30 @@ type CodeEditor struct {
 	onCursorMove func(row, col int)
 
 	app *tview.Application
+
+	ghostTexts     []GhostText
+	ghostTextStyle tcell.Style
+	tabStyle       tcell.Style
+
+	blameEnabled   bool
+	blameText      string
+	blameRow       int
+	blameTimer     *time.Timer
+	blameMutex     sync.Mutex
 }
 
 // NewCodeEditor creates a new code editor instance with default settings.
 func NewCodeEditor() *CodeEditor {
 	return &CodeEditor{
-		Box:       tview.NewBox(),
-		buffer:    buffer.New(),
-		selection: selection.New(),
-		clipboard: clipboard.New(),
-		readOnly:  false,
+		Box:            tview.NewBox(),
+		buffer:         buffer.New(),
+		selection:      selection.New(),
+		clipboard:      clipboard.New(),
+		readOnly:       false,
+		ghostTextStyle: tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
+		tabStyle:       tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
+		blameEnabled:   true,
+		blameRow:       -1,
 	}
 }
 
@@ -91,6 +116,10 @@ func (e *CodeEditor) LoadFile(path string) error {
 		lines := strings.Split(content, "\n")
 		e.highlighter.UpdateContent(lines)
 	}
+
+	e.blameRow = -1
+	e.ClearGhostTexts()
+	e.scheduleBlameUpdate()
 
 	return nil
 }
@@ -187,9 +216,6 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 
 func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int) {
 	line := e.buffer.GetLine(lineNum)
-	if len(line) == 0 {
-		return
-	}
 
 	defaultStyle := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
 
@@ -211,6 +237,8 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 	visualCol := 0  // Visual column position (accounting for tabs)
 	realCol := 0    // Real column position in buffer
 
+	ghostText, ghostCol, ghostStyle := e.getGhostTextForLine(lineNum)
+
 	for _, ch := range line {
 		style := getStyleForColumn(realCol)
 
@@ -219,7 +247,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			fg, _, _ := style.Decompose()
 			style = tcell.StyleDefault.Background(tcell.NewRGBColor(50, 50, 50)).Foreground(fg)
 		}
-		
+
 		isMatch, isCurrent := e.isSearchMatch(lineNum, realCol)
 		if isMatch {
 			if isCurrent {
@@ -236,12 +264,21 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 
 			for i := 0; i < spacesToAdd; i++ {
 				if visualCol >= e.offsetCol && screenX < x+maxWidth {
-					screen.SetContent(screenX, y, ' ', nil, style)
+					displayChar := ' '
+					displayStyle := style
+					if i == spacesToAdd-1 {
+						displayChar = '▸'
+						displayStyle = e.tabStyle
+					} else if i < spacesToAdd-1 {
+						displayChar = '─'
+						displayStyle = e.tabStyle
+					}
+					screen.SetContent(screenX, y, displayChar, nil, displayStyle)
 					screenX++
 				}
 				visualCol++
 			}
-			realCol++ // Tab counts as one character in buffer
+			realCol++
 		} else {
 			if visualCol >= e.offsetCol && screenX < x+maxWidth {
 				screen.SetContent(screenX, y, ch, nil, style)
@@ -253,6 +290,31 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 
 		if screenX >= x+maxWidth {
 			return
+		}
+	}
+
+	if ghostText != "" && screenX < x+maxWidth {
+		startX := screenX
+		if ghostCol >= 0 {
+			targetVisualCol := ghostCol
+			if targetVisualCol > visualCol {
+				for visualCol < targetVisualCol && screenX < x+maxWidth {
+					screen.SetContent(screenX, y, ' ', nil, defaultStyle)
+					screenX++
+					visualCol++
+				}
+			}
+			startX = x + targetVisualCol - e.offsetCol
+			if startX < screenX {
+				startX = screenX
+			}
+		}
+
+		for _, ch := range ghostText {
+			if startX >= x && startX < x+maxWidth {
+				screen.SetContent(startX, y, ch, nil, ghostStyle)
+			}
+			startX++
 		}
 	}
 }
@@ -565,6 +627,7 @@ func (e *CodeEditor) handleNavigation(key tcell.Key) {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) adjustCursorColumn() {
@@ -707,6 +770,7 @@ func (e *CodeEditor) pageUp() {
 		e.cursorRow = 0
 	}
 	e.adjustCursorColumn()
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) pageDown() {
@@ -715,6 +779,7 @@ func (e *CodeEditor) pageDown() {
 		e.cursorRow = e.buffer.GetLineCount() - 1
 	}
 	e.adjustCursorColumn()
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) ctrlLeft() {
@@ -756,6 +821,7 @@ func (e *CodeEditor) ctrlUp() {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) ctrlDown() {
@@ -767,6 +833,7 @@ func (e *CodeEditor) ctrlDown() {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) selectAll() {
@@ -867,6 +934,7 @@ func (e *CodeEditor) wordLeft() {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 func (e *CodeEditor) wordRight() {
@@ -890,6 +958,7 @@ func (e *CodeEditor) wordRight() {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 // Focus sets focus to the code editor.
@@ -1078,6 +1147,7 @@ func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
+	e.scheduleBlameUpdate()
 }
 
 // IsModified returns whether the editor content has been modified.
@@ -1154,6 +1224,116 @@ func (e *CodeEditor) Close() {
 		e.highlighter.Close()
 		e.highlighter = nil
 	}
+	e.blameMutex.Lock()
+	if e.blameTimer != nil {
+		e.blameTimer.Stop()
+	}
+	e.blameMutex.Unlock()
+}
+
+func (e *CodeEditor) scheduleBlameUpdate() {
+	if !e.blameEnabled || e.filePath == "" {
+		return
+	}
+
+	e.blameMutex.Lock()
+	defer e.blameMutex.Unlock()
+
+	if e.blameTimer != nil {
+		e.blameTimer.Stop()
+	}
+
+	if e.cursorRow == e.blameRow {
+		return
+	}
+
+	e.blameTimer = time.AfterFunc(300*time.Millisecond, func() {
+		e.fetchBlameAndDisplay()
+	})
+}
+
+func (e *CodeEditor) fetchBlameAndDisplay() {
+	e.blameMutex.Lock()
+	row := e.cursorRow
+	filePath := e.filePath
+	e.blameMutex.Unlock()
+
+	if filePath == "" {
+		return
+	}
+
+	lineNum := row + 1
+	blameInfo, err := git.GetBlameForLine(filePath, lineNum)
+
+	e.blameMutex.Lock()
+	if e.cursorRow != row {
+		e.blameMutex.Unlock()
+		return
+	}
+
+	e.blameRow = row
+
+	if err != nil {
+		e.blameText = ""
+		e.ClearGhostTexts()
+	} else {
+		e.blameText = git.FormatBlameInfo(blameInfo)
+		e.ClearGhostTexts()
+		if e.blameText != "" {
+			e.AddGhostText(row, -1, e.blameText)
+		}
+	}
+	e.blameMutex.Unlock()
+
+	if e.app != nil {
+		e.app.QueueUpdateDraw(func() {})
+	}
+}
+
+// SetGhostText sets a single ghost text overlay at the specified position.
+func (e *CodeEditor) SetGhostText(row, col int, text string) {
+	lines := strings.Split(text, "\n")
+	e.ghostTexts = []GhostText{{Row: row, Col: col, Lines: lines}}
+}
+
+// SetGhostTextWithStyle sets a ghost text with a custom style function.
+func (e *CodeEditor) SetGhostTextWithStyle(row, col int, text string, styleFunc func() tcell.Style) {
+	lines := strings.Split(text, "\n")
+	e.ghostTexts = []GhostText{{Row: row, Col: col, Lines: lines, StyleFunc: styleFunc}}
+}
+
+// AddGhostText adds a ghost text overlay without clearing existing ones.
+func (e *CodeEditor) AddGhostText(row, col int, text string) {
+	lines := strings.Split(text, "\n")
+	e.ghostTexts = append(e.ghostTexts, GhostText{Row: row, Col: col, Lines: lines})
+}
+
+// ClearGhostTexts removes all ghost text overlays.
+func (e *CodeEditor) ClearGhostTexts() {
+	e.ghostTexts = nil
+}
+
+// SetGhostTextStyle sets the default style for ghost text rendering.
+func (e *CodeEditor) SetGhostTextStyle(style tcell.Style) {
+	e.ghostTextStyle = style
+}
+
+// getGhostTextForLine returns ghost text content for a specific line if any.
+func (e *CodeEditor) getGhostTextForLine(row int) (ghostText string, col int, style tcell.Style) {
+	for _, gt := range e.ghostTexts {
+		lineOffset := row - gt.Row
+		if lineOffset >= 0 && lineOffset < len(gt.Lines) {
+			style := e.ghostTextStyle
+			if gt.StyleFunc != nil {
+				style = gt.StyleFunc()
+			}
+			if lineOffset == 0 {
+				return gt.Lines[lineOffset], gt.Col, style
+			}
+			return gt.Lines[lineOffset], 0, style
+		}
+	}
+	return "", -1, e.ghostTextStyle
 }
 
 // Search performs a search in the editor content.
@@ -1236,10 +1416,11 @@ func (e *CodeEditor) SetCursor(row, col int) {
 			col = lineLen
 		}
 	}
-	
+
 	e.cursorRow = row
 	e.cursorCol = col
 	e.ensureCursorVisible()
+	e.scheduleBlameUpdate()
 }
 
 // ScrollToCursor scrolls the view to make the cursor visible.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
+	"github.com/laborin/emed/internal/git"
 	"github.com/rivo/tview"
 )
 
@@ -159,6 +160,23 @@ func (sb *StatusBar) SetProjectPath(path string) {
 // RefreshGitBranch updates the git branch information.
 func (sb *StatusBar) RefreshGitBranch() {
 	go sb.updateGitBranch()
+}
+
+// UpdateGitBranchForFile updates the git branch based on the file's repository.
+func (sb *StatusBar) UpdateGitBranchForFile(filePath string) {
+	if filePath == "" {
+		return
+	}
+	go func() {
+		branch := git.GetBranch(filePath)
+		if branch != sb.gitBranch {
+			sb.gitBranch = branch
+			sb.updateTextParts()
+			if sb.app != nil {
+				sb.app.QueueUpdateDraw(func() {})
+			}
+		}
+	}()
 }
 
 // SetClipboard updates the clipboard information in the status bar.

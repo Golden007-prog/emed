@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
+	"github.com/laborin/emed/internal/git"
 	"github.com/rivo/tview"
 )
 
@@ -136,6 +137,10 @@ func (l *Layout) initialize() {
 	
 	l.fileManager.SetFileDeletedHandler(func(path string) {
 		l.editor.CloseFileTab(path)
+	})
+
+	l.editor.SetOnActiveFileChanged(func(path string) {
+		l.statusBar.UpdateGitBranchForFile(path)
 	})
 	
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
@@ -288,6 +293,7 @@ func (l *Layout) getHelpText() string {
   Ctrl+S         Save File
   Ctrl+W         Close Current Tab
   Ctrl+F         Find/Replace in Document
+  Ctrl+B         Show Git Blame for Current Line
   Ctrl+Z         Undo
   Ctrl+Y         Redo
   
@@ -327,6 +333,23 @@ The terminal has two modes. Normal mode lets you use keyboard shortcuts normaly.
 
 func (l *Layout) showHelp() {
 	ShowHelpModal(l.app, l.getHelpText())
+}
+
+func (l *Layout) showBlameModal() {
+	filePath, lineNum := l.editor.GetCurrentFileAndLine()
+	if filePath == "" || lineNum == 0 {
+		ShowAlertModal(l.app, "Info", "No file open")
+		return
+	}
+
+	blameInfo, err := git.GetBlameForLine(filePath, lineNum)
+	if err != nil {
+		ShowAlertModal(l.app, "Info", "No git blame data")
+		return
+	}
+
+	blameText := git.FormatDetailedBlameInfo(blameInfo, filePath, lineNum)
+	ShowBlameModal(l.app, blameText, blameInfo.Hash)
 }
 
 func (l *Layout) setupKeybindings() {
@@ -460,11 +483,14 @@ func (l *Layout) setupKeybindings() {
 				return nil
 			case tcell.KeyCtrlF:
 				if l.focusedPanel == 0 {
-					// In file manager, show project search
 					l.showProjectSearch()
 				} else if l.focusedPanel == 1 {
-					// In editor, show within-document search
 					l.editor.ShowSearch()
+				}
+				return nil
+			case tcell.KeyCtrlB:
+				if l.focusedPanel == 1 {
+					l.showBlameModal()
 				}
 				return nil
 			case tcell.KeyCtrlW:

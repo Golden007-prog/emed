@@ -585,12 +585,11 @@ func (b *backgroundWithContent) MouseHandler() func(action tview.MouseAction, ev
 }
 
 // ShowHelpModal displays a help dialog with scrollable text.
-// ShowHelpModal displays a help dialog with scrollable text.
 func ShowHelpModal(app *tview.Application, helpText string) {
 	config := EmModalConfig{
 		UseFixedSize:    true,
-		FixedWidth:      70,               // 70 chars wide for comfortable reading
-		FixedHeight:     25,               // 25 lines for help content
+		FixedWidth:      70,
+		FixedHeight:     25,
 		BackgroundColor: tcell.ColorBlack,
 		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
@@ -607,11 +606,77 @@ func ShowHelpModal(app *tview.Application, helpText string) {
 		SetScrollable(true).
 		SetTextAlign(tview.AlignLeft)
 
-	// Add padding and help text
-	content.
-		AddItem(helpView, 0, 1, true)
+	content.AddItem(helpView, 0, 1, true)
 
-	// Help can be closed with ESC or by clicking outside
 	modal.Show()
 	app.SetFocus(helpView)
+}
+
+// ShowBlameModal displays detailed git blame information.
+func ShowBlameModal(app *tview.Application, blameText string, commitHash string) {
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      55,
+		FixedHeight:     17,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
+		TitleColor:      tcell.ColorLightGray,
+		Title:           " Git Blame ",
+		TitleAlign:      tview.AlignCenter,
+	}
+
+	modal, content := NewConfiguredModal(app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+
+	blameView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(blameText).
+		SetScrollable(true).
+		SetTextAlign(tview.AlignLeft)
+
+	copyButton := tview.NewButton("Copy Commit Hash")
+	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	copyButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+	copyButton.SetSelectedFunc(func() {
+		copyToSystemClipboard(commitHash)
+		modal.Close()
+	})
+
+	buttonFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 1, false).
+		AddItem(copyButton, 20, 0, true).
+		AddItem(nil, 0, 1, false)
+
+	content.AddItem(blameView, 0, 1, false)
+	content.AddItem(buttonFlex, 3, 0, true)
+
+	modal.Show()
+	app.SetFocus(copyButton)
+}
+
+// ShowAlertModal displays a simple alert message.
+func ShowAlertModal(app *tview.Application, title, message string) {
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      40,
+		FixedHeight:     7,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
+		TitleColor:      tcell.ColorLightGray,
+		Title:           " " + title + " ",
+		TitleAlign:      tview.AlignCenter,
+	}
+
+	modal, content := NewConfiguredModal(app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+
+	messageView := tview.NewTextView().
+		SetText(message).
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
+	content.AddItem(messageView, 0, 1, false)
+
+	modal.Show()
+	app.SetFocus(messageView)
 }

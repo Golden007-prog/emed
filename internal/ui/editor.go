@@ -57,18 +57,19 @@ func (t *EditorTab) IsModified() bool {
 
 // Editor manages multiple file tabs and provides text editing functionality.
 type Editor struct {
-	container         *tview.Flex
-	contentArea       *tview.Pages
-	tabManager        *components.BaseTabManager
-	tabs              []*EditorTab
-	tabsMu            sync.RWMutex
-	noDocsView        tview.Primitive
-	app               *tview.Application
-	onLastTabClosed   func()
-	onTabClosed       func(path string)
-	fileChangeHandler *components.FileChangeHandler
-	dialogManager     *EditorDialogManager
-	tabClickInfo      []components.TabClickInfo
+	container           *tview.Flex
+	contentArea         *tview.Pages
+	tabManager          *components.BaseTabManager
+	tabs                []*EditorTab
+	tabsMu              sync.RWMutex
+	noDocsView          tview.Primitive
+	app                 *tview.Application
+	onLastTabClosed     func()
+	onTabClosed         func(path string)
+	onActiveFileChanged func(path string)
+	fileChangeHandler   *components.FileChangeHandler
+	dialogManager       *EditorDialogManager
+	tabClickInfo        []components.TabClickInfo
 }
 
 // NewEditor creates a new Editor component with no open files.
@@ -164,17 +165,22 @@ func (e *Editor) showNoDocsView() {
 func (e *Editor) switchToTabByID(id int) {
 	e.tabsMu.RLock()
 	var found bool
+	var filePath string
 	for _, tab := range e.tabs {
 		if tab.id == id {
 			found = true
+			filePath = tab.path
 			break
 		}
 	}
 	e.tabsMu.RUnlock()
-	
+
 	if found {
 		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
 		e.UpdateTabBar()
+		if e.onActiveFileChanged != nil && filePath != "" {
+			e.onActiveFileChanged(filePath)
+		}
 	}
 }
 
@@ -548,6 +554,11 @@ func (e *Editor) SetOnTabClosed(handler func(path string)) {
 	e.onTabClosed = handler
 }
 
+// SetOnActiveFileChanged sets a callback for when the active file changes.
+func (e *Editor) SetOnActiveFileChanged(handler func(path string)) {
+	e.onActiveFileChanged = handler
+}
+
 // HasTabs returns true if there are any open editor tabs.
 func (e *Editor) HasTabs() bool {
 	return e.tabManager.HasTabs()
@@ -872,5 +883,20 @@ func (e *Editor) GetOpenTabs() map[string]*EditorTab {
 		}
 	}
 	return openTabs
+}
+
+// GetCurrentFileAndLine returns the current file path and 1-based line number.
+func (e *Editor) GetCurrentFileAndLine() (string, int) {
+	tab := e.getCurrentTab()
+	if tab == nil || tab.codeEditor == nil {
+		return "", 0
+	}
+	row, _ := tab.codeEditor.GetCursor()
+	return tab.path, row + 1
+}
+
+// GetCursor returns the current cursor position (row, col) for the code editor.
+func (c *CodeEditor) GetCursor() (int, int) {
+	return c.cursorRow, c.cursorCol
 }
 
