@@ -505,8 +505,8 @@ func (m *ProjectSearchModal) searchFile(ctx context.Context, filePath string, re
 		return
 	}
 
-	nextLines := make([]lineEntry, 0, 2)
-	for len(nextLines) < 2 {
+	nextLines := make([]lineEntry, 0, 8)
+	for len(nextLines) < 8 {
 		next, hasNext := readNext()
 		if !hasNext {
 			break
@@ -514,7 +514,7 @@ func (m *ProjectSearchModal) searchFile(ctx context.Context, filePath string, re
 		nextLines = append(nextLines, next)
 	}
 
-	prevLines := make([]lineEntry, 0, 2)
+	prevLines := make([]lineEntry, 0, 8)
 
 	for {
 		select {
@@ -557,13 +557,13 @@ func (m *ProjectSearchModal) searchFile(ctx context.Context, filePath string, re
 		}
 
 		prevLines = append(prevLines, current)
-		if len(prevLines) > 2 {
+		if len(prevLines) > 8 {
 			prevLines = prevLines[1:]
 		}
 
 		current = nextLines[0]
 		nextLines = nextLines[1:]
-		for len(nextLines) < 2 {
+		for len(nextLines) < 8 {
 			next, hasNext := readNext()
 			if !hasNext {
 				break
@@ -715,30 +715,88 @@ func (m *ProjectSearchModal) updatePreview() {
 	result := m.results[m.selectedIdx]
 
 	relPath, _ := filepath.Rel(".", result.FilePath)
-	m.previewText.SetTitle(fmt.Sprintf(" %s ", relPath))
+	displayPath := m.truncatePathFromLeft(relPath, 50)
+	m.previewText.SetTitle(fmt.Sprintf(" %s:%d ", displayPath, result.Line))
+
+	_, _, previewWidth, _ := m.previewText.GetInnerRect()
+	if previewWidth <= 0 {
+		previewWidth = 60
+	}
 
 	lineNumWidth := 4
+	maxLineWidth := previewWidth - lineNumWidth - 3
+	if maxLineWidth < 20 {
+		maxLineWidth = 20
+	}
+
 	startLine := result.Line - len(result.ContextBefore)
 
 	for i, line := range result.ContextBefore {
 		lineNum := startLine + i
-		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(line))
+		truncated := m.truncateLine(line, maxLineWidth)
+		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
 	}
 
 	matchLine := result.MatchText
 	if result.Column >= 0 && result.Column+result.MatchLength <= len(matchLine) {
-		before := tview.Escape(matchLine[:result.Column])
-		match := tview.Escape(matchLine[result.Column : result.Column+result.MatchLength])
-		after := tview.Escape(matchLine[result.Column+result.MatchLength:])
-		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s[black:yellow]%s[-:-]%s\n", lineNumWidth, result.Line, before, match, after)
+		before := matchLine[:result.Column]
+		match := matchLine[result.Column : result.Column+result.MatchLength]
+		after := matchLine[result.Column+result.MatchLength:]
+
+		visibleBefore := before
+		visibleMatch := match
+		visibleAfter := after
+		totalLen := len(before) + len(match) + len(after)
+
+		if totalLen > maxLineWidth {
+			availableForContext := maxLineWidth - len(match)
+			if availableForContext < 0 {
+				availableForContext = 0
+			}
+			beforeAlloc := availableForContext / 2
+			afterAlloc := availableForContext - beforeAlloc
+
+			if len(before) > beforeAlloc {
+				visibleBefore = "…" + before[len(before)-beforeAlloc+1:]
+			}
+			if len(after) > afterAlloc {
+				visibleAfter = after[:afterAlloc-1] + "…"
+			}
+		}
+
+		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s[black:yellow]%s[-:-]%s\n",
+			lineNumWidth, result.Line,
+			tview.Escape(visibleBefore), tview.Escape(visibleMatch), tview.Escape(visibleAfter))
 	} else {
-		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s\n", lineNumWidth, result.Line, tview.Escape(matchLine))
+		truncated := m.truncateLine(matchLine, maxLineWidth)
+		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s\n", lineNumWidth, result.Line, tview.Escape(truncated))
 	}
 
 	for i, line := range result.ContextAfter {
 		lineNum := result.Line + 1 + i
-		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(line))
+		truncated := m.truncateLine(line, maxLineWidth)
+		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
 	}
+}
+
+func (m *ProjectSearchModal) truncateLine(line string, maxWidth int) string {
+	if len(line) <= maxWidth {
+		return line
+	}
+	if maxWidth <= 1 {
+		return "…"
+	}
+	return line[:maxWidth-1] + "…"
+}
+
+func (m *ProjectSearchModal) truncatePathFromLeft(path string, maxWidth int) string {
+	if len(path) <= maxWidth {
+		return path
+	}
+	if maxWidth <= 4 {
+		return "…"
+	}
+	return "…" + path[len(path)-maxWidth+1:]
 }
 
 func (m *ProjectSearchModal) performReplaceAll() {

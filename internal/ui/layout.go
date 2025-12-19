@@ -878,10 +878,22 @@ func (l *Layout) showProjectSearch() {
 	)
 	
 	l.projectSearchModal.ActivateHandlers()
+
+	_, _, termWidth, termHeight := l.mainArea.GetRect()
+	modalWidth := 80
+	modalHeight := 25
+	if termWidth > 190 {
+		modalWidth = termWidth * 60 / 100
+		modalHeight = termHeight * 60 / 100
+		if modalHeight < 25 {
+			modalHeight = 25
+		}
+	}
+
 	config := EmModalConfig{
 		UseFixedSize: true,
-		FixedWidth:   80,
-		FixedHeight:  25,
+		FixedWidth:   modalWidth,
+		FixedHeight:  modalHeight,
 		BorderColor:  tcell.NewRGBColor(102, 102, 102),
 		TitleColor:   tcell.ColorWhite,
 		Title:        " Project Search & Replace ",
