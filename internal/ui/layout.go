@@ -218,8 +218,8 @@ func (l *Layout) GetRoot() tview.Primitive {
 }
 
 func (l *Layout) calculateFileManagerWidth(terminalWidth int) int {
-	if terminalWidth > 190 {
-		return 40
+	if terminalWidth > 150 {
+		return terminalWidth / 5
 	}
 	return 30
 }

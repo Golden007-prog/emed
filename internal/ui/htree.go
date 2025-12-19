@@ -146,8 +146,13 @@ type HTree struct {
 	onRename          func(node *HTreeNode)
 	hasFocus          bool
 	app               *tview.Application
-	
-	typeAhead        *filemanager.TypeAheadBuffer
+
+	typeAhead *filemanager.TypeAheadBuffer
+
+	marqueeOffset    int
+	marqueeNode      *HTreeNode
+	marqueeLastTick  time.Time
+	marqueeWasFocused bool
 }
 
 // NewHTree creates a new hierarchical tree widget.
@@ -198,25 +203,25 @@ func (t *HTree) Draw(screen tcell.Screen) {
 	t.buildVisibleNodes()
 
 	if t.selected != nil {
+		indent := t.selected.depth * 2
+		iconWidth := 2
+		if !t.selected.IsDir && t.selected.depth == 0 {
+			iconWidth = 0
+		}
+		nameLen := len([]rune(t.selected.Text))
+		totalWidth := indent + iconWidth + nameLen
 
-		if t.selected.depth <= 3 {
+		if totalWidth <= width {
 			t.scrollX = 0
 		} else {
-
-			minVisibleDepth := t.selected.depth - 2
-			if minVisibleDepth < 0 {
-				minVisibleDepth = 0
+			neededScroll := indent - 2
+			if neededScroll < 0 {
+				neededScroll = 0
 			}
-
-			targetScrollX := minVisibleDepth * 2
-
-			diff := targetScrollX - t.scrollX
-			if diff > 10 || diff < -10 {
-				t.scrollX = targetScrollX
-			} else if diff > 0 {
-				t.scrollX += 2
-			} else if diff < 0 && t.scrollX > 0 {
-				t.scrollX -= 2
+			if neededScroll > t.scrollX {
+				t.scrollX = neededScroll
+			} else if neededScroll < t.scrollX-4 {
+				t.scrollX = neededScroll
 			}
 		}
 
@@ -241,34 +246,41 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		}
 	}
 
+	now := time.Now()
+	focusGained := t.hasFocus && !t.marqueeWasFocused
+	t.marqueeWasFocused = t.hasFocus
+	if t.selected != t.marqueeNode || focusGained {
+		t.marqueeNode = t.selected
+		t.marqueeOffset = 0
+		t.marqueeLastTick = now
+	}
+
 	for i := 0; i < height && t.scrollY+i < len(t.visibleNodes); i++ {
 		node := t.visibleNodes[t.scrollY+i]
 
-		var line strings.Builder
-
 		indent := node.depth * 2
-		for j := 0; j < indent; j++ {
-			line.WriteRune(' ')
-		}
-
+		iconWidth := 2
+		icon := "  "
 		if node.IsDir {
 			if node.IsExpanded {
-				line.WriteString("▼ ")
+				icon = "▼ "
 			} else {
-				line.WriteString("▶ ")
+				icon = "▶ "
 			}
-		} else if node.depth > 0 {
-			line.WriteString("  ")
+		} else if node.depth == 0 {
+			icon = ""
+			iconWidth = 0
 		}
 
-		line.WriteString(node.Text)
-
-		fullLine := line.String()
+		prefixLen := indent + iconWidth
+		nameRunes := []rune(node.Text)
+		nameLen := len(nameRunes)
 
 		fgColor := node.Color
 		bgColor := tcell.ColorBlack
 
-		if node == t.selected {
+		isSelected := node == t.selected
+		if isSelected {
 			if t.hasFocus {
 				fgColor = tcell.ColorBlack
 				bgColor = tcell.ColorWhite
@@ -278,27 +290,73 @@ func (t *HTree) Draw(screen tcell.Screen) {
 			}
 		}
 
-		drawX := 0
-		for j, ch := range fullLine {
-			if j < t.scrollX {
-				continue
+		availableForName := width - (prefixLen - t.scrollX)
+		needsMarquee := isSelected && t.hasFocus && nameLen > availableForName && availableForName > 0
+
+		var marqueeOff int
+		if needsMarquee {
+			if now.Sub(t.marqueeLastTick) >= 150*time.Millisecond {
+				t.marqueeOffset++
+				maxScroll := nameLen - availableForName
+				endPause := maxScroll + 4
+				if t.marqueeOffset > endPause {
+					t.marqueeOffset = -4
+				}
+				t.marqueeLastTick = now
+			}
+			marqueeOff = t.marqueeOffset
+			maxScroll := nameLen - availableForName
+			if marqueeOff < 0 {
+				marqueeOff = 0
+			} else if marqueeOff > maxScroll {
+				marqueeOff = maxScroll
 			}
 
-			if drawX >= width {
-				break
+			if t.app != nil {
+				go func() {
+					time.Sleep(150 * time.Millisecond)
+					t.app.QueueUpdateDraw(func() {})
+				}()
 			}
-
-			screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
-			drawX++
 		}
 
-		if node == t.selected {
+		drawX := 0
+		for j := 0; j < indent; j++ {
+			if j >= t.scrollX && drawX < width {
+				screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+				drawX++
+			}
+		}
+
+		for j, ch := range icon {
+			pos := indent + j
+			if pos >= t.scrollX && drawX < width {
+				screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+				drawX++
+			}
+		}
+
+		if needsMarquee {
+			for j := marqueeOff; j < nameLen && drawX < width; j++ {
+				screen.SetContent(x+drawX, y+i, nameRunes[j], nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+				drawX++
+			}
+		} else {
+			for j, ch := range nameRunes {
+				pos := prefixLen + j
+				if pos >= t.scrollX && drawX < width {
+					screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+					drawX++
+				}
+			}
+		}
+
+		if isSelected {
 			for ; drawX < width; drawX++ {
 				screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Background(bgColor))
 			}
 		}
 	}
-
 }
 
 func (t *HTree) getRelativePath(node *HTreeNode) string {
