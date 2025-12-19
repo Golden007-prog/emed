@@ -718,10 +718,15 @@ func (m *ProjectSearchModal) updatePreview() {
 	displayPath := m.truncatePathFromLeft(relPath, 50)
 	m.previewText.SetTitle(fmt.Sprintf(" %s:%d ", displayPath, result.Line))
 
-	_, _, previewWidth, _ := m.previewText.GetInnerRect()
+	_, _, previewWidth, previewHeight := m.previewText.GetInnerRect()
 	if previewWidth <= 0 {
 		previewWidth = 60
 	}
+	if previewHeight <= 0 {
+		previewHeight = 10
+	}
+
+	contextBefore, contextAfter := m.loadExtendedContext(result, previewHeight)
 
 	lineNumWidth := 4
 	maxLineWidth := previewWidth - lineNumWidth - 3
@@ -729,9 +734,9 @@ func (m *ProjectSearchModal) updatePreview() {
 		maxLineWidth = 20
 	}
 
-	startLine := result.Line - len(result.ContextBefore)
+	startLine := result.Line - len(contextBefore)
 
-	for i, line := range result.ContextBefore {
+	for i, line := range contextBefore {
 		lineNum := startLine + i
 		truncated := m.truncateLine(line, maxLineWidth)
 		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
@@ -772,11 +777,58 @@ func (m *ProjectSearchModal) updatePreview() {
 		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s\n", lineNumWidth, result.Line, tview.Escape(truncated))
 	}
 
-	for i, line := range result.ContextAfter {
+	for i, line := range contextAfter {
 		lineNum := result.Line + 1 + i
 		truncated := m.truncateLine(line, maxLineWidth)
 		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
 	}
+}
+
+func (m *ProjectSearchModal) loadExtendedContext(result SearchResult, availableHeight int) (before, after []string) {
+	neededLines := availableHeight - 1
+	if neededLines < 3 {
+		neededLines = 3
+	}
+
+	beforeCount := neededLines / 2
+	afterCount := neededLines - beforeCount
+
+	if len(result.ContextBefore) >= beforeCount && len(result.ContextAfter) >= afterCount {
+		return result.ContextBefore[len(result.ContextBefore)-beforeCount:], result.ContextAfter[:afterCount]
+	}
+
+	file, err := os.Open(result.FilePath)
+	if err != nil {
+		return result.ContextBefore, result.ContextAfter
+	}
+	defer file.Close()
+
+	var allLines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+
+	matchIdx := result.Line - 1
+	if matchIdx < 0 || matchIdx >= len(allLines) {
+		return result.ContextBefore, result.ContextAfter
+	}
+
+	startIdx := matchIdx - beforeCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	endIdx := matchIdx + afterCount + 1
+	if endIdx > len(allLines) {
+		endIdx = len(allLines)
+	}
+
+	before = allLines[startIdx:matchIdx]
+	if matchIdx+1 < len(allLines) {
+		after = allLines[matchIdx+1 : endIdx]
+	}
+
+	return before, after
 }
 
 func (m *ProjectSearchModal) truncateLine(line string, maxWidth int) string {

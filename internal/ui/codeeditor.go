@@ -1450,9 +1450,9 @@ func (e *CodeEditor) CenterCursor() {
 			e.viewportHeight = 30
 		}
 	}
-	
+
 	targetOffset := e.cursorRow - (e.viewportHeight / 2)
-	
+
 	if targetOffset < 0 {
 		e.offsetRow = 0
 	} else {
@@ -1466,21 +1466,15 @@ func (e *CodeEditor) CenterCursor() {
 			e.offsetRow = targetOffset
 		}
 	}
-	
+
+	e.offsetCol = 0
+
 	visualCol := e.getVisualColumn(e.cursorRow, e.cursorCol)
-	
-	if visualCol < e.offsetCol {
-		e.offsetCol = visualCol - 10
+	if e.viewportWidth > 0 && visualCol >= e.viewportWidth {
+		e.offsetCol = visualCol - e.viewportWidth/2
 		if e.offsetCol < 0 {
 			e.offsetCol = 0
 		}
-	} else if e.viewportWidth > 0 && visualCol >= e.offsetCol + e.viewportWidth {
-		e.offsetCol = visualCol - e.viewportWidth + 10
-		if e.offsetCol < 0 {
-			e.offsetCol = 0
-		}
-	} else if e.offsetCol > 0 && e.viewportWidth > 0 && visualCol < e.viewportWidth {
-		e.offsetCol = 0
 	}
 }
 
