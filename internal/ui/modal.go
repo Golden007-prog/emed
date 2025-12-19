@@ -15,15 +15,16 @@ var (
 // EmModal represents a modal dialog that can overlay the application.
 type EmModal struct {
 	*tview.Box
-	app          *tview.Application
-	container    *tview.Box
-	content      tview.Primitive
-	cancellable  bool
-	onCancel     func()
-	onClose      func()
-	previousRoot tview.Primitive
-	savedFocus   tview.Primitive
-	isWrapped    bool
+	app           *tview.Application
+	container     *tview.Box
+	content       tview.Primitive
+	cancellable   bool
+	escPassthrough bool
+	onCancel      func()
+	onClose       func()
+	previousRoot  tview.Primitive
+	savedFocus    tview.Primitive
+	isWrapped     bool
 }
 
 // SetPreviousRoot sets the root primitive to restore when the modal is closed.
@@ -47,6 +48,12 @@ func NewEmModal(app *tview.Application, content tview.Primitive, cancellable boo
 // SetOnCancel sets the callback for when the modal is cancelled.
 func (m *EmModal) SetOnCancel(handler func()) *EmModal {
 	m.onCancel = handler
+	return m
+}
+
+// SetEscPassthrough sets whether ESC key should be passed to content instead of closing modal.
+func (m *EmModal) SetEscPassthrough(passthrough bool) *EmModal {
+	m.escPassthrough = passthrough
 	return m
 }
 
@@ -204,7 +211,7 @@ func (m *EmModal) SetRect(x, y, width, height int) {
 // InputHandler returns the input handler for keyboard events.
 func (m *EmModal) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
-		if m.cancellable && event.Key() == tcell.KeyEscape {
+		if m.cancellable && !m.escPassthrough && event.Key() == tcell.KeyEscape {
 			m.Cancel()
 			return
 		}
@@ -219,23 +226,22 @@ func (m *EmModal) InputHandler() func(event *tcell.EventKey, setFocus func(p tvi
 // MouseHandler returns the mouse handler for mouse events.
 func (m *EmModal) MouseHandler() func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
 	return func(action tview.MouseAction, event *tcell.EventMouse, setFocus func(p tview.Primitive)) (consumed bool, capture tview.Primitive) {
-		if action == tview.MouseLeftClick || action == tview.MouseScrollUp || action == tview.MouseScrollDown {
-			x, y, width, height := m.content.GetRect()
-			mouseX, mouseY := event.Position()
+		x, y, width, height := m.content.GetRect()
+		mouseX, mouseY := event.Position()
 
-			if mouseX >= x && mouseX < x+width && mouseY >= y && mouseY < y+height {
-				if handler := m.content.MouseHandler(); handler != nil {
-					consumed, capture = handler(action, event, setFocus)
-					setFocus(m.content)
-					return consumed, capture
-				}
-				return true, nil
-			} else if action == tview.MouseLeftClick {
-				if m.cancellable {
-					m.Cancel()
-				}
-				return true, nil
+		isInsideContent := mouseX >= x && mouseX < x+width && mouseY >= y && mouseY < y+height
+
+		if isInsideContent {
+			if handler := m.content.MouseHandler(); handler != nil {
+				consumed, capture = handler(action, event, setFocus)
+				setFocus(m.content)
+				return consumed, capture
 			}
+			return true, nil
+		}
+
+		if action == tview.MouseLeftClick && m.cancellable {
+			m.Cancel()
 		}
 		return true, nil
 	}
@@ -253,9 +259,9 @@ type EmModalConfig struct {
 	UseFixedSize    bool
 	FixedWidth      int
 	FixedHeight     int
+	EscPassthrough  bool
 }
 
-// NewConfiguredModal creates a new modal with the specified configuration.
 // NewConfiguredModal creates a new modal with the specified configuration.
 func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellable bool) (*modalWrapper, *tview.Flex) {
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
@@ -291,6 +297,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 
 	modal := NewEmModal(app, modalContent, cancellable)
 	modal.isWrapped = true
+	modal.SetEscPassthrough(config.EscPassthrough)
 
 	wrapper := &modalWrapper{
 		modal:  modal,

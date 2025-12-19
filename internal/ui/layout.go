@@ -83,6 +83,9 @@ type Layout struct {
 	// Dynamic sizing
 	lastTerminalWidth int
 	fileManagerWidth  int
+
+	// Git repositories
+	gitRepos []git.Repository
 }
 
 // NewLayout creates a new Layout with all UI components.
@@ -195,7 +198,9 @@ func (l *Layout) initialize() {
 	l.fileManager.SetApp(l.app)
 	
 	l.setupKeybindings()
-	
+
+	l.scanGitRepositories()
+
 	l.setupFileWatcher()
 
 	l.setupFocusDetection()
@@ -343,7 +348,6 @@ func (l *Layout) getHelpText() string {
   Ctrl+S         Save File
   Ctrl+W         Close Current Tab
   Ctrl+F         Find/Replace in Document
-  Ctrl+B         Show Git Blame for Current Line
   Ctrl+Z         Undo
   Ctrl+Y         Redo
   
@@ -368,6 +372,10 @@ func (l *Layout) getHelpText() string {
   F6             Toggle Terminal Position
   F7             Cycle Proportions
   
+[blue]GIT:[-]
+  Ctrl+G         Open Lazygit (requires lazygit installed)
+  Ctrl+B         Show Git Blame for Current Line (in editor)
+
 [blue]GENERAL:[-]
   F1             Show This Help
   Ctrl+Q         Quit
@@ -405,7 +413,7 @@ func (l *Layout) showBlameModal() {
 	}
 
 	blameText := git.FormatDetailedBlameInfo(blameInfo, filePath, lineNum, repoName)
-	ShowBlameModal(l.app, blameText, blameInfo.Hash)
+	ShowBlameModalWithCommit(l.app, blameText, blameInfo.Hash, filePath)
 }
 
 func (l *Layout) setupKeybindings() {
@@ -580,6 +588,9 @@ func (l *Layout) setupKeybindings() {
 				if l.terminal.HasTabs() {
 					l.togglePosition()
 				}
+				return nil
+			case tcell.KeyCtrlG:
+				l.showLazygit()
 				return nil
 			case tcell.KeyCtrlQ:
 				l.tryQuit()
@@ -917,6 +928,73 @@ func (l *Layout) showProjectSearch() {
 	
 	l.projectSearchModalWrapper.Show()
 	l.projectSearchModal.Focus()
+}
+
+func (l *Layout) scanGitRepositories() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	l.gitRepos = git.ScanRepositories(cwd)
+}
+
+func (l *Layout) getCurrentRepo() *git.Repository {
+	if len(l.gitRepos) == 0 {
+		return nil
+	}
+
+	// Priority 1: Terminal CWD (if terminal is focused)
+	if l.focusedPanel == 2 && l.terminal.HasTabs() {
+		// GetTerminalCWD is a best-effort function, may return empty
+		if termCwd := GetTerminalCWD(l.terminal.GetCurrentPID()); termCwd != "" {
+			if repo := git.FindRepoForPath(termCwd, l.gitRepos); repo != nil {
+				return repo
+			}
+		}
+	}
+
+	// Priority 2: Active editor file
+	if activePath := l.editor.GetActiveFilePath(); activePath != "" {
+		if repo := git.FindRepoForPath(activePath, l.gitRepos); repo != nil {
+			return repo
+		}
+	}
+
+	// Priority 3: File manager highlighted file
+	if fmPath := l.fileManager.GetHighlightedPath(); fmPath != "" {
+		if repo := git.FindRepoForPath(fmPath, l.gitRepos); repo != nil {
+			return repo
+		}
+	}
+
+	// Fallback: first repo
+	return &l.gitRepos[0]
+}
+
+func (l *Layout) showLazygit() {
+	if !git.IsLazygitInstalled() {
+		ShowLazygitNotInstalledModal(l.app)
+		return
+	}
+
+	if len(l.gitRepos) == 0 {
+		ShowNoReposModal(l.app)
+		return
+	}
+
+	currentRepo := l.getCurrentRepo()
+
+	if len(l.gitRepos) == 1 {
+		modal := NewLazygitModal(l.app, l.gitRepos[0].Path, "")
+		modal.Show(nil)
+		return
+	}
+
+	selector := NewRepoSelectorModal(l.app, l.gitRepos, currentRepo)
+	selector.Show(func(repo git.Repository) {
+		modal := NewLazygitModal(l.app, repo.Path, "")
+		modal.Show(nil)
+	}, nil)
 }
 
 // Stop shuts down the layout and cleans up resources.

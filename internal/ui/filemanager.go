@@ -949,6 +949,15 @@ func (fm *FileManager) RevealFile(path string) {
 	}
 }
 
+// GetHighlightedPath returns the path of the currently selected node.
+func (fm *FileManager) GetHighlightedPath() string {
+	node := fm.htree.GetCurrentNode()
+	if node == nil {
+		return ""
+	}
+	return node.Path
+}
+
 func getFileSize(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {

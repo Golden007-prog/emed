@@ -316,3 +316,12 @@ func (t *Terminal) IsInPassthroughMode() bool {
 	}
 	return false
 }
+
+// GetCurrentPID returns the process ID of the active terminal, or 0 if none.
+func (t *Terminal) GetCurrentPID() int {
+	activeTab := t.tabManager.GetActiveTab()
+	if termTab, ok := activeTab.(*TerminalTab); ok && termTab.emulator != nil {
+		return termTab.emulator.GetPID()
+	}
+	return 0
+}

@@ -18,13 +18,15 @@ import (
 
 // PTYManager handles pseudo-terminal creation and management.
 type PTYManager struct {
-	ptm      *os.File
-	cmd      *exec.Cmd
-	shell    string
-	mu       sync.RWMutex
-	running  bool
-	onData   func([]byte)
-	onExit   func()
+	ptm        *os.File
+	cmd        *exec.Cmd
+	shell      string
+	customCmd  []string
+	workingDir string
+	mu         sync.RWMutex
+	running    bool
+	onData     func([]byte)
+	onExit     func()
 }
 
 // New creates a new PTYManager with the specified shell.
@@ -35,9 +37,17 @@ func New(shell string) *PTYManager {
 			shell = "/bin/bash"
 		}
 	}
-	
+
 	return &PTYManager{
 		shell: shell,
+	}
+}
+
+// NewWithCommand creates a PTYManager that runs a custom command instead of a shell.
+func NewWithCommand(command []string, workingDir string) *PTYManager {
+	return &PTYManager{
+		customCmd:  command,
+		workingDir: workingDir,
 	}
 }
 
@@ -45,30 +55,39 @@ func New(shell string) *PTYManager {
 func (p *PTYManager) Start(cols, rows int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.running {
 		return fmt.Errorf("PTY already running")
 	}
-	
-	p.cmd = exec.Command(p.shell, "-l", "-i")
-	// Set environment to prevent OSC sequences from leaking
+
+	if len(p.customCmd) > 0 {
+		p.cmd = exec.Command(p.customCmd[0], p.customCmd[1:]...)
+	} else {
+		p.cmd = exec.Command(p.shell, "-l", "-i")
+	}
+
 	env := os.Environ()
-	// Filter out any existing TERM_PROGRAM variables that might cause issues
 	filtered := make([]string, 0, len(env))
 	for _, e := range env {
-		if !strings.HasPrefix(e, "TERM_PROGRAM") && 
-		   !strings.HasPrefix(e, "ITERM_") &&
-		   !strings.HasPrefix(e, "LC_TERMINAL") {
+		if !strings.HasPrefix(e, "TERM_PROGRAM") &&
+			!strings.HasPrefix(e, "ITERM_") &&
+			!strings.HasPrefix(e, "LC_TERMINAL") {
 			filtered = append(filtered, e)
 		}
 	}
-	cwd, _ := os.Getwd()
+
+	cwd := p.workingDir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	p.cmd.Dir = cwd
+
 	homeDir, _ := os.UserHomeDir()
 	hash := md5.Sum([]byte(cwd))
 	stateDir := filepath.Join(homeDir, ".emed", hex.EncodeToString(hash[:])[:12])
 	os.MkdirAll(stateDir, 0755)
 	p.cmd.Env = append(filtered, "TERM=xterm-256color", "EMED_STATE_DIR="+stateDir)
-	
+
 	ptm, err := pty.StartWithSize(p.cmd, &pty.Winsize{
 		Rows: uint16(rows),
 		Cols: uint16(cols),
@@ -78,12 +97,12 @@ func (p *PTYManager) Start(cols, rows int) error {
 	if err != nil {
 		return fmt.Errorf("failed to start PTY: %v", err)
 	}
-	
+
 	p.ptm = ptm
 	p.running = true
-	
+
 	go p.readLoop()
-	
+
 	return nil
 }
 
@@ -169,6 +188,16 @@ func (p *PTYManager) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.running
+}
+
+// GetPID returns the process ID of the PTY process, or 0 if not running.
+func (p *PTYManager) GetPID() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.running && p.cmd != nil && p.cmd.Process != nil {
+		return p.cmd.Process.Pid
+	}
+	return 0
 }
 
 // SetOnData sets the callback for receiving PTY output.

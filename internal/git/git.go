@@ -3,8 +3,10 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -197,4 +199,83 @@ func formatTimeAgo(t time.Time) string {
 		}
 		return fmt.Sprintf("%d years ago", years)
 	}
+}
+
+// Repository represents a git repository found in the workspace.
+type Repository struct {
+	Path string
+	Name string
+}
+
+// ScanRepositories finds all git repositories within the given root directory.
+func ScanRepositories(root string) []Repository {
+	var repos []Repository
+	seen := make(map[string]bool)
+
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if !info.IsDir() {
+			return nil
+		}
+
+		base := filepath.Base(path)
+		if base == "node_modules" || base == "vendor" || base == ".git" {
+			return filepath.SkipDir
+		}
+
+		gitDir := filepath.Join(path, ".git")
+		if stat, err := os.Stat(gitDir); err == nil && stat.IsDir() {
+			if !seen[path] {
+				seen[path] = true
+				repos = append(repos, Repository{
+					Path: path,
+					Name: filepath.Base(path),
+				})
+			}
+			return filepath.SkipDir
+		}
+
+		return nil
+	})
+
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i].Name < repos[j].Name
+	})
+
+	return repos
+}
+
+// FindRepoForPath finds the git repository that contains the given path.
+func FindRepoForPath(filePath string, repos []Repository) *Repository {
+	if filePath == "" {
+		return nil
+	}
+
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil
+	}
+
+	var bestMatch *Repository
+	bestLen := 0
+
+	for i := range repos {
+		if strings.HasPrefix(absPath, repos[i].Path) {
+			if len(repos[i].Path) > bestLen {
+				bestLen = len(repos[i].Path)
+				bestMatch = &repos[i]
+			}
+		}
+	}
+
+	return bestMatch
+}
+
+// IsLazygitInstalled checks if lazygit is available on the system.
+func IsLazygitInstalled() bool {
+	_, err := exec.LookPath("lazygit")
+	return err == nil
 }

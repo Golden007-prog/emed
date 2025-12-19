@@ -179,6 +179,14 @@ func (t *VT10XTerminal) GetMode() TerminalMode {
 	return t.mode
 }
 
+// GetPID returns the process ID of the terminal process.
+func (t *VT10XTerminal) GetPID() int {
+	if t.ptyMgr != nil {
+		return t.ptyMgr.GetPID()
+	}
+	return 0
+}
+
 // SetMode sets the terminal mode (application or passthrough).
 func (t *VT10XTerminal) SetMode(mode TerminalMode) {
 	if t.mode != mode {
