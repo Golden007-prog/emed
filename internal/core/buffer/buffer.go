@@ -45,20 +45,21 @@ func linesEqual(a, b [][]rune) bool {
 
 // TextBuffer represents a text buffer with undo/redo functionality.
 type TextBuffer struct {
-	lines       [][]rune
-	lineEndings string
-	modified    bool
-	tabSize     int
-	
+	lines           [][]rune
+	lineEndings     string
+	trailingNewline bool
+	modified        bool
+	tabSize         int
+
 	// Undo/Redo stacks
 	undoStack   []BufferState
 	redoStack   []BufferState
 	maxUndoSize int
 	initialState [][]rune
-	
+
 	// Track if we should record this change
 	recordingUndo bool
-	
+
 	// Search state
 	searchMatches []SearchMatch
 	currentMatch  int
@@ -92,36 +93,35 @@ func New() *TextBuffer {
 
 // LoadFile loads content from a file into the buffer.
 func (b *TextBuffer) LoadFile(path string) error {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+
+	content := string(data)
+
+	b.trailingNewline = len(content) > 0 && (content[len(content)-1] == '\n' || content[len(content)-1] == '\r')
+
+	b.detectLineEndingsFromContent(content)
+
+	content = strings.TrimSuffix(content, "\n")
+	content = strings.TrimSuffix(content, "\r")
 
 	var lines [][]rune
-	scanner := bufio.NewScanner(file)
-	scanner.Split(bufio.ScanLines)
-
-	hasContent := false
-	for scanner.Scan() {
-		hasContent = true
-		line := scanner.Text()
-		lines = append(lines, []rune(line))
-	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	if !hasContent {
+	if content == "" {
 		lines = [][]rune{{}}
+	} else {
+		splitLines := strings.Split(content, "\n")
+		for _, line := range splitLines {
+			line = strings.TrimSuffix(line, "\r")
+			lines = append(lines, []rune(line))
+		}
 	}
 
 	b.lines = lines
-	b.detectLineEndings(path)
 	b.modified = false
-	b.initialState = copyLines(lines) // Save initial state
-	b.ClearUndoHistory() // Clear undo history when loading a new file
+	b.initialState = copyLines(lines)
+	b.ClearUndoHistory()
 	return nil
 }
 
@@ -144,6 +144,13 @@ func (b *TextBuffer) SaveFile(path string) error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+
+	if b.trailingNewline {
+		_, err := writer.WriteString(b.lineEndings)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -437,13 +444,7 @@ func (b *TextBuffer) SetTabSize(size int) {
 	}
 }
 
-func (b *TextBuffer) detectLineEndings(path string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	
-	content := string(data)
+func (b *TextBuffer) detectLineEndingsFromContent(content string) {
 	if strings.Contains(content, "\r\n") {
 		b.lineEndings = "\r\n"
 	} else if strings.Contains(content, "\r") {

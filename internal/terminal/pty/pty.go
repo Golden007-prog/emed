@@ -29,8 +29,8 @@ type PTYManager struct {
 	onExit     func()
 }
 
-// New creates a new PTYManager with the specified shell.
-func New(shell string) *PTYManager {
+// New creates a new PTYManager with the specified shell and working directory.
+func New(shell string, workingDir string) *PTYManager {
 	if shell == "" {
 		shell = os.Getenv("SHELL")
 		if shell == "" {
@@ -39,7 +39,8 @@ func New(shell string) *PTYManager {
 	}
 
 	return &PTYManager{
-		shell: shell,
+		shell:      shell,
+		workingDir: workingDir,
 	}
 }
 

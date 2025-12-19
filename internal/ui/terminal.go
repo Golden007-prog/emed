@@ -136,9 +136,9 @@ func (t *Terminal) SetApp(app *tview.Application) {
 	t.app = app
 }
 
-// NewTab creates and adds a new terminal tab.
-func (t *Terminal) NewTab() {
-	emulator := NewVT10XTerminal()
+// NewTab creates and adds a new terminal tab with the specified working directory.
+func (t *Terminal) NewTab(workingDir string) {
+	emulator := NewVT10XTerminal(workingDir)
 
 	if t.app != nil {
 		emulator.SetApp(t.app)

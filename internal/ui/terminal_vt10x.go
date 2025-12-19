@@ -66,7 +66,7 @@ type VT10XTerminal struct {
 }
 
 // NewVT10XTerminal creates a new VT10X terminal emulator instance.
-func NewVT10XTerminal() *VT10XTerminal {
+func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -74,7 +74,7 @@ func NewVT10XTerminal() *VT10XTerminal {
 
 	t := &VT10XTerminal{
 		Box:       tview.NewBox(),
-		ptyMgr:    pty.New(shell),
+		ptyMgr:    pty.New(shell, workingDir),
 		scrollbuf: scrollback.New(1000),
 		mode:      ModeApplication,
 		rows:      24,

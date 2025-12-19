@@ -531,10 +531,10 @@ func (l *Layout) setupKeybindings() {
 				return nil
 			case tcell.KeyCtrlT:
 				if l.terminal.HasFocus(l.app.GetFocus()) {
-					l.terminal.NewTab()
+					l.terminal.NewTab(l.getTerminalWorkingDir())
 				} else {
 					if !l.terminal.HasTabs() {
-						l.terminal.NewTab()
+						l.terminal.NewTab(l.getTerminalWorkingDir())
 						l.rebuildLayout()
 					}
 					l.focusTerminal()
@@ -969,6 +969,27 @@ func (l *Layout) getCurrentRepo() *git.Repository {
 
 	// Fallback: first repo
 	return &l.gitRepos[0]
+}
+
+func (l *Layout) getTerminalWorkingDir() string {
+	// Priority 1: Parent directory of the file currently open in the editor
+	if activePath := l.editor.GetActiveFilePath(); activePath != "" {
+		return filepath.Dir(activePath)
+	}
+
+	// Priority 2: Parent directory of the file highlighted in the file manager
+	if fmPath := l.fileManager.GetHighlightedPath(); fmPath != "" {
+		info, err := os.Stat(fmPath)
+		if err == nil {
+			if info.IsDir() {
+				return fmPath
+			}
+			return filepath.Dir(fmPath)
+		}
+	}
+
+	// Fallback: empty string (PTY will use project working directory)
+	return ""
 }
 
 func (l *Layout) showLazygit() {
@@ -1521,7 +1542,7 @@ func (l *Layout) executeClaudeCommand(cmd, file string, files []string, line, co
 
 	case "focusTerminal":
 		if !l.terminal.HasTabs() {
-			l.terminal.NewTab()
+			l.terminal.NewTab(l.getTerminalWorkingDir())
 			l.rebuildLayout()
 		}
 		l.focusTerminal()
@@ -1533,7 +1554,7 @@ func (l *Layout) executeClaudeCommand(cmd, file string, files []string, line, co
 
 	case "newTerminal":
 		hadNoTabs := !l.terminal.HasTabs()
-		l.terminal.NewTab()
+		l.terminal.NewTab(l.getTerminalWorkingDir())
 		if hadNoTabs {
 			l.rebuildLayout()
 		}
