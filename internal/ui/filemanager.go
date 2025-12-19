@@ -761,11 +761,19 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 	if !node.IsDir {
 		sizeStr = getFileSize(node.Path)
 	}
-	
+
+	contentWidth := 61
+	pathLines := (len(relativePath) + contentWidth - 1) / contentWidth
+	if pathLines < 1 {
+		pathLines = 1
+	}
+	infoTextHeight := 4 + pathLines
+	modalHeight := infoTextHeight + 8
+
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      65,
-		FixedHeight:     14,
+		FixedHeight:     modalHeight,
 		BackgroundColor: tcell.ColorBlack,
 		BorderColor:     tcell.NewRGBColor(102, 102, 102),
 		TitleColor:      tcell.ColorLightGray,
@@ -786,7 +794,7 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 			sizeStr,
 			relativePath))
 	
-	flex.AddItem(infoText, 6, 0, false)
+	flex.AddItem(infoText, infoTextHeight, 0, false)
 	
 	buttonList := tview.NewFlex().SetDirection(tview.FlexRow)
 	
