@@ -13,6 +13,7 @@ import (
 	"github.com/laborin/emed/internal/terminal/pty"
 	"github.com/laborin/emed/internal/terminal/scrollback"
 	"github.com/laborin/vt10x"
+	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 )
 
@@ -299,16 +300,23 @@ func (t *VT10XTerminal) refreshLoop() {
 func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 	str := string(data)
 
+	// Mouse reporting modes - use full escape sequences
+	mouseEnablePatterns := []string{
+		"\x1b[?1000h", "\x1b[?1001h", "\x1b[?1002h", "\x1b[?1003h", "\x1b[?1005h", "\x1b[?1015h",
+	}
+	mouseDisablePatterns := []string{
+		"\x1b[?1000l", "\x1b[?1001l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1005l", "\x1b[?1015l",
+	}
+
 	lastEnablePos := -1
 	lastDisablePos := -1
 
-	for _, pattern := range []string{"1000h", "1001h", "1002h", "1003h", "1005h", "1015h"} {
+	for _, pattern := range mouseEnablePatterns {
 		if pos := strings.LastIndex(str, pattern); pos > lastEnablePos {
 			lastEnablePos = pos
 		}
 	}
-
-	for _, pattern := range []string{"1000l", "1001l", "1002l", "1003l", "1005l", "1015l"} {
+	for _, pattern := range mouseDisablePatterns {
 		if pos := strings.LastIndex(str, pattern); pos > lastDisablePos {
 			lastDisablePos = pos
 		}
@@ -320,8 +328,9 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 		t.mouseReporting = false
 	}
 
-	lastSGREnablePos := strings.LastIndex(str, "1006h")
-	lastSGRDisablePos := strings.LastIndex(str, "1006l")
+	// SGR mouse mode
+	lastSGREnablePos := strings.LastIndex(str, "\x1b[?1006h")
+	lastSGRDisablePos := strings.LastIndex(str, "\x1b[?1006l")
 
 	if lastSGREnablePos > lastSGRDisablePos && lastSGREnablePos >= 0 {
 		t.mouseSGRMode = true
@@ -329,6 +338,7 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 		t.mouseSGRMode = false
 	}
 
+	// Alternate screen buffer
 	if strings.Contains(str, "\x1b[?1049h") || strings.Contains(str, "\x1b[?47h") ||
 		strings.Contains(str, "\x1b[?1047h") {
 		t.alternateScreen = true
@@ -339,8 +349,9 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 		t.alternateScreen = false
 	}
 
-	lastBracketEnablePos := strings.LastIndex(str, "2004h")
-	lastBracketDisablePos := strings.LastIndex(str, "2004l")
+	// Bracketed paste mode
+	lastBracketEnablePos := strings.LastIndex(str, "\x1b[?2004h")
+	lastBracketDisablePos := strings.LastIndex(str, "\x1b[?2004l")
 
 	if lastBracketEnablePos > lastBracketDisablePos && lastBracketEnablePos >= 0 {
 		t.bracketedPasteMode = true
@@ -397,12 +408,11 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		t.vt.Resize(width, height)
 		t.rows = height
 		t.cols = width
+		if t.ptyMgr.IsRunning() {
+			t.ptyMgr.Resize(width, height)
+		}
 	}
 	t.vtMutex.Unlock()
-
-	if needsResize && t.ptyMgr.IsRunning() {
-		t.ptyMgr.Resize(width, height)
-	}
 
 	if t.mode == ModePassthrough && t.hasFocus {
 		modeText := "[TERMINAL MODE]"
@@ -516,31 +526,41 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 	drawCols := min(width, vtCols)
 
 	for row := 0; row < drawRows; row++ {
-		for col := 0; col < drawCols; col++ {
+		col := 0
+		for col < drawCols {
 			glyph := t.vt.Cell(col, row)
+			ch := glyph.Char
+			if ch == 0 || isControlChar(ch) {
+				ch = ' '
+			}
+
+			charWidth := runewidth.RuneWidth(ch)
+			if charWidth == 0 {
+				charWidth = 1
+			}
 
 			hasReverse := (glyph.Mode & (1 << 0)) != 0
 			isInverted := (glyph.FG == vt10x.DefaultBG && glyph.BG == vt10x.DefaultFG)
 
+			var style tcell.Style
 			if hasReverse || isInverted {
-				ch := glyph.Char
-				if ch == 0 || isControlChar(ch) {
-					ch = ' '
-				}
-				cursorStyle := tcell.StyleDefault.
+				style = tcell.StyleDefault.
 					Background(tcell.ColorWhite).
 					Foreground(tcell.ColorBlack)
-				screen.SetContent(x+col, y+row, ch, nil, cursorStyle)
 			} else {
-				style := t.vt10xToTcellStyle(glyph)
-				ch := glyph.Char
-				if ch == 0 || isControlChar(ch) {
-					ch = ' '
-				}
-				screen.SetContent(x+col, y+row, ch, nil, style)
+				style = t.vt10xToTcellStyle(glyph)
 			}
+
+			screen.SetContent(x+col, y+row, ch, nil, style)
+
+			// For wide characters, fill the next cell with a space
+			if charWidth == 2 && col+1 < drawCols {
+				screen.SetContent(x+col+1, y+row, ' ', nil, style)
+			}
+
+			col += charWidth
 		}
-		for col := drawCols; col < width; col++ {
+		for ; col < width; col++ {
 			screen.SetContent(x+col, y+row, ' ', nil, tcell.StyleDefault)
 		}
 	}
@@ -909,58 +929,58 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 		return []byte{0x1b}
 
 	case tcell.KeyUp:
-		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
-			return []byte("\x1bOA")
-		} else {
-			return []byte("\x1b[A")
-		}
+		return t.arrowKeySequence('A', event.Modifiers())
 	case tcell.KeyDown:
-		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
-			return []byte("\x1bOB")
-		} else {
-			return []byte("\x1b[B")
-		}
+		return t.arrowKeySequence('B', event.Modifiers())
 	case tcell.KeyRight:
-		if event.Modifiers()&tcell.ModAlt != 0 {
-			return []byte("\x1bf")
-		}
-		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
-			return []byte("\x1bOC")
-		} else {
-			return []byte("\x1b[C")
-		}
+		return t.arrowKeySequence('C', event.Modifiers())
 	case tcell.KeyLeft:
-		if event.Modifiers()&tcell.ModAlt != 0 {
-			return []byte("\x1bb")
-		}
-		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
-			return []byte("\x1bOD")
-		} else {
-			return []byte("\x1b[D")
-		}
+		return t.arrowKeySequence('D', event.Modifiers())
 
 	case tcell.KeyHome:
+		mod := t.modifierCode(event.Modifiers())
+		if mod > 1 {
+			return []byte(fmt.Sprintf("\x1b[1;%dH", mod))
+		}
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOH")
-		} else {
-			return []byte("\x1b[H")
 		}
+		return []byte("\x1b[H")
 	case tcell.KeyEnd:
+		mod := t.modifierCode(event.Modifiers())
+		if mod > 1 {
+			return []byte(fmt.Sprintf("\x1b[1;%dF", mod))
+		}
 		if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
 			return []byte("\x1bOF")
-		} else {
-			return []byte("\x1b[F")
 		}
+		return []byte("\x1b[F")
 
-	// Page Up/Down
+	case tcell.KeyInsert:
+		return []byte("\x1b[2~")
+
 	case tcell.KeyPgUp:
+		mod := t.modifierCode(event.Modifiers())
+		if mod > 1 {
+			return []byte(fmt.Sprintf("\x1b[5;%d~", mod))
+		}
 		return []byte("\x1b[5~")
 	case tcell.KeyPgDn:
+		mod := t.modifierCode(event.Modifiers())
+		if mod > 1 {
+			return []byte(fmt.Sprintf("\x1b[6;%d~", mod))
+		}
 		return []byte("\x1b[6~")
 
-	// Delete
 	case tcell.KeyDelete:
+		mod := t.modifierCode(event.Modifiers())
+		if mod > 1 {
+			return []byte(fmt.Sprintf("\x1b[3;%d~", mod))
+		}
 		return []byte("\x1b[3~")
+
+	case tcell.KeyBacktab:
+		return []byte("\x1b[Z")
 
 	// Function keys
 	case tcell.KeyF1:
@@ -1010,6 +1030,31 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 	return nil
 }
 
+func (t *VT10XTerminal) modifierCode(mod tcell.ModMask) int {
+	code := 1
+	if mod&tcell.ModShift != 0 {
+		code += 1
+	}
+	if mod&tcell.ModAlt != 0 {
+		code += 2
+	}
+	if mod&tcell.ModCtrl != 0 {
+		code += 4
+	}
+	return code
+}
+
+func (t *VT10XTerminal) arrowKeySequence(arrow byte, mod tcell.ModMask) []byte {
+	modCode := t.modifierCode(mod)
+	if modCode > 1 {
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", modCode, arrow))
+	}
+	if t.vt.Mode()&vt10x.ModeAppCursor != 0 {
+		return []byte{0x1b, 'O', arrow}
+	}
+	return []byte{0x1b, '[', arrow}
+}
+
 // vt10xToTcellStyle converts vt10x glyph to tcell style
 func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	// Start with a clean style
@@ -1032,12 +1077,8 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 		}
 		style = style.Foreground(colors[fg])
 	} else if fg >= 8 && fg <= 15 {
-		// Bright colors
-		colors := []tcell.Color{
-			tcell.ColorDarkGray, tcell.ColorRed, tcell.ColorLightGreen, tcell.ColorLightYellow,
-			tcell.ColorLightBlue, tcell.ColorPurple, tcell.ColorLightCyan, tcell.ColorLightGray,
-		}
-		style = style.Foreground(colors[fg-8])
+		// Bright colors (8-15) - use palette for proper terminal colors
+		style = style.Foreground(tcell.PaletteColor(int(fg)))
 	} else if fg >= 16 && fg <= 255 {
 		// 256 color palette
 		style = style.Foreground(tcell.PaletteColor(int(fg)))
@@ -1072,11 +1113,8 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 		}
 		style = style.Background(colors[bg])
 	} else if bg >= 8 && bg <= 15 {
-		colors := []tcell.Color{
-			tcell.ColorDarkGray, tcell.ColorRed, tcell.ColorLightGreen, tcell.ColorLightYellow,
-			tcell.ColorLightBlue, tcell.ColorPurple, tcell.ColorLightCyan, tcell.ColorLightGray,
-		}
-		style = style.Background(colors[bg-8])
+		// Bright colors (8-15) - use palette for proper terminal colors
+		style = style.Background(tcell.PaletteColor(int(bg)))
 	} else if bg >= 16 && bg <= 255 {
 		style = style.Background(tcell.PaletteColor(int(bg)))
 	} else if bg > 255 && bg < vt10x.DefaultBG {
@@ -1089,6 +1127,7 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	}
 
 	// Apply text attributes from Mode field
+	// vt10x bit positions: 0=reverse, 1=underline, 2=bold, 3=gfx(internal), 4=italic, 5=blink
 	mode := glyph.Mode
 	if mode&(1<<0) != 0 { // Reverse
 		style = style.Reverse(true)
@@ -1101,6 +1140,9 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 		if fg == vt10x.DefaultFG {
 			style = style.Foreground(tcell.ColorWhite)
 		}
+	}
+	if mode&(1<<4) != 0 { // Italic
+		style = style.Italic(true)
 	}
 	if mode&(1<<5) != 0 { // Blink
 		style = style.Blink(true)
