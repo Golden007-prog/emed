@@ -54,21 +54,8 @@ func NewLazygitModal(app *tview.Application, repoPath string, commitHash string)
 
 // Show displays the lazygit modal.
 func (l *LazygitModal) Show(onClose func()) {
-	_, _, termWidth, termHeight := GetMainAppRoot().(*MouseFocusDetector).GetRect()
-	modalWidth := termWidth * 75 / 100
-	modalHeight := termHeight * 75 / 100
-
-	if modalWidth < 60 {
-		modalWidth = 60
-	}
-	if modalHeight < 20 {
-		modalHeight = 20
-	}
-
 	config := EmModalConfig{
-		UseFixedSize:   true,
-		FixedWidth:     modalWidth,
-		FixedHeight:    modalHeight,
+		UseBreakpoints: true,
 		BorderColor:    tcell.NewRGBColor(102, 102, 102),
 		TitleColor:     tcell.ColorWhite,
 		Title:          " Lazygit ",

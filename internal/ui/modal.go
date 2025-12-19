@@ -106,9 +106,13 @@ func (m *EmModal) Cancel() {
 
 // Draw renders the modal to the screen.
 func (m *EmModal) Draw(screen tcell.Screen) {
+	screenWidth, screenHeight := screen.Size()
+
 	if m.previousRoot != nil {
+		m.previousRoot.SetRect(0, 0, screenWidth, screenHeight)
 		m.previousRoot.Draw(screen)
 	} else if mainAppRoot != nil {
+		mainAppRoot.SetRect(0, 0, screenWidth, screenHeight)
 		mainAppRoot.Draw(screen)
 	}
 
@@ -116,8 +120,6 @@ func (m *EmModal) Draw(screen tcell.Screen) {
 		m.content.Draw(screen)
 		return
 	}
-
-	screenWidth, screenHeight := screen.Size()
 
 	contentWidth, contentHeight := screenWidth/2, screenHeight/2
 
@@ -260,6 +262,7 @@ type EmModalConfig struct {
 	FixedWidth      int
 	FixedHeight     int
 	EscPassthrough  bool
+	UseBreakpoints  bool
 }
 
 // NewConfiguredModal creates a new modal with the specified configuration.
@@ -315,13 +318,55 @@ type modalWrapper struct {
 
 // Draw renders the modal wrapper to the screen.
 func (w *modalWrapper) Draw(screen tcell.Screen) {
+	screenWidth, screenHeight := screen.Size()
+
 	if w.modal.previousRoot != nil {
+		w.modal.previousRoot.SetRect(0, 0, screenWidth, screenHeight)
 		w.modal.previousRoot.Draw(screen)
 	} else if mainAppRoot != nil {
+		mainAppRoot.SetRect(0, 0, screenWidth, screenHeight)
 		mainAppRoot.Draw(screen)
 	}
 
 	w.drawWithOwnDimensions(screen)
+}
+
+func calculateBreakpointDimensions(screenWidth, screenHeight int) (int, int) {
+	var widthPercent, heightPercent int
+
+	switch {
+	case screenWidth < 80:
+		widthPercent = 95
+	case screenWidth < 120:
+		widthPercent = 85
+	case screenWidth < 160:
+		widthPercent = 75
+	default:
+		widthPercent = 65
+	}
+
+	switch {
+	case screenHeight < 30:
+		heightPercent = 95
+	case screenHeight < 40:
+		heightPercent = 85
+	case screenHeight < 50:
+		heightPercent = 75
+	default:
+		heightPercent = 65
+	}
+
+	contentWidth := screenWidth * widthPercent / 100
+	contentHeight := screenHeight * heightPercent / 100
+
+	if contentWidth < 60 {
+		contentWidth = 60
+	}
+	if contentHeight < 15 {
+		contentHeight = 15
+	}
+
+	return contentWidth, contentHeight
 }
 
 func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
@@ -336,6 +381,8 @@ func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 	if w.config.UseFixedSize {
 		contentWidth = w.config.FixedWidth
 		contentHeight = w.config.FixedHeight
+	} else if w.config.UseBreakpoints {
+		contentWidth, contentHeight = calculateBreakpointDimensions(screenWidth, screenHeight)
 	} else {
 		width := w.config.Width
 		if width <= 0 || width > 100 {
