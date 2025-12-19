@@ -752,7 +752,14 @@ func (e *CodeEditor) setModified(modified bool) {
 	if e.onModified != nil {
 		e.onModified(modified)
 	}
-	if modified && e.highlighter != nil {
+	if modified {
+		e.clearBlame()
+		e.updateHighlighter()
+	}
+}
+
+func (e *CodeEditor) updateHighlighter() {
+	if e.highlighter != nil {
 		content := e.buffer.GetContent()
 		lines := strings.Split(content, "\n")
 		e.highlighter.UpdateContent(lines)
@@ -1203,12 +1210,13 @@ func (e *CodeEditor) Undo() {
 		e.cursorRow = cursorY
 		e.selection.Clear()
 		e.ensureCursorVisible()
-		
+
 		e.setModified(e.buffer.IsModified())
+		e.updateHighlighter()
 	}
 }
 
-// Redo reapplies a previously undone edit operation  
+// Redo reapplies a previously undone edit operation
 func (e *CodeEditor) Redo() {
 	if e.readOnly {
 		return
@@ -1220,8 +1228,9 @@ func (e *CodeEditor) Redo() {
 		e.cursorRow = cursorY
 		e.selection.Clear()
 		e.ensureCursorVisible()
-		
+
 		e.setModified(e.buffer.IsModified())
+		e.updateHighlighter()
 	}
 }
 
@@ -1240,6 +1249,11 @@ func (e *CodeEditor) Close() {
 
 func (e *CodeEditor) scheduleBlameUpdate() {
 	if !e.blameEnabled || e.filePath == "" {
+		return
+	}
+
+	if e.buffer != nil && e.buffer.IsModified() {
+		e.clearBlame()
 		return
 	}
 
@@ -1295,6 +1309,14 @@ func (e *CodeEditor) fetchBlameAndDisplay() {
 	if e.app != nil {
 		e.app.QueueUpdateDraw(func() {})
 	}
+}
+
+func (e *CodeEditor) clearBlame() {
+	e.blameMutex.Lock()
+	e.blameText = ""
+	e.blameRow = -1
+	e.blameMutex.Unlock()
+	e.ClearGhostTexts()
 }
 
 // SetGhostText sets a single ghost text overlay at the specified position.

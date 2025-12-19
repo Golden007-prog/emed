@@ -125,6 +125,7 @@ func (l *Layout) initialize() {
 			l.fileWatcher.RemoveOpenFile(path)
 			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 		}
+		l.writeClaudeState("")
 	})
 	
 	l.terminal.SetOnLastTabClosed(func() {
@@ -139,8 +140,6 @@ func (l *Layout) initialize() {
 	l.terminal.SetOnEmedCommand(func(cmd string, args []string) {
 		l.handleEmedCommand(cmd, args)
 	})
-
-	l.startClaudeWatcher()
 
 	l.fileManager.SetFileSelectedHandler(func(path string) {
 		l.OpenFile(path)
@@ -174,9 +173,11 @@ func (l *Layout) initialize() {
 	
 	l.rightSide = tview.NewFlex()
 	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
-	
+
 	l.rebuildLayout()
-	
+
+	l.startClaudeWatcher()
+
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(l.mainArea, 0, 1, true).
 		AddItem(l.statusBar.GetView(), 1, 0, false)
@@ -196,13 +197,17 @@ func (l *Layout) initialize() {
 	l.setupKeybindings()
 	
 	l.setupFileWatcher()
-	
+
 	l.setupFocusDetection()
-	
+
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		l.app.QueueUpdateDraw(func() {
-			l.focusFileManager()
+			if l.editor.HasTabs() {
+				l.focusEditor()
+			} else {
+				l.focusFileManager()
+			}
 		})
 	}()
 }
@@ -633,19 +638,20 @@ func (l *Layout) focusTerminal() {
 // OpenFile opens a file in the editor and updates the layout if needed.
 func (l *Layout) OpenFile(path string) {
 	hadNoTabs := !l.editor.HasTabs()
-	
+
 	l.editor.OpenFile(path)
-	
+
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
 		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 	}
-	
+
 	if hadNoTabs && l.editor.HasTabs() {
 		l.rebuildLayout()
 	}
-	
+
 	l.focusEditor()
+	l.writeClaudeState("")
 }
 
 func (l *Layout) openFileWithoutFocus(path string) {
@@ -661,24 +667,27 @@ func (l *Layout) openFileWithoutFocus(path string) {
 	if hadNoTabs && l.editor.HasTabs() {
 		l.rebuildLayout()
 	}
+
+	l.writeClaudeState("")
 }
 
 // OpenFileAtLine opens a file at a specific line and column
 func (l *Layout) OpenFileAtLine(path string, line int, column int) {
 	hadNoTabs := !l.editor.HasTabs()
-	
+
 	l.editor.OpenFileAtLine(path, line, column)
-	
+
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
 		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 	}
-	
+
 	if hadNoTabs && l.editor.HasTabs() {
 		l.rebuildLayout()
 	}
-	
+
 	l.focusEditor()
+	l.writeClaudeState("")
 }
 
 func (l *Layout) setupFocusDetection() {
@@ -912,6 +921,7 @@ func (l *Layout) showProjectSearch() {
 
 // Stop shuts down the layout and cleans up resources.
 func (l *Layout) Stop() {
+	l.writeClaudeState("")
 	if l.fileWatcher != nil {
 		l.fileWatcher.Stop()
 	}
@@ -926,6 +936,45 @@ func (l *Layout) Stop() {
 	}
 	if l.claudeCmdWatcher != nil {
 		l.claudeCmdWatcher.Close()
+	}
+}
+
+func (l *Layout) restoreFromStateFile() {
+	stateFile := filepath.Join(l.claudeStateDir, "state.json")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return
+	}
+
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+
+	stateInner, ok := state["state"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	openFilesRaw, ok := stateInner["openFiles"].([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, f := range openFilesRaw {
+		if filePath, ok := f.(string); ok {
+			if _, err := os.Stat(filePath); err == nil {
+				l.editor.OpenFile(filePath)
+			}
+		}
+	}
+
+	if activeFile, ok := stateInner["activeFile"].(string); ok && activeFile != "" {
+		l.editor.OpenFile(activeFile)
+	}
+
+	if l.editor.HasTabs() {
+		l.rebuildLayout()
 	}
 }
 
@@ -1195,7 +1244,7 @@ func (l *Layout) startClaudeWatcher() {
 	l.claudeStateDir = filepath.Join(homeDir, ".emed", hex.EncodeToString(hash[:])[:12])
 	os.MkdirAll(l.claudeStateDir, 0755)
 
-	// Remove stale state.json from previous sessions
+	l.restoreFromStateFile()
 	os.Remove(filepath.Join(l.claudeStateDir, "state.json"))
 
 	watcher, err := fsnotify.NewWatcher()
