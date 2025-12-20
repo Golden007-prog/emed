@@ -55,7 +55,8 @@ func NewLazygitModal(app *tview.Application, repoPath string, commitHash string)
 // Show displays the lazygit modal.
 func (l *LazygitModal) Show(onClose func()) {
 	config := EmModalConfig{
-		UseBreakpoints: true,
+		Width:          90,
+		Height:         90,
 		BorderColor:    tcell.NewRGBColor(102, 102, 102),
 		TitleColor:     tcell.ColorWhite,
 		Title:          " Lazygit ",

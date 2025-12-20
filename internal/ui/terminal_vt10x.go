@@ -63,6 +63,14 @@ type VT10XTerminal struct {
 	writeBuf   []byte
 	writeMutex sync.Mutex
 	writeTimer *time.Timer
+
+	// Text selection state
+	selectionActive bool
+	selecting       bool
+	selStartRow     int
+	selStartCol     int
+	selEndRow       int
+	selEndCol       int
 }
 
 // NewVT10XTerminal creates a new VT10X terminal emulator instance.
@@ -549,9 +557,14 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 
 			hasReverse := (glyph.Mode & (1 << 0)) != 0
 			isInverted := (glyph.FG == vt10x.DefaultBG && glyph.BG == vt10x.DefaultFG)
+			inSelection := t.isInSelection(row, col)
 
 			var style tcell.Style
-			if hasReverse || isInverted {
+			if inSelection {
+				style = tcell.StyleDefault.
+					Background(tcell.ColorWhite).
+					Foreground(tcell.ColorBlack)
+			} else if hasReverse || isInverted {
 				style = tcell.StyleDefault.
 					Background(tcell.ColorWhite).
 					Foreground(tcell.ColorBlack)
@@ -569,7 +582,11 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 			col += charWidth
 		}
 		for ; col < width; col++ {
-			screen.SetContent(x+col, y+row, ' ', nil, tcell.StyleDefault)
+			selStyle := tcell.StyleDefault
+			if t.isInSelection(row, col) {
+				selStyle = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
+			}
+			screen.SetContent(x+col, y+row, ' ', nil, selStyle)
 		}
 	}
 
@@ -637,20 +654,20 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		x, y := event.Position()
 		rectX, rectY, width, height := t.GetInnerRect()
 
-		termX := x - rectX + 1
-		termY := y - rectY + 1
+		termX := x - rectX
+		termY := y - rectY
 
-		if termX < 1 {
-			termX = 1
+		if termX < 0 {
+			termX = 0
 		}
-		if termY < 1 {
-			termY = 1
+		if termY < 0 {
+			termY = 0
 		}
-		if termX > width {
-			termX = width
+		if termX >= width {
+			termX = width - 1
 		}
-		if termY > height {
-			termY = height
+		if termY >= height {
+			termY = height - 1
 		}
 
 		inBounds := x >= rectX && x < rectX+width && y >= rectY && y < rectY+height
@@ -665,10 +682,42 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		}
 
 		if t.ptyMgr.IsRunning() && (t.mouseReporting || t.alternateScreen) {
-			mouseSeq := t.generateMouseSequence(action, event, termX, termY)
+			mouseSeq := t.generateMouseSequence(action, event, termX+1, termY+1)
 			if mouseSeq != "" {
 				t.ptyMgr.Write([]byte(mouseSeq))
 				return true, nil
+			}
+		}
+
+		// Text selection handling (only when app inside doesn't capture mouse)
+		if !t.mouseReporting && !t.alternateScreen {
+			switch action {
+			case tview.MouseLeftDown:
+				if inBounds {
+					t.selecting = true
+					t.selectionActive = false
+					t.selStartRow = termY
+					t.selStartCol = termX
+					t.selEndRow = termY
+					t.selEndCol = termX
+				}
+
+			case tview.MouseMove:
+				if t.selecting {
+					t.selEndRow = termY
+					t.selEndCol = termX
+					t.selectionActive = true
+				}
+
+			case tview.MouseLeftUp:
+				if t.selecting {
+					t.selecting = false
+					t.selEndRow = termY
+					t.selEndCol = termX
+					if t.selStartRow != t.selEndRow || t.selStartCol != t.selEndCol {
+						t.selectionActive = true
+					}
+				}
 			}
 		}
 
@@ -686,11 +735,13 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 					}
 
 					t.scrollbuf.ScrollUpWithLimit(1, maxOffset)
+					t.ClearSelection()
 				}
 				return true, nil
 			case tview.MouseScrollDown:
 				if !t.alternateScreen {
 					t.scrollbuf.ScrollDown(1)
+					t.ClearSelection()
 				}
 				return true, nil
 			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
@@ -698,6 +749,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				if !t.alternateScreen {
 					t.scrollbuf.ResetScroll()
 				}
+				t.ClearSelection()
 				return true, nil
 			case tview.MouseLeftDown:
 				return true, t
@@ -787,6 +839,111 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 	}
 }
 
+// ClearSelection clears the current text selection.
+func (t *VT10XTerminal) ClearSelection() {
+	t.selectionActive = false
+	t.selecting = false
+}
+
+// HasSelection returns true if there is an active selection.
+func (t *VT10XTerminal) HasSelection() bool {
+	return t.selectionActive
+}
+
+func (t *VT10XTerminal) normalizeSelection() (startRow, startCol, endRow, endCol int) {
+	startRow, startCol = t.selStartRow, t.selStartCol
+	endRow, endCol = t.selEndRow, t.selEndCol
+
+	if startRow > endRow || (startRow == endRow && startCol > endCol) {
+		startRow, endRow = endRow, startRow
+		startCol, endCol = endCol, startCol
+	}
+	return
+}
+
+func (t *VT10XTerminal) isInSelection(row, col int) bool {
+	if !t.selectionActive {
+		return false
+	}
+
+	startRow, startCol, endRow, endCol := t.normalizeSelection()
+
+	if row < startRow || row > endRow {
+		return false
+	}
+	if row == startRow && row == endRow {
+		return col >= startCol && col <= endCol
+	}
+	if row == startRow {
+		return col >= startCol
+	}
+	if row == endRow {
+		return col <= endCol
+	}
+	return true
+}
+
+func (t *VT10XTerminal) getSelectedText() string {
+	if !t.selectionActive {
+		return ""
+	}
+
+	startRow, startCol, endRow, endCol := t.normalizeSelection()
+
+	if !t.vtMutex.TryLock() {
+		return ""
+	}
+	defer t.vtMutex.Unlock()
+
+	var result strings.Builder
+	_, _, width, _ := t.GetInnerRect()
+
+	for row := startRow; row <= endRow; row++ {
+		lineStart := 0
+		lineEnd := width
+		if row == startRow {
+			lineStart = startCol
+		}
+		if row == endRow {
+			lineEnd = endCol + 1
+		}
+		if lineEnd > width {
+			lineEnd = width
+		}
+
+		var line strings.Builder
+		for col := lineStart; col < lineEnd; col++ {
+			glyph := t.vt.Cell(col, row)
+			ch := glyph.Char
+			if ch == 0 {
+				ch = ' '
+			}
+			line.WriteRune(ch)
+		}
+
+		text := strings.TrimRight(line.String(), " ")
+		result.WriteString(text)
+
+		if row < endRow {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
+}
+
+func (t *VT10XTerminal) copySelectionToClipboard() {
+	text := t.getSelectedText()
+	if text != "" {
+		copyToSystemClipboard(text)
+	}
+}
+
+// CopySelection copies the current selection to the clipboard.
+func (t *VT10XTerminal) CopySelection() {
+	t.copySelectionToClipboard()
+}
+
 // PasteHandler returns the paste handler for the terminal.
 func (t *VT10XTerminal) PasteHandler() func(text string, setFocus func(p tview.Primitive)) {
 	return func(text string, setFocus func(p tview.Primitive)) {
@@ -823,6 +980,18 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 
 		if t.scrollbuf.IsScrolled() {
 			t.scrollbuf.ResetScroll()
+		}
+
+		// Handle Ctrl+C: if there's a selection, copy it instead of sending SIGINT
+		if event.Key() == tcell.KeyCtrlC && t.selectionActive {
+			t.copySelectionToClipboard()
+			t.ClearSelection()
+			return
+		}
+
+		// Clear selection on any other keyboard input
+		if t.selectionActive {
+			t.ClearSelection()
 		}
 
 		if event.Key() == tcell.KeyRune && strings.ToLower(string(event.Rune())) == "t" && event.Modifiers()&tcell.ModAlt != 0 {
