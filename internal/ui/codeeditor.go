@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
+
 	"github.com/laborin/emed/internal/core/buffer"
 	"github.com/laborin/emed/internal/core/clipboard"
 	"github.com/laborin/emed/internal/core/selection"
@@ -246,7 +248,9 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 
 	ghostText, ghostCol, ghostStyle := e.getGhostTextForLine(lineNum)
 
-	for _, ch := range line {
+	runes := []rune(line)
+	for i := 0; i < len(runes); i++ {
+		ch := runes[i]
 		style := getStyleForColumn(realCol)
 
 		isSelected := e.selection.IsPositionSelected(lineNum, realCol)
@@ -287,11 +291,26 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			}
 			realCol++
 		} else {
-			if visualCol >= e.offsetCol && screenX < x+maxWidth {
-				screen.SetContent(screenX, y, ch, nil, style)
-				screenX++
+			var combiningRunes []rune
+			for i+1 < len(runes) && isVariationSelector(runes[i+1]) {
+				i++
+				combiningRunes = append(combiningRunes, runes[i])
+				realCol++
 			}
-			visualCol++
+
+			charWidth := runewidth.RuneWidth(ch)
+			if len(combiningRunes) > 0 && hasEmojiVariationSelector(combiningRunes) {
+				charWidth = 2
+			}
+			if charWidth < 1 {
+				charWidth = 1
+			}
+
+			if visualCol >= e.offsetCol && screenX < x+maxWidth {
+				screen.SetContent(screenX, y, ch, combiningRunes, style)
+				screenX += charWidth
+			}
+			visualCol += charWidth
 			realCol++
 		}
 
@@ -318,11 +337,24 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		}
 
 		for _, ch := range ghostText {
+			charWidth := runewidth.RuneWidth(ch)
+			if charWidth < 1 {
+				charWidth = 1
+			}
 			if startX >= x && startX < x+maxWidth {
 				screen.SetContent(startX, y, ch, nil, ghostStyle)
+				if charWidth == 2 && startX+1 < x+maxWidth {
+					screen.SetContent(startX+1, y, ' ', nil, ghostStyle)
+				}
 			}
-			startX++
+			startX += charWidth
 		}
+		screenX = startX
+	}
+
+	for screenX < x+maxWidth {
+		screen.SetContent(screenX, y, ' ', nil, defaultStyle)
+		screenX++
 	}
 }
 
@@ -695,7 +727,7 @@ func (e *CodeEditor) scrollRight(cols int) {
 	maxVisualLength := 0
 	lines := e.buffer.GetLines()
 	for i, line := range lines {
-		visualLength := e.getVisualColumn(i, len(line))
+		visualLength := e.getVisualColumn(i, len([]rune(line)))
 		if visualLength > maxVisualLength {
 			maxVisualLength = visualLength
 		}
@@ -711,14 +743,25 @@ func (e *CodeEditor) scrollRight(cols int) {
 
 func (e *CodeEditor) getVisualColumn(row, col int) int {
 	line := e.buffer.GetLine(row)
+	runes := []rune(line)
 	visualCol := 0
 	tabSize := e.buffer.GetTabSize()
 
-	for i := 0; i < col && i < len(line); i++ {
-		if line[i] == '\t' {
+	for i := 0; i < col && i < len(runes); i++ {
+		ch := runes[i]
+		if ch == '\t' {
 			visualCol = ((visualCol / tabSize) + 1) * tabSize
+		} else if isVariationSelector(ch) {
+			continue
 		} else {
-			visualCol++
+			charWidth := runewidth.RuneWidth(ch)
+			if i+1 < len(runes) && isVariationSelector(runes[i+1]) && runes[i+1] == 0xFE0F {
+				charWidth = 2
+			}
+			if charWidth < 1 {
+				charWidth = 1
+			}
+			visualCol += charWidth
 		}
 	}
 
@@ -727,19 +770,34 @@ func (e *CodeEditor) getVisualColumn(row, col int) int {
 
 func (e *CodeEditor) getRealColumn(row, targetVisualCol int) int {
 	line := e.buffer.GetLine(row)
+	runes := []rune(line)
 	visualCol := 0
 	realCol := 0
 	tabSize := e.buffer.GetTabSize()
 
-	for realCol < len(line) && visualCol < targetVisualCol {
-		if line[realCol] == '\t' {
+	for realCol < len(runes) && visualCol < targetVisualCol {
+		ch := runes[realCol]
+		if ch == '\t' {
 			nextTabStop := ((visualCol / tabSize) + 1) * tabSize
 			if nextTabStop > targetVisualCol {
 				break
 			}
 			visualCol = nextTabStop
+		} else if isVariationSelector(ch) {
+			realCol++
+			continue
 		} else {
-			visualCol++
+			charWidth := runewidth.RuneWidth(ch)
+			if realCol+1 < len(runes) && isVariationSelector(runes[realCol+1]) && runes[realCol+1] == 0xFE0F {
+				charWidth = 2
+			}
+			if charWidth < 1 {
+				charWidth = 1
+			}
+			if visualCol+charWidth > targetVisualCol {
+				break
+			}
+			visualCol += charWidth
 		}
 		realCol++
 	}
@@ -921,11 +979,28 @@ func isWordChar(ch rune) bool {
 		(ch >= '0' && ch <= '9') || ch == '_'
 }
 
+// isVariationSelector returns true if the rune is a variation selector.
+func isVariationSelector(r rune) bool {
+	return r == 0xFE0E || r == 0xFE0F ||
+		(r >= 0xE0100 && r <= 0xE01EF)
+}
+
+// hasEmojiVariationSelector returns true if any rune is VS16 (emoji presentation).
+func hasEmojiVariationSelector(runes []rune) bool {
+	for _, r := range runes {
+		if r == 0xFE0F {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *CodeEditor) wordLeft() {
 	line := e.buffer.GetLine(e.cursorRow)
+	runes := []rune(line)
 
-	if e.cursorCol > len(line) {
-		e.cursorCol = len(line)
+	if e.cursorCol > len(runes) {
+		e.cursorCol = len(runes)
 	}
 
 	if e.cursorCol == 0 {
@@ -936,11 +1011,11 @@ func (e *CodeEditor) wordLeft() {
 	} else {
 		e.cursorCol--
 
-		for e.cursorCol > 0 && !isWordChar(line[e.cursorCol]) {
+		for e.cursorCol > 0 && !isWordChar(runes[e.cursorCol]) {
 			e.cursorCol--
 		}
 
-		for e.cursorCol > 0 && isWordChar(line[e.cursorCol-1]) {
+		for e.cursorCol > 0 && isWordChar(runes[e.cursorCol-1]) {
 			e.cursorCol--
 		}
 	}
@@ -953,18 +1028,19 @@ func (e *CodeEditor) wordLeft() {
 
 func (e *CodeEditor) wordRight() {
 	line := e.buffer.GetLine(e.cursorRow)
+	runes := []rune(line)
 
-	if e.cursorCol >= len(line) {
+	if e.cursorCol >= len(runes) {
 		if e.cursorRow < e.buffer.GetLineCount()-1 {
 			e.cursorRow++
 			e.cursorCol = 0
 		}
 	} else {
-		for e.cursorCol < len(line) && isWordChar(line[e.cursorCol]) {
+		for e.cursorCol < len(runes) && isWordChar(runes[e.cursorCol]) {
 			e.cursorCol++
 		}
 
-		for e.cursorCol < len(line) && !isWordChar(line[e.cursorCol]) {
+		for e.cursorCol < len(runes) && !isWordChar(runes[e.cursorCol]) {
 			e.cursorCol++
 		}
 	}
