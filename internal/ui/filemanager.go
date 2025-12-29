@@ -68,6 +68,10 @@ func NewFileManager() *FileManager {
 
 	fm.htree.SetSelectedFunc(func(node *HTreeNode) {
 		if !node.IsDir && fm.onFileSelected != nil {
+			if fm.isBinaryFile(node.Path) {
+				fm.showBinaryFileDialog(node)
+				return
+			}
 			fm.onFileSelected(node.Path)
 		}
 	})
@@ -145,14 +149,80 @@ func (fm *FileManager) isCodeFile(filename string) bool {
 		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
 		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r", ".R",
 	}
-	
+
 	for _, ext := range extensions {
 		if strings.HasSuffix(strings.ToLower(filename), ext) {
 			return true
 		}
 	}
-	
+
 	return false
+}
+
+func (fm *FileManager) isBinaryFile(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil {
+		return false
+	}
+
+	for i := 0; i < n; i++ {
+		if buf[i] == 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (fm *FileManager) showBinaryFileDialog(node *HTreeNode) {
+	if fm.app == nil {
+		return
+	}
+
+	config := EmModalConfig{
+		UseFixedSize:    true,
+		FixedWidth:      50,
+		FixedHeight:     7,
+		BackgroundColor: tcell.ColorBlack,
+		BorderColor:     tcell.NewRGBColor(102, 102, 102),
+		TitleColor:      tcell.ColorLightGray,
+		Title:           " Binary File ",
+		TitleAlign:      tview.AlignCenter,
+	}
+
+	modal, content := NewConfiguredModal(fm.app, config, true)
+	modal.SetPreviousRoot(mainAppRoot)
+
+	flex := tview.NewFlex().SetDirection(tview.FlexRow)
+
+	msgText := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText("Cannot open binary file in editor")
+
+	okButton := tview.NewButton("OK").SetSelectedFunc(func() {
+		modal.Close()
+	})
+	okButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	okButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+
+	buttonRow := tview.NewFlex().SetDirection(tview.FlexColumn)
+	buttonRow.AddItem(nil, 0, 1, false)
+	buttonRow.AddItem(okButton, 6, 0, true)
+	buttonRow.AddItem(nil, 0, 1, false)
+
+	flex.AddItem(msgText, 2, 0, false)
+	flex.AddItem(buttonRow, 1, 0, true)
+
+	content.AddItem(flex, 0, 1, true)
+	modal.Show()
+	fm.app.SetFocus(okButton)
 }
 
 // GetView returns the root primitive for the file manager component.

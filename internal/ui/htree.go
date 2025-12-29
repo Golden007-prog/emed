@@ -18,14 +18,15 @@ import (
 
 // HTreeNode represents a node in the hierarchical tree structure.
 type HTreeNode struct {
-	Text       string
-	Path       string
-	IsDir      bool
-	IsExpanded bool
-	Children   []*HTreeNode
-	Parent     *HTreeNode
-	Color      tcell.Color
-	depth      int
+	Text           string
+	Path           string
+	IsDir          bool
+	IsExpanded     bool
+	Children       []*HTreeNode
+	Parent         *HTreeNode
+	Color          tcell.Color
+	depth          int
+	ancestorIsLast []bool
 }
 
 // naturalLess compares two strings using natural sorting (numbers are sorted numerically).
@@ -84,6 +85,89 @@ func hasCodeExtension(filename string) bool {
 	}
 
 	return false
+}
+
+func isConfigFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	if strings.HasPrefix(filename, ".") {
+		return true
+	}
+	configExts := []string{".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config"}
+	for _, ext := range configExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isImageFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	imageExts := []string{".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico", ".tiff"}
+	for _, ext := range imageExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAudioFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	audioExts := []string{".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus", ".aiff"}
+	for _, ext := range audioExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCompressedFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	compressedExts := []string{".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz"}
+	for _, ext := range compressedExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isExecutableFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	execExts := []string{".exe", ".bat", ".sh", ".cmd", ".ps1", ".app", ".bin", ".run"}
+	for _, ext := range execExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func getFileEmoji(filename string, isDir bool, isExpanded bool) (rune, []rune) {
+	if isDir {
+		if isExpanded {
+			return '📂', nil
+		}
+		return '📁', nil
+	}
+	if isConfigFile(filename) {
+		return '⚙', []rune{0xFE0F}
+	}
+	if isImageFile(filename) {
+		return '🖼', []rune{0xFE0F}
+	}
+	if isAudioFile(filename) {
+		return '🎵', nil
+	}
+	if isCompressedFile(filename) {
+		return '📦', nil
+	}
+	if isExecutableFile(filename) {
+		return '⚡', nil
+	}
+	return '📄', nil
 }
 
 // sortNodes sorts tree nodes with directories first, then by natural order.
@@ -178,17 +262,22 @@ func (t *HTree) SetRoot(node *HTreeNode) *HTree {
 func (t *HTree) buildVisibleNodes() {
 	t.visibleNodes = nil
 	if t.root != nil {
-		t.addVisibleNode(t.root, 0)
+		t.addVisibleNode(t.root, 0, nil)
 	}
 }
 
-func (t *HTree) addVisibleNode(node *HTreeNode, depth int) {
+func (t *HTree) addVisibleNode(node *HTreeNode, depth int, ancestorIsLast []bool) {
 	node.depth = depth
+	node.ancestorIsLast = ancestorIsLast
 	t.visibleNodes = append(t.visibleNodes, node)
 
 	if node.IsExpanded {
-		for _, child := range node.Children {
-			t.addVisibleNode(child, depth+1)
+		for i, child := range node.Children {
+			isLast := i == len(node.Children)-1
+			childAncestors := make([]bool, len(ancestorIsLast)+1)
+			copy(childAncestors, ancestorIsLast)
+			childAncestors[len(ancestorIsLast)] = isLast
+			t.addVisibleNode(child, depth+1, childAncestors)
 		}
 	}
 }
@@ -204,19 +293,26 @@ func (t *HTree) Draw(screen tcell.Screen) {
 
 	t.buildVisibleNodes()
 
+	treeCharColor := tcell.NewRGBColor(102, 102, 102)
+
 	if t.selected != nil {
-		indent := t.selected.depth * 2
-		iconWidth := 2
-		if !t.selected.IsDir && t.selected.depth == 0 {
-			iconWidth = 0
+		var prefixWidth int
+		if t.selected.depth == 0 {
+			prefixWidth = 0
+		} else {
+			prefixWidth = (t.selected.depth-1)*2 + 1 + 2 + 1
 		}
-		nameLen := len([]rune(t.selected.Text))
-		totalWidth := indent + iconWidth + nameLen
+		displayName := t.selected.Text
+		if t.selected.IsDir {
+			displayName += "/"
+		}
+		nameLen := len([]rune(displayName))
+		totalWidth := prefixWidth + nameLen
 
 		if totalWidth <= width {
 			t.scrollX = 0
 		} else {
-			neededScroll := indent - 2
+			neededScroll := prefixWidth - 2
 			if neededScroll < 0 {
 				neededScroll = 0
 			}
@@ -267,22 +363,11 @@ func (t *HTree) Draw(screen tcell.Screen) {
 	for i := 0; i < height && t.scrollY+i < len(t.visibleNodes); i++ {
 		node := t.visibleNodes[t.scrollY+i]
 
-		indent := node.depth * 2
-		iconWidth := 2
-		icon := "  "
+		displayName := node.Text
 		if node.IsDir {
-			if node.IsExpanded {
-				icon = "▼ "
-			} else {
-				icon = "▶ "
-			}
-		} else if node.depth == 0 {
-			icon = ""
-			iconWidth = 0
+			displayName += "/"
 		}
-
-		prefixLen := indent + iconWidth
-		nameRunes := []rune(node.Text)
+		nameRunes := []rune(displayName)
 		nameLen := len(nameRunes)
 
 		fgColor := node.Color
@@ -299,63 +384,146 @@ func (t *HTree) Draw(screen tcell.Screen) {
 			}
 		}
 
-		availableForName := width - (prefixLen - t.scrollX)
-		needsMarquee := isSelected && t.hasFocus && nameLen > availableForName && availableForName > 0
-
-		var marqueeOff int
-		if needsMarquee {
-			if now.Sub(t.marqueeLastTick) >= 150*time.Millisecond {
-				t.marqueeOffset++
-				maxScroll := nameLen - availableForName
-				endPause := maxScroll + 4
-				if t.marqueeOffset > endPause {
-					t.marqueeOffset = -4
-				}
-				t.marqueeLastTick = now
-			}
-			marqueeOff = t.marqueeOffset
-			maxScroll := nameLen - availableForName
-			if marqueeOff < 0 {
-				marqueeOff = 0
-			} else if marqueeOff > maxScroll {
-				marqueeOff = maxScroll
-			}
-
-			if t.app != nil {
-				go func() {
-					time.Sleep(150 * time.Millisecond)
-					t.app.QueueUpdateDraw(func() {})
-				}()
-			}
-		}
-
 		drawX := 0
-		for j := 0; j < indent; j++ {
-			if j >= t.scrollX && drawX < width {
+		visualPos := 0
+
+		if node.depth == 0 {
+			availableForName := width
+			needsMarquee := isSelected && t.hasFocus && nameLen > availableForName && availableForName > 0
+
+			var marqueeOff int
+			if needsMarquee {
+				if now.Sub(t.marqueeLastTick) >= 150*time.Millisecond {
+					t.marqueeOffset++
+					maxScroll := nameLen - availableForName
+					endPause := maxScroll + 4
+					if t.marqueeOffset > endPause {
+						t.marqueeOffset = -4
+					}
+					t.marqueeLastTick = now
+				}
+				marqueeOff = t.marqueeOffset
+				maxScroll := nameLen - availableForName
+				if marqueeOff < 0 {
+					marqueeOff = 0
+				} else if marqueeOff > maxScroll {
+					marqueeOff = maxScroll
+				}
+				if t.app != nil {
+					go func() {
+						time.Sleep(150 * time.Millisecond)
+						t.app.QueueUpdateDraw(func() {})
+					}()
+				}
+			}
+
+			if needsMarquee {
+				for j := marqueeOff; j < nameLen && drawX < width; j++ {
+					screen.SetContent(x+drawX, y+i, nameRunes[j], nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+					drawX++
+				}
+			} else {
+				for _, ch := range nameRunes {
+					if drawX < width {
+						screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+						drawX++
+					}
+				}
+			}
+		} else {
+			indent := node.depth - 1
+			for j := 0; j < indent; j++ {
+				var lineChar rune
+				if j < len(node.ancestorIsLast) && node.ancestorIsLast[j] {
+					lineChar = ' '
+				} else {
+					lineChar = '│'
+				}
+				if visualPos >= t.scrollX && drawX < width {
+					screen.SetContent(x+drawX, y+i, lineChar, nil, tcell.StyleDefault.Foreground(treeCharColor).Background(bgColor))
+					drawX++
+				}
+				visualPos++
+				if visualPos >= t.scrollX && drawX < width {
+					screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+					drawX++
+				}
+				visualPos++
+			}
+
+			var treeChar rune
+			lastIdx := len(node.ancestorIsLast) - 1
+			if lastIdx >= 0 && node.ancestorIsLast[lastIdx] {
+				treeChar = '└'
+			} else {
+				treeChar = '├'
+			}
+			treeStyle := tcell.StyleDefault.Foreground(treeCharColor).Background(bgColor)
+			if visualPos >= t.scrollX && drawX < width {
+				screen.SetContent(x+drawX, y+i, treeChar, nil, treeStyle)
+				drawX++
+			}
+			visualPos++
+
+			emoji, combRunes := getFileEmoji(node.Text, node.IsDir, node.IsExpanded)
+			emojiStyle := tcell.StyleDefault.Foreground(fgColor).Background(bgColor)
+			if visualPos >= t.scrollX && drawX < width {
+				screen.SetContent(x+drawX, y+i, emoji, combRunes, emojiStyle)
+				drawX += 2
+			}
+			visualPos += 2
+
+			if visualPos >= t.scrollX && drawX < width {
 				screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
 				drawX++
 			}
-		}
+			visualPos++
 
-		for j, ch := range icon {
-			pos := indent + j
-			if pos >= t.scrollX && drawX < width {
-				screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
-				drawX++
+			prefixWidth := indent*2 + 1 + 2 + 1
+			availableForName := width - (prefixWidth - t.scrollX)
+			if availableForName < 0 {
+				availableForName = 0
 			}
-		}
+			needsMarquee := isSelected && t.hasFocus && nameLen > availableForName && availableForName > 0
 
-		if needsMarquee {
-			for j := marqueeOff; j < nameLen && drawX < width; j++ {
-				screen.SetContent(x+drawX, y+i, nameRunes[j], nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
-				drawX++
+			var marqueeOff int
+			if needsMarquee {
+				if now.Sub(t.marqueeLastTick) >= 150*time.Millisecond {
+					t.marqueeOffset++
+					maxScroll := nameLen - availableForName
+					endPause := maxScroll + 4
+					if t.marqueeOffset > endPause {
+						t.marqueeOffset = -4
+					}
+					t.marqueeLastTick = now
+				}
+				marqueeOff = t.marqueeOffset
+				maxScroll := nameLen - availableForName
+				if marqueeOff < 0 {
+					marqueeOff = 0
+				} else if marqueeOff > maxScroll {
+					marqueeOff = maxScroll
+				}
+				if t.app != nil {
+					go func() {
+						time.Sleep(150 * time.Millisecond)
+						t.app.QueueUpdateDraw(func() {})
+					}()
+				}
 			}
-		} else {
-			for j, ch := range nameRunes {
-				pos := prefixLen + j
-				if pos >= t.scrollX && drawX < width {
-					screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+
+			if needsMarquee {
+				for j := marqueeOff; j < nameLen && drawX < width; j++ {
+					screen.SetContent(x+drawX, y+i, nameRunes[j], nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
 					drawX++
+				}
+			} else {
+				for j, ch := range nameRunes {
+					pos := prefixWidth + j
+					if pos >= t.scrollX && drawX < width {
+						screen.SetContent(x+drawX, y+i, ch, nil, tcell.StyleDefault.Foreground(fgColor).Background(bgColor))
+						drawX++
+					}
 				}
 			}
 		}
@@ -652,8 +820,8 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 			return false, nil
 		}
 
-		x, y, _, height := t.GetInnerRect()
-		mx, my := event.Position()
+		_, y, _, height := t.GetInnerRect()
+		_, my := event.Position()
 		relY := my - y
 
 		switch action {
@@ -665,20 +833,15 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 				index := t.scrollY + relY
 				if index < len(t.visibleNodes) {
 					clickedNode := t.visibleNodes[index]
+					t.selected = clickedNode
 
-					relX := mx - x
-					nodeX := clickedNode.depth * 2
-
-					if clickedNode.IsDir && relX >= nodeX-t.scrollX && relX <= nodeX+2-t.scrollX {
+					if clickedNode.IsDir {
 						clickedNode.IsExpanded = !clickedNode.IsExpanded
 						if clickedNode.IsExpanded {
 							t.loadChildren(clickedNode)
 						}
-					} else {
-						t.selected = clickedNode
-						if !clickedNode.IsDir && t.onSelected != nil {
-							t.onSelected(clickedNode)
-						}
+					} else if t.onSelected != nil {
+						t.onSelected(clickedNode)
 					}
 				}
 			}
