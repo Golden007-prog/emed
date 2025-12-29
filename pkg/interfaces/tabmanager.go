@@ -9,6 +9,7 @@ type Tab interface {
 	GetContent() tview.Primitive
 	SetModified(modified bool)
 	IsModified() bool
+	IsPreview() bool
 }
 
 // TabManager defines the interface for components that manage tabs

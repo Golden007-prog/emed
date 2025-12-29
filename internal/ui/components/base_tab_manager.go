@@ -80,6 +80,28 @@ func (m *BaseTabManager) RemoveTab(id int) error {
 	return fmt.Errorf("tab with ID %d not found", id)
 }
 
+// RemoveTabSilently removes a tab without triggering callbacks.
+// Used when replacing preview tabs to avoid triggering onLastTabClosed.
+func (m *BaseTabManager) RemoveTabSilently(id int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, tab := range m.tabs {
+		if tab.GetID() == id {
+			m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
+
+			if len(m.tabs) == 0 {
+				m.activeTab = -1
+			} else if m.activeTab >= len(m.tabs) {
+				m.activeTab = len(m.tabs) - 1
+			} else if m.activeTab > i {
+				m.activeTab--
+			}
+			return
+		}
+	}
+}
+
 // SwitchToTab switches to the tab with the given ID.
 func (m *BaseTabManager) SwitchToTab(id int) error {
 	m.mu.Lock()
@@ -256,16 +278,18 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	m.mu.RLock()
 
 	type tabData struct {
-		title    string
-		modified bool
-		isActive bool
+		title     string
+		modified  bool
+		isActive  bool
+		isPreview bool
 	}
 	tabDataList := make([]tabData, len(m.tabs))
 	for i, tab := range m.tabs {
 		tabDataList[i] = tabData{
-			title:    tab.GetTitle(),
-			modified: tab.IsModified(),
-			isActive: i == m.activeTab,
+			title:     tab.GetTitle(),
+			modified:  tab.IsModified(),
+			isActive:  i == m.activeTab,
+			isPreview: tab.IsPreview(),
 		}
 	}
 	m.mu.RUnlock()
@@ -292,13 +316,25 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		var displayWidth int
 		if data.isActive {
 			if hasFocus {
-				tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
+				if data.isPreview {
+					tabStr = fmt.Sprintf("[blue::i][ %s ][-::-]", title)
+				} else {
+					tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
+				}
 			} else {
-				tabStr = fmt.Sprintf("[white][ %s ][-]", title)
+				if data.isPreview {
+					tabStr = fmt.Sprintf("[white::i][ %s ][-::-]", title)
+				} else {
+					tabStr = fmt.Sprintf("[white][ %s ][-]", title)
+				}
 			}
 			displayWidth = len(title) + 4 // "[ " + title + " ]"
 		} else {
-			tabStr = fmt.Sprintf("[#666666]%s[-]", title)
+			if data.isPreview {
+				tabStr = fmt.Sprintf("[#666666::i]%s[-::-]", title)
+			} else {
+				tabStr = fmt.Sprintf("[#666666]%s[-]", title)
+			}
 			displayWidth = len(title)
 		}
 

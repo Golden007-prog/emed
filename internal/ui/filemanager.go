@@ -22,11 +22,12 @@ type FileManager struct {
 	root           *HTreeNode
 	rootPath       string
 	onFileSelected func(path string)
+	onFilePreview  func(path string)
 	app            *tview.Application
-	
-	fileOps        *operations.FileOperations
-	clipboard      *clipboard.Clipboard
-	
+
+	fileOps   *operations.FileOperations
+	clipboard *clipboard.Clipboard
+
 	onClipboardChange func(path string, isCut bool)
 	onFileRenamed     func(oldPath, newPath string)
 	onFileDeleted     func(path string)
@@ -67,12 +68,16 @@ func NewFileManager() *FileManager {
 	fm.loadInitialDirectory()
 
 	fm.htree.SetSelectedFunc(func(node *HTreeNode) {
-		if !node.IsDir && fm.onFileSelected != nil {
+		if !node.IsDir {
 			if fm.isBinaryFile(node.Path) {
 				fm.showBinaryFileDialog(node)
 				return
 			}
-			fm.onFileSelected(node.Path)
+			if fm.onFilePreview != nil {
+				fm.onFilePreview(node.Path)
+			} else if fm.onFileSelected != nil {
+				fm.onFileSelected(node.Path)
+			}
 		}
 	})
 
@@ -238,6 +243,11 @@ func (fm *FileManager) HasFocus(focused tview.Primitive) bool {
 // SetFileSelectedHandler sets the callback for when a file is selected.
 func (fm *FileManager) SetFileSelectedHandler(handler func(path string)) {
 	fm.onFileSelected = handler
+}
+
+// SetFilePreviewHandler sets the callback for when a file is selected for preview.
+func (fm *FileManager) SetFilePreviewHandler(handler func(path string)) {
+	fm.onFilePreview = handler
 }
 
 // SetApp sets the application reference for the file manager.

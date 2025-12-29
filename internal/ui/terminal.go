@@ -49,6 +49,11 @@ func (t *TerminalTab) IsModified() bool {
 	return t.modified
 }
 
+// IsPreview returns false for terminal tabs (terminals are never preview tabs).
+func (t *TerminalTab) IsPreview() bool {
+	return false
+}
+
 // Terminal manages multiple terminal tabs and provides terminal functionality.
 type Terminal struct {
 	container       *tview.Flex

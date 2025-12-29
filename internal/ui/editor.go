@@ -20,6 +20,7 @@ type EditorTab struct {
 	id                 int
 	path               string
 	modified           bool
+	isPreview          bool
 	codeEditor         *CodeEditor
 	externallyModified bool
 	lastModTime        time.Time
@@ -54,6 +55,11 @@ func (t *EditorTab) SetModified(modified bool) {
 // IsModified returns whether the editor tab has unsaved changes.
 func (t *EditorTab) IsModified() bool {
 	return t.modified
+}
+
+// IsPreview returns whether this is a preview tab.
+func (t *EditorTab) IsPreview() bool {
+	return t.isPreview
 }
 
 // Editor manages multiple file tabs and provides text editing functionality.
@@ -285,6 +291,149 @@ func (e *Editor) OpenFileAtLine(path string, line int, column int) {
 		tab.codeEditor.SetCursor(row, col)
 		tab.codeEditor.RequestCenterCursor()
 	}
+}
+
+// GetPreviewTabPath returns the path of the current preview tab, or empty string if none.
+func (e *Editor) GetPreviewTabPath() string {
+	e.tabsMu.RLock()
+	defer e.tabsMu.RUnlock()
+	for _, tab := range e.tabs {
+		if tab.isPreview {
+			return tab.path
+		}
+	}
+	return ""
+}
+
+// closePreviewTab closes the current preview tab if one exists.
+// This removes the tab silently without triggering onLastTabClosed callback
+// since we're about to add a new preview tab immediately after.
+func (e *Editor) closePreviewTab() {
+	e.tabsMu.Lock()
+	var previewTabID int = -1
+	var previewTabPath string
+	for i, tab := range e.tabs {
+		if tab.isPreview {
+			previewTabID = tab.id
+			previewTabPath = tab.path
+			e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
+			break
+		}
+	}
+	e.tabsMu.Unlock()
+
+	if previewTabID != -1 {
+		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", previewTabID))
+		e.tabManager.RemoveTabSilently(previewTabID)
+		if e.onTabClosed != nil && previewTabPath != "" {
+			e.onTabClosed(previewTabPath)
+		}
+	}
+}
+
+// OpenFilePreview opens a file in preview mode. Preview tabs are replaced when
+// opening another file, and convert to regular tabs on edit or second open.
+// Returns true if a preview tab was converted to regular (second click).
+func (e *Editor) OpenFilePreview(path string) bool {
+	e.tabsMu.RLock()
+	var existingTabID int = -1
+	var existingIsPreview bool = false
+	for _, tab := range e.tabs {
+		if tab.path == path {
+			existingTabID = tab.id
+			existingIsPreview = tab.isPreview
+			break
+		}
+	}
+	e.tabsMu.RUnlock()
+
+	if existingTabID != -1 {
+		if existingIsPreview {
+			e.ConvertPreviewToRegular(path)
+			return true
+		} else {
+			e.tabManager.SwitchToTab(existingTabID)
+			e.switchToTabByID(existingTabID)
+		}
+		return false
+	}
+
+	e.closePreviewTab()
+
+	codeEditor := NewCodeEditor()
+	if e.app != nil {
+		codeEditor.SetApp(e.app)
+	}
+
+	err := codeEditor.LoadFile(path)
+	if err != nil {
+		return false
+	}
+
+	tabID := e.tabManager.GetNextTabID()
+
+	codeEditor.SetOnModified(func(modified bool) {
+		e.tabsMu.Lock()
+		for _, t := range e.tabs {
+			if t.codeEditor == codeEditor {
+				t.SetModified(modified)
+				if modified && t.isPreview {
+					t.isPreview = false
+				}
+				e.tabsMu.Unlock()
+				e.UpdateTabBar()
+				return
+			}
+		}
+		e.tabsMu.Unlock()
+	})
+
+	var lastModTime time.Time
+	if info, err := os.Stat(path); err == nil {
+		lastModTime = info.ModTime()
+	}
+
+	searchBar := NewSearchBar()
+	container := tview.NewFlex().SetDirection(tview.FlexRow)
+	container.AddItem(codeEditor, 0, 1, true)
+
+	tab := &EditorTab{
+		id:                 tabID,
+		path:               path,
+		modified:           false,
+		isPreview:          true,
+		codeEditor:         codeEditor,
+		externallyModified: false,
+		lastModTime:        lastModTime,
+		searchBar:          searchBar,
+		searchVisible:      false,
+		container:          container,
+	}
+
+	e.setupSearchBar(tab)
+
+	e.tabsMu.Lock()
+	e.tabs = append(e.tabs, tab)
+	e.tabsMu.Unlock()
+	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
+
+	e.tabManager.AddTab(tab)
+	e.switchToTabByID(tabID)
+	return false
+}
+
+// ConvertPreviewToRegular converts a preview tab to a regular tab.
+func (e *Editor) ConvertPreviewToRegular(path string) {
+	e.tabsMu.Lock()
+	for _, tab := range e.tabs {
+		if tab.path == path && tab.isPreview {
+			tab.isPreview = false
+			e.tabsMu.Unlock()
+			e.UpdateTabBar()
+			return
+		}
+	}
+	e.tabsMu.Unlock()
 }
 
 // NewDocument creates a new untitled document tab.

@@ -144,6 +144,10 @@ func (l *Layout) initialize() {
 		l.handleEmedCommand(cmd, args)
 	})
 
+	l.fileManager.SetFilePreviewHandler(func(path string) {
+		l.OpenFilePreview(path)
+	})
+
 	l.fileManager.SetFileSelectedHandler(func(path string) {
 		l.OpenFile(path)
 	})
@@ -662,6 +666,29 @@ func (l *Layout) OpenFile(path string) {
 	}
 
 	l.focusEditor()
+	l.writeClaudeState("")
+}
+
+// OpenFilePreview opens a file in preview mode without moving focus from file manager.
+func (l *Layout) OpenFilePreview(path string) {
+	hadNoTabs := !l.editor.HasTabs()
+
+	convertedToRegular := l.editor.OpenFilePreview(path)
+
+	if l.fileWatcher != nil {
+		l.fileWatcher.AddOpenFile(path)
+		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+	}
+
+	if hadNoTabs && l.editor.HasTabs() {
+		l.rebuildLayout()
+	}
+
+	if convertedToRegular {
+		l.focusEditor()
+	}
+
+	l.editor.UpdateTabBar()
 	l.writeClaudeState("")
 }
 
