@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
+
 	"github.com/laborin/emed/internal/filemanager"
 	"github.com/rivo/tview"
 )
@@ -132,8 +133,9 @@ type HTree struct {
 	selected     *HTreeNode
 	visibleNodes []*HTreeNode
 
-	scrollY int
-	scrollX int
+	scrollY        int
+	scrollX        int
+	freeScrollMode bool
 
 	onSelected        func(node *HTreeNode)
 	onInfo            func(node *HTreeNode)
@@ -238,11 +240,18 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		}
 	}
 
+	selectionAbove := false
+	selectionBelow := false
 	if selectedIndex >= 0 {
-		if selectedIndex < t.scrollY {
-			t.scrollY = selectedIndex
-		} else if selectedIndex >= t.scrollY+height {
-			t.scrollY = selectedIndex - height + 1
+		if !t.freeScrollMode {
+			if selectedIndex < t.scrollY {
+				t.scrollY = selectedIndex
+			} else if selectedIndex >= t.scrollY+height {
+				t.scrollY = selectedIndex - height + 1
+			}
+		} else {
+			selectionAbove = selectedIndex < t.scrollY
+			selectionBelow = selectedIndex >= t.scrollY+height
 		}
 	}
 
@@ -356,6 +365,14 @@ func (t *HTree) Draw(screen tcell.Screen) {
 				screen.SetContent(x+drawX, y+i, ' ', nil, tcell.StyleDefault.Background(bgColor))
 			}
 		}
+	}
+
+	indicatorStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(tcell.ColorBlack)
+	if selectionAbove {
+		screen.SetContent(x+width-1, y, '▲', nil, indicatorStyle)
+	}
+	if selectionBelow {
+		screen.SetContent(x+width-1, y+height-1, '▼', nil, indicatorStyle)
 	}
 }
 
@@ -485,6 +502,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 }
 
 func (t *HTree) moveUp() {
+	t.freeScrollMode = false
 	t.buildVisibleNodes()
 	for i, node := range t.visibleNodes {
 		if node == t.selected && i > 0 {
@@ -495,6 +513,7 @@ func (t *HTree) moveUp() {
 }
 
 func (t *HTree) moveDown() {
+	t.freeScrollMode = false
 	t.buildVisibleNodes()
 	for i, node := range t.visibleNodes {
 		if node == t.selected && i < len(t.visibleNodes)-1 {
@@ -640,6 +659,7 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 		switch action {
 		case tview.MouseLeftClick:
 			setFocus(t)
+			t.freeScrollMode = false
 
 			if relY >= 0 && relY < height {
 				index := t.scrollY + relY
@@ -667,12 +687,14 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 		case tview.MouseScrollUp:
 			if t.scrollY > 0 {
 				t.scrollY--
+				t.freeScrollMode = true
 			}
 			return true, nil
 
 		case tview.MouseScrollDown:
 			if t.scrollY < len(t.visibleNodes)-height {
 				t.scrollY++
+				t.freeScrollMode = true
 			}
 			return true, nil
 
