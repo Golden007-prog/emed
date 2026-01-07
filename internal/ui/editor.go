@@ -68,6 +68,8 @@ type Editor struct {
 	contentArea         *tview.Pages
 	tabManager          *components.BaseTabManager
 	tabs                []*EditorTab
+	tabsByID            map[int]*EditorTab
+	tabsByPath          map[string]*EditorTab
 	tabsMu              sync.RWMutex
 	noDocsView          tview.Primitive
 	app                 *tview.Application
@@ -86,6 +88,8 @@ func NewEditor() *Editor {
 		contentArea:       tview.NewPages(),
 		tabManager:        components.NewBaseTabManager(),
 		tabs:              make([]*EditorTab, 0),
+		tabsByID:          make(map[int]*EditorTab),
+		tabsByPath:        make(map[string]*EditorTab),
 		fileChangeHandler: components.NewFileChangeHandler(),
 		dialogManager:     nil,
 	}
@@ -145,16 +149,22 @@ func NewEditor() *Editor {
 	e.tabManager.SetOnTabClosed(func(id int) {
 		e.tabsMu.Lock()
 		var path string
-		for i, tab := range e.tabs {
-			if tab.id == id {
-				path = tab.path
-				e.tabs[i] = nil
-				e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
-				break
+		if tab, ok := e.tabsByID[id]; ok {
+			path = tab.path
+			delete(e.tabsByID, id)
+			if path != "" {
+				delete(e.tabsByPath, path)
+			}
+			for i, t := range e.tabs {
+				if t.id == id {
+					e.tabs[i] = nil
+					e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
+					break
+				}
 			}
 		}
 		e.tabsMu.Unlock()
-		
+
 		if e.onTabClosed != nil && path != "" {
 			e.onTabClosed(path)
 		}
@@ -172,14 +182,10 @@ func (e *Editor) showNoDocsView() {
 
 func (e *Editor) switchToTabByID(id int) {
 	e.tabsMu.RLock()
-	var found bool
+	tab, found := e.tabsByID[id]
 	var filePath string
-	for _, tab := range e.tabs {
-		if tab.id == id {
-			found = true
-			filePath = tab.path
-			break
-		}
+	if found {
+		filePath = tab.path
 	}
 	e.tabsMu.RUnlock()
 
@@ -202,18 +208,12 @@ func (e *Editor) switchToTabByIndex(index int) {
 // OpenFile opens a file in a new tab or switches to existing tab.
 func (e *Editor) OpenFile(path string) {
 	e.tabsMu.RLock()
-	var existingTabID int = -1
-	for _, tab := range e.tabs {
-		if tab.path == path {
-			existingTabID = tab.id
-			break
-		}
-	}
+	existingTab, exists := e.tabsByPath[path]
 	e.tabsMu.RUnlock()
-	
-	if existingTabID != -1 {
-		e.tabManager.SwitchToTab(existingTabID)
-		e.switchToTabByID(existingTabID)
+
+	if exists {
+		e.tabManager.SwitchToTab(existingTab.id)
+		e.switchToTabByID(existingTab.id)
 		return
 	}
 	
@@ -264,12 +264,16 @@ func (e *Editor) OpenFile(path string) {
 	}
 	
 	e.setupSearchBar(tab)
-	
+
 	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
+	e.tabsByID[tab.id] = tab
+	if tab.path != "" {
+		e.tabsByPath[tab.path] = tab
+	}
 	e.tabsMu.Unlock()
 	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
-	
+
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
 }
@@ -317,6 +321,10 @@ func (e *Editor) closePreviewTab() {
 		if tab.isPreview {
 			previewTabID = tab.id
 			previewTabPath = tab.path
+			delete(e.tabsByID, tab.id)
+			if tab.path != "" {
+				delete(e.tabsByPath, tab.path)
+			}
 			e.tabs[i] = nil
 			e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
 			break
@@ -338,24 +346,16 @@ func (e *Editor) closePreviewTab() {
 // Returns true if a preview tab was converted to regular (second click).
 func (e *Editor) OpenFilePreview(path string) bool {
 	e.tabsMu.RLock()
-	var existingTabID int = -1
-	var existingIsPreview bool = false
-	for _, tab := range e.tabs {
-		if tab.path == path {
-			existingTabID = tab.id
-			existingIsPreview = tab.isPreview
-			break
-		}
-	}
+	existingTab, exists := e.tabsByPath[path]
 	e.tabsMu.RUnlock()
 
-	if existingTabID != -1 {
-		if existingIsPreview {
+	if exists {
+		if existingTab.isPreview {
 			e.ConvertPreviewToRegular(path)
 			return true
 		} else {
-			e.tabManager.SwitchToTab(existingTabID)
-			e.switchToTabByID(existingTabID)
+			e.tabManager.SwitchToTab(existingTab.id)
+			e.switchToTabByID(existingTab.id)
 		}
 		return false
 	}
@@ -416,6 +416,10 @@ func (e *Editor) OpenFilePreview(path string) bool {
 
 	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
+	e.tabsByID[tab.id] = tab
+	if tab.path != "" {
+		e.tabsByPath[tab.path] = tab
+	}
 	e.tabsMu.Unlock()
 	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
 
@@ -427,13 +431,11 @@ func (e *Editor) OpenFilePreview(path string) bool {
 // ConvertPreviewToRegular converts a preview tab to a regular tab.
 func (e *Editor) ConvertPreviewToRegular(path string) {
 	e.tabsMu.Lock()
-	for _, tab := range e.tabs {
-		if tab.path == path && tab.isPreview {
-			tab.isPreview = false
-			e.tabsMu.Unlock()
-			e.UpdateTabBar()
-			return
-		}
+	if tab, ok := e.tabsByPath[path]; ok && tab.isPreview {
+		tab.isPreview = false
+		e.tabsMu.Unlock()
+		e.UpdateTabBar()
+		return
 	}
 	e.tabsMu.Unlock()
 }
@@ -477,12 +479,13 @@ func (e *Editor) NewDocument() {
 	}
 	
 	e.setupSearchBar(tab)
-	
+
 	e.tabsMu.Lock()
 	e.tabs = append(e.tabs, tab)
+	e.tabsByID[tab.id] = tab
 	e.tabsMu.Unlock()
 	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
-	
+
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
 }
@@ -729,17 +732,11 @@ func (e *Editor) HasUnsavedChanges() bool {
 // CloseFileTab closes the tab for the specified file path.
 func (e *Editor) CloseFileTab(path string) {
 	e.tabsMu.RLock()
-	var tabID int = -1
-	for _, tab := range e.tabs {
-		if tab.path == path {
-			tabID = tab.id
-			break
-		}
-	}
+	tab, exists := e.tabsByPath[path]
 	e.tabsMu.RUnlock()
-	
-	if tabID != -1 {
-			e.tabManager.RemoveTab(tabID)
+
+	if exists {
+		e.tabManager.RemoveTab(tab.id)
 	}
 }
 
