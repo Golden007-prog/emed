@@ -37,22 +37,22 @@ func naturalLess(a, b string) bool {
 	bLen := len(bRunes)
 
 	i, j := 0, 0
+	var numBuilder strings.Builder
 	for i < aLen && j < bLen {
 		if unicode.IsDigit(aRunes[i]) && unicode.IsDigit(bRunes[j]) {
-			numA := ""
+			numBuilder.Reset()
 			for i < aLen && unicode.IsDigit(aRunes[i]) {
-				numA += string(aRunes[i])
+				numBuilder.WriteRune(aRunes[i])
 				i++
 			}
+			intA, _ := strconv.Atoi(numBuilder.String())
 
-			numB := ""
+			numBuilder.Reset()
 			for j < bLen && unicode.IsDigit(bRunes[j]) {
-				numB += string(bRunes[j])
+				numBuilder.WriteRune(bRunes[j])
 				j++
 			}
-
-			intA, _ := strconv.Atoi(numA)
-			intB, _ := strconv.Atoi(numB)
+			intB, _ := strconv.Atoi(numBuilder.String())
 
 			if intA != intB {
 				return intA < intB
