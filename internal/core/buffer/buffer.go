@@ -6,23 +6,28 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
-// BufferState represents a snapshot of the buffer at a point in time
-type BufferState struct {
-	lines    [][]rune
-	cursorX  int
-	cursorY  int
-}
+// OpType represents the type of edit operation
+type OpType int
 
-// copyLines creates a deep copy of the lines
-func copyLines(lines [][]rune) [][]rune {
-	copied := make([][]rune, len(lines))
-	for i, line := range lines {
-		copied[i] = make([]rune, len(line))
-		copy(copied[i], line)
-	}
-	return copied
+const (
+	OpInsert OpType = iota
+	OpDelete
+	OpNewline
+	OpDeleteNewline
+)
+
+// EditOp represents a single edit operation for undo/redo
+type EditOp struct {
+	Type      OpType
+	Row       int
+	Col       int
+	Text      string
+	CursorRow int
+	CursorCol int
+	Timestamp time.Time
 }
 
 // linesEqual checks if two sets of lines are identical
@@ -51,11 +56,15 @@ type TextBuffer struct {
 	modified        bool
 	tabSize         int
 
-	// Undo/Redo stacks
-	undoStack   []BufferState
-	redoStack   []BufferState
-	maxUndoSize int
-	initialState [][]rune
+	// Operation-based undo/redo stacks
+	undoStack    []EditOp
+	redoStack    []EditOp
+	maxUndoSize  int
+	initialLines [][]rune
+
+	// Coalescing: group consecutive char inserts/deletes
+	lastOpTime    time.Time
+	coalesceDelay time.Duration
 
 	// Track if we should record this change
 	recordingUndo bool
@@ -77,17 +86,17 @@ type SearchMatch struct {
 
 // New creates a new empty text buffer.
 func New() *TextBuffer {
-	initialLines := [][]rune{{}}
 	return &TextBuffer{
-		lines:         copyLines(initialLines),
+		lines:         [][]rune{{}},
 		lineEndings:   "\n",
 		tabSize:       4,
 		modified:      false,
-		undoStack:     make([]BufferState, 0),
-		redoStack:     make([]BufferState, 0),
-		maxUndoSize:   100, // Keep last 100 undo states
+		undoStack:     make([]EditOp, 0, 256),
+		redoStack:     make([]EditOp, 0, 64),
+		maxUndoSize:   1000,
+		coalesceDelay: 500 * time.Millisecond,
 		recordingUndo: true,
-		initialState:  initialLines,
+		initialLines:  [][]rune{{}},
 	}
 }
 
@@ -120,7 +129,11 @@ func (b *TextBuffer) LoadFile(path string) error {
 
 	b.lines = lines
 	b.modified = false
-	b.initialState = copyLines(lines)
+	b.initialLines = make([][]rune, len(lines))
+	for i, line := range lines {
+		b.initialLines[i] = make([]rune, len(line))
+		copy(b.initialLines[i], line)
+	}
 	b.ClearUndoHistory()
 	return nil
 }
@@ -218,12 +231,22 @@ func (b *TextBuffer) InsertRune(row, col int, r rune) {
 	if row < 0 || row >= len(b.lines) {
 		return
 	}
-	
+
 	line := b.lines[row]
 	if col > len(line) {
 		col = len(line)
 	}
-	
+
+	// Record operation for undo
+	b.pushOp(EditOp{
+		Type:      OpInsert,
+		Row:       row,
+		Col:       col,
+		Text:      string(r),
+		CursorRow: row,
+		CursorCol: col + 1,
+	})
+
 	newLine := make([]rune, 0, len(line)+1)
 	newLine = append(newLine, line[:col]...)
 	newLine = append(newLine, r)
@@ -237,23 +260,32 @@ func (b *TextBuffer) InsertNewline(row, col int) (newRow, newCol int) {
 	if row < 0 || row >= len(b.lines) {
 		return row, col
 	}
-	
+
 	currentLine := b.lines[row]
 	if col > len(currentLine) {
 		col = len(currentLine)
 	}
-	
+
+	// Record operation for undo
+	b.pushOp(EditOp{
+		Type:      OpNewline,
+		Row:       row,
+		Col:       col,
+		CursorRow: row + 1,
+		CursorCol: 0,
+	})
+
 	before := currentLine[:col]
 	after := currentLine[col:]
-	
+
 	b.lines[row] = before
-	
+
 	newLines := make([][]rune, len(b.lines)+1)
 	copy(newLines[:row+1], b.lines[:row+1])
 	newLines[row+1] = after
 	copy(newLines[row+2:], b.lines[row+1:])
 	b.lines = newLines
-	
+
 	b.modified = true
 	return row + 1, 0
 }
@@ -263,12 +295,23 @@ func (b *TextBuffer) DeleteCharBackward(row, col int) (newRow, newCol int, delet
 	if row < 0 || row >= len(b.lines) {
 		return row, col, false
 	}
-	
+
 	if col > 0 {
 		line := b.lines[row]
 		if col > len(line) {
 			col = len(line)
 		}
+
+		// Record operation for undo (delete single char)
+		b.pushOp(EditOp{
+			Type:      OpDelete,
+			Row:       row,
+			Col:       col - 1,
+			Text:      string(line[col-1]),
+			CursorRow: row,
+			CursorCol: col - 1,
+		})
+
 		newLine := make([]rune, 0, len(line)-1)
 		newLine = append(newLine, line[:col-1]...)
 		newLine = append(newLine, line[col:]...)
@@ -277,18 +320,29 @@ func (b *TextBuffer) DeleteCharBackward(row, col int) (newRow, newCol int, delet
 		return row, col - 1, true
 	} else if row > 0 {
 		prevLine := b.lines[row-1]
+		prevLineLen := len(prevLine)
+
+		// Record operation for undo (delete newline - merge lines)
+		b.pushOp(EditOp{
+			Type:      OpDeleteNewline,
+			Row:       row - 1,
+			Col:       prevLineLen,
+			CursorRow: row - 1,
+			CursorCol: prevLineLen,
+		})
+
 		currentLine := b.lines[row]
 		b.lines[row-1] = append(prevLine, currentLine...)
-		
+
 		newLines := make([][]rune, len(b.lines)-1)
 		copy(newLines[:row], b.lines[:row])
 		copy(newLines[row:], b.lines[row+1:])
 		b.lines = newLines
-		
+
 		b.modified = true
-		return row - 1, len(prevLine), true
+		return row - 1, prevLineLen, true
 	}
-	
+
 	return row, col, false
 }
 
@@ -297,9 +351,19 @@ func (b *TextBuffer) DeleteCharForward(row, col int) (deleted bool) {
 	if row < 0 || row >= len(b.lines) {
 		return false
 	}
-	
+
 	line := b.lines[row]
 	if col < len(line) {
+		// Record operation for undo (delete single char)
+		b.pushOp(EditOp{
+			Type:      OpDelete,
+			Row:       row,
+			Col:       col,
+			Text:      string(line[col]),
+			CursorRow: row,
+			CursorCol: col,
+		})
+
 		newLine := make([]rune, 0, len(line)-1)
 		newLine = append(newLine, line[:col]...)
 		newLine = append(newLine, line[col+1:]...)
@@ -307,19 +371,28 @@ func (b *TextBuffer) DeleteCharForward(row, col int) (deleted bool) {
 		b.modified = true
 		return true
 	} else if row < len(b.lines)-1 {
+		// Record operation for undo (delete newline - merge lines)
+		b.pushOp(EditOp{
+			Type:      OpDeleteNewline,
+			Row:       row,
+			Col:       col,
+			CursorRow: row,
+			CursorCol: col,
+		})
+
 		currentLine := b.lines[row]
 		nextLine := b.lines[row+1]
 		b.lines[row] = append(currentLine, nextLine...)
-		
+
 		newLines := make([][]rune, len(b.lines)-1)
 		copy(newLines[:row+1], b.lines[:row+1])
 		copy(newLines[row+1:], b.lines[row+2:])
 		b.lines = newLines
-		
+
 		b.modified = true
 		return true
 	}
-	
+
 	return false
 }
 
@@ -328,7 +401,20 @@ func (b *TextBuffer) DeleteRange(startRow, startCol, endRow, endCol int) {
 	if startRow < 0 || startRow >= len(b.lines) || endRow < 0 || endRow >= len(b.lines) {
 		return
 	}
-	
+
+	// Capture the text being deleted for undo
+	deletedText := b.GetTextRange(startRow, startCol, endRow, endCol)
+
+	// Record operation for undo
+	b.pushOp(EditOp{
+		Type:      OpDelete,
+		Row:       startRow,
+		Col:       startCol,
+		Text:      deletedText,
+		CursorRow: startRow,
+		CursorCol: startCol,
+	})
+
 	if startRow == endRow {
 		line := b.lines[startRow]
 		if startCol > len(line) {
@@ -344,18 +430,18 @@ func (b *TextBuffer) DeleteRange(startRow, startCol, endRow, endCol int) {
 	} else {
 		startLine := b.lines[startRow]
 		endLine := b.lines[endRow]
-		
+
 		if startCol > len(startLine) {
 			startCol = len(startLine)
 		}
 		if endCol > len(endLine) {
 			endCol = len(endLine)
 		}
-		
+
 		newLine := make([]rune, 0, len(startLine[:startCol])+len(endLine[endCol:]))
 		newLine = append(newLine, startLine[:startCol]...)
 		newLine = append(newLine, endLine[endCol:]...)
-		
+
 		linesToDelete := endRow - startRow
 		newLines := make([][]rune, len(b.lines)-linesToDelete)
 		copy(newLines[:startRow], b.lines[:startRow])
@@ -363,7 +449,7 @@ func (b *TextBuffer) DeleteRange(startRow, startCol, endRow, endCol int) {
 		copy(newLines[startRow+1:], b.lines[endRow+1:])
 		b.lines = newLines
 	}
-	
+
 	b.modified = true
 }
 
@@ -379,6 +465,22 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 	}
 
 	lines := strings.Split(text, "\n")
+	finalRow := row + len(lines) - 1
+	finalCol := len([]rune(lines[len(lines)-1]))
+	if len(lines) == 1 {
+		finalCol = col + len([]rune(text))
+	}
+
+	// Record operation for undo
+	b.pushOp(EditOp{
+		Type:      OpInsert,
+		Row:       row,
+		Col:       col,
+		Text:      text,
+		CursorRow: finalRow,
+		CursorCol: finalCol,
+	})
+
 	if len(lines) == 1 {
 		textRunes := []rune(text)
 		newLine := make([]rune, 0, len(currentLine)+len(textRunes))
@@ -394,19 +496,19 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 	copy(before, currentLine[:col])
 	after := make([]rune, len(currentLine)-col)
 	copy(after, currentLine[col:])
-	
+
 	newLines := make([][]rune, len(b.lines)+len(lines)-1)
 	copy(newLines[:row], b.lines[:row])
-	
+
 	firstLine := make([]rune, 0, len(before)+len(lines[0]))
 	firstLine = append(firstLine, before...)
 	firstLine = append(firstLine, []rune(lines[0])...)
 	newLines[row] = firstLine
-	
+
 	for i := 1; i < len(lines)-1; i++ {
 		newLines[row+i] = []rune(lines[i])
 	}
-	
+
 	lastLineIndex := row + len(lines) - 1
 	if lastLineIndex != row {
 		lastLine := make([]rune, 0, len(lines[len(lines)-1])+len(after))
@@ -414,10 +516,10 @@ func (b *TextBuffer) InsertText(row, col int, text string) (newRow, newCol int) 
 		lastLine = append(lastLine, after...)
 		newLines[lastLineIndex] = lastLine
 	}
-	
+
 	copy(newLines[row+len(lines):], b.lines[row+1:])
 	b.lines = newLines
-	
+
 	b.modified = true
 	return row + len(lines) - 1, len([]rune(lines[len(lines)-1]))
 }
@@ -494,34 +596,81 @@ func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string
 	return result.String()
 }
 
-// SaveState saves the current buffer state to the undo stack.
-func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
+// pushOp adds an edit operation to the undo stack
+func (b *TextBuffer) pushOp(op EditOp) {
 	if !b.recordingUndo {
 		return
 	}
-	
-	
-	// Create a snapshot of current state
-	state := BufferState{
-		lines:   copyLines(b.lines),
-		cursorX: cursorCol,
-		cursorY: cursorRow,
+
+	op.Timestamp = time.Now()
+
+	// Check if we can coalesce with previous operation
+	if len(b.undoStack) > 0 {
+		last := &b.undoStack[len(b.undoStack)-1]
+		if b.canCoalesce(last, &op) {
+			// Coalesce: extend the previous operation
+			if op.Type == OpInsert {
+				last.Text += op.Text
+			} else if op.Type == OpDelete {
+				// Prepend for backspace (deleting backwards)
+				last.Text = op.Text + last.Text
+				last.Col = op.Col
+			}
+			last.CursorRow = op.CursorRow
+			last.CursorCol = op.CursorCol
+			last.Timestamp = op.Timestamp
+			b.lastOpTime = op.Timestamp
+			return
+		}
 	}
-	
-	// Add to undo stack
-	b.undoStack = append(b.undoStack, state)
-	
-	// Limit undo stack size (nil out removed element to allow GC)
+
+	b.undoStack = append(b.undoStack, op)
+	b.lastOpTime = op.Timestamp
+
+	// Limit undo stack size
 	if len(b.undoStack) > b.maxUndoSize {
-		b.undoStack[0] = BufferState{}
 		b.undoStack = b.undoStack[1:]
 	}
-	
-	// Clear redo stack when new change is made (properly nil out elements to allow GC)
-	for i := range b.redoStack {
-		b.redoStack[i] = BufferState{}
-	}
+
+	// Clear redo stack on new edit
 	b.redoStack = b.redoStack[:0]
+}
+
+// canCoalesce checks if two operations can be merged
+func (b *TextBuffer) canCoalesce(last, new *EditOp) bool {
+	// Must be same type
+	if last.Type != new.Type {
+		return false
+	}
+
+	// Only coalesce single-char inserts/deletes
+	if len(new.Text) != 1 {
+		return false
+	}
+
+	// Must be within time window
+	if new.Timestamp.Sub(last.Timestamp) > b.coalesceDelay {
+		return false
+	}
+
+	// Must be consecutive
+	switch new.Type {
+	case OpInsert:
+		// Typing: new char should be right after last insert
+		expectedCol := last.Col + len([]rune(last.Text))
+		return new.Row == last.Row && new.Col == expectedCol
+	case OpDelete:
+		// Backspace: new delete should be one position before
+		return new.Row == last.Row && new.Col == last.Col-1
+	}
+
+	return false
+}
+
+// SaveState is kept for backwards compatibility but does nothing now.
+// Operations are recorded automatically by edit methods.
+func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
+	// No-op: operations are now recorded by individual edit methods
 }
 
 // SetSearchMatches sets the search matches for the buffer.
@@ -656,77 +805,248 @@ func (b *TextBuffer) ReplaceAllMatches(replacement string) int {
 	return count
 }
 
-// Undo reverts to the previous state.
+// Undo reverts the last operation.
 func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
-	
 	if len(b.undoStack) == 0 {
 		return 0, 0, false
 	}
-	
-	// Save current state to redo stack before undoing
-	currentState := BufferState{
-		lines:   copyLines(b.lines),
-		cursorX: 0, // Will be set by caller
-		cursorY: 0,
-	}
-	b.redoStack = append(b.redoStack, currentState)
-	
-	// Pop from undo stack (nil out to allow GC)
+
+	// Pop from undo stack
 	lastIdx := len(b.undoStack) - 1
-	state := b.undoStack[lastIdx]
-	b.undoStack[lastIdx] = BufferState{}
+	op := b.undoStack[lastIdx]
+	b.undoStack[lastIdx] = EditOp{}
 	b.undoStack = b.undoStack[:lastIdx]
 
-	// Restore state without recording undo (no copy needed - we own this state now)
+	// Apply reverse operation without recording
 	b.recordingUndo = false
-	b.lines = state.lines
-	
-	// Check if we're back to the initial state
-	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
+	cursorX, cursorY = b.applyReverseOp(op)
+	b.recordingUndo = true
+
+	// Push to redo stack
+	b.redoStack = append(b.redoStack, op)
+
+	// Update modified state
+	if len(b.undoStack) == 0 && linesEqual(b.lines, b.initialLines) {
 		b.modified = false
 	} else {
 		b.modified = true
 	}
-	
-	b.recordingUndo = true
-	
-	return state.cursorX, state.cursorY, true
+
+	return cursorX, cursorY, true
 }
 
-// Redo reapplies a previously undone change.
+// Redo reapplies a previously undone operation.
 func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	if len(b.redoStack) == 0 {
 		return 0, 0, false
 	}
-	
-	// Save current state to undo stack before redoing
-	currentState := BufferState{
-		lines:   copyLines(b.lines),
-		cursorX: 0,
-		cursorY: 0,
-	}
-	b.undoStack = append(b.undoStack, currentState)
-	
-	// Pop from redo stack (nil out to allow GC)
+
+	// Pop from redo stack
 	lastIdx := len(b.redoStack) - 1
-	state := b.redoStack[lastIdx]
-	b.redoStack[lastIdx] = BufferState{}
+	op := b.redoStack[lastIdx]
+	b.redoStack[lastIdx] = EditOp{}
 	b.redoStack = b.redoStack[:lastIdx]
 
-	// Restore state without recording undo (no copy needed - we own this state now)
+	// Re-apply operation without recording
 	b.recordingUndo = false
-	b.lines = state.lines
-	
-	// Check if we're back to the initial state
-	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
-		b.modified = false
-	} else {
-		b.modified = true
-	}
-	
+	cursorX, cursorY = b.applyOp(op)
 	b.recordingUndo = true
-	
-	return state.cursorX, state.cursorY, true
+
+	// Push back to undo stack
+	b.undoStack = append(b.undoStack, op)
+
+	// Update modified state
+	b.modified = !linesEqual(b.lines, b.initialLines)
+
+	return cursorX, cursorY, true
+}
+
+// applyOp applies an operation and returns the resulting cursor position
+func (b *TextBuffer) applyOp(op EditOp) (cursorX, cursorY int) {
+	switch op.Type {
+	case OpInsert:
+		b.insertTextRaw(op.Row, op.Col, op.Text)
+		return op.CursorCol, op.CursorRow
+	case OpDelete:
+		b.deleteTextRaw(op.Row, op.Col, op.Text)
+		return op.Col, op.Row
+	case OpNewline:
+		b.insertNewlineRaw(op.Row, op.Col)
+		return 0, op.Row + 1
+	case OpDeleteNewline:
+		b.deleteNewlineRaw(op.Row, op.Col)
+		return op.Col, op.Row
+	}
+	return op.CursorCol, op.CursorRow
+}
+
+// applyReverseOp applies the reverse of an operation
+func (b *TextBuffer) applyReverseOp(op EditOp) (cursorX, cursorY int) {
+	switch op.Type {
+	case OpInsert:
+		// Reverse of insert is delete
+		b.deleteTextRaw(op.Row, op.Col, op.Text)
+		return op.Col, op.Row
+	case OpDelete:
+		// Reverse of delete is insert
+		b.insertTextRaw(op.Row, op.Col, op.Text)
+		// Position cursor after inserted text
+		lines := strings.Split(op.Text, "\n")
+		if len(lines) == 1 {
+			return op.Col + len([]rune(op.Text)), op.Row
+		}
+		return len([]rune(lines[len(lines)-1])), op.Row + len(lines) - 1
+	case OpNewline:
+		// Reverse of inserting newline is deleting it
+		b.deleteNewlineRaw(op.Row, op.Col)
+		return op.Col, op.Row
+	case OpDeleteNewline:
+		// Reverse of deleting newline is inserting it
+		b.insertNewlineRaw(op.Row, op.Col)
+		return 0, op.Row + 1
+	}
+	return op.Col, op.Row
+}
+
+// insertTextRaw inserts text without recording undo
+func (b *TextBuffer) insertTextRaw(row, col int, text string) {
+	if row < 0 || row >= len(b.lines) {
+		return
+	}
+
+	currentLine := b.lines[row]
+	if col > len(currentLine) {
+		col = len(currentLine)
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) == 1 {
+		textRunes := []rune(text)
+		newLine := make([]rune, 0, len(currentLine)+len(textRunes))
+		newLine = append(newLine, currentLine[:col]...)
+		newLine = append(newLine, textRunes...)
+		newLine = append(newLine, currentLine[col:]...)
+		b.lines[row] = newLine
+		return
+	}
+
+	before := make([]rune, col)
+	copy(before, currentLine[:col])
+	after := make([]rune, len(currentLine)-col)
+	copy(after, currentLine[col:])
+
+	newLines := make([][]rune, len(b.lines)+len(lines)-1)
+	copy(newLines[:row], b.lines[:row])
+
+	firstLine := make([]rune, 0, len(before)+len(lines[0]))
+	firstLine = append(firstLine, before...)
+	firstLine = append(firstLine, []rune(lines[0])...)
+	newLines[row] = firstLine
+
+	for i := 1; i < len(lines)-1; i++ {
+		newLines[row+i] = []rune(lines[i])
+	}
+
+	lastLineIndex := row + len(lines) - 1
+	if lastLineIndex != row {
+		lastLine := make([]rune, 0, len(lines[len(lines)-1])+len(after))
+		lastLine = append(lastLine, []rune(lines[len(lines)-1])...)
+		lastLine = append(lastLine, after...)
+		newLines[lastLineIndex] = lastLine
+	}
+
+	copy(newLines[row+len(lines):], b.lines[row+1:])
+	b.lines = newLines
+}
+
+// deleteTextRaw deletes text without recording undo
+func (b *TextBuffer) deleteTextRaw(row, col int, text string) {
+	if row < 0 || row >= len(b.lines) {
+		return
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) == 1 {
+		line := b.lines[row]
+		endCol := col + len([]rune(text))
+		if endCol > len(line) {
+			endCol = len(line)
+		}
+		newLine := make([]rune, 0, len(line)-(endCol-col))
+		newLine = append(newLine, line[:col]...)
+		newLine = append(newLine, line[endCol:]...)
+		b.lines[row] = newLine
+		return
+	}
+
+	// Multi-line delete
+	endRow := row + len(lines) - 1
+	endCol := len([]rune(lines[len(lines)-1]))
+
+	if endRow >= len(b.lines) {
+		endRow = len(b.lines) - 1
+		endCol = len(b.lines[endRow])
+	}
+
+	startLine := b.lines[row]
+	endLine := b.lines[endRow]
+
+	if col > len(startLine) {
+		col = len(startLine)
+	}
+	if endCol > len(endLine) {
+		endCol = len(endLine)
+	}
+
+	newLine := make([]rune, 0, col+len(endLine)-endCol)
+	newLine = append(newLine, startLine[:col]...)
+	newLine = append(newLine, endLine[endCol:]...)
+
+	linesToDelete := endRow - row
+	newLines := make([][]rune, len(b.lines)-linesToDelete)
+	copy(newLines[:row], b.lines[:row])
+	newLines[row] = newLine
+	copy(newLines[row+1:], b.lines[endRow+1:])
+	b.lines = newLines
+}
+
+// insertNewlineRaw inserts a newline without recording undo
+func (b *TextBuffer) insertNewlineRaw(row, col int) {
+	if row < 0 || row >= len(b.lines) {
+		return
+	}
+
+	currentLine := b.lines[row]
+	if col > len(currentLine) {
+		col = len(currentLine)
+	}
+
+	before := currentLine[:col]
+	after := currentLine[col:]
+
+	b.lines[row] = before
+
+	newLines := make([][]rune, len(b.lines)+1)
+	copy(newLines[:row+1], b.lines[:row+1])
+	newLines[row+1] = after
+	copy(newLines[row+2:], b.lines[row+1:])
+	b.lines = newLines
+}
+
+// deleteNewlineRaw deletes a newline (merges two lines) without recording undo
+func (b *TextBuffer) deleteNewlineRaw(row, col int) {
+	if row < 0 || row >= len(b.lines)-1 {
+		return
+	}
+
+	currentLine := b.lines[row]
+	nextLine := b.lines[row+1]
+	b.lines[row] = append(currentLine, nextLine...)
+
+	newLines := make([][]rune, len(b.lines)-1)
+	copy(newLines[:row+1], b.lines[:row+1])
+	copy(newLines[row+1:], b.lines[row+2:])
+	b.lines = newLines
 }
 
 // CanUndo returns true if undo is available.
