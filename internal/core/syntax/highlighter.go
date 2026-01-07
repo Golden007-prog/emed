@@ -140,18 +140,22 @@ func (h *Highlighter) UpdateViewport(startLine, endLine int) {
 	if tokenizeEnd >= len(h.lastContent) {
 		tokenizeEnd = len(h.lastContent) - 1
 	}
-	
-	// Check if this region is already tokenized
-	needsTokenization := false
+
+	// Find the actual range that needs tokenization (first and last nil lines)
+	firstNil := -1
+	lastNil := -1
 	for i := tokenizeStart; i <= tokenizeEnd; i++ {
 		if h.lineTokens[i] == nil {
-			needsTokenization = true
-			break
+			if firstNil == -1 {
+				firstNil = i
+			}
+			lastNil = i
 		}
 	}
-	
-	if needsTokenization {
-		h.tokenizeRegion(tokenizeStart, tokenizeEnd)
+
+	// Only tokenize if there are nil lines, and only the range that needs it
+	if firstNil != -1 {
+		h.tokenizeRegion(firstNil, lastNil)
 	}
 }
 
@@ -160,17 +164,22 @@ func (h *Highlighter) tokenizeRegion(startLine, endLine int) {
 	if startLine < 0 || endLine >= len(h.lastContent) || startLine > endLine {
 		return
 	}
-	
+
+	// Clear existing tokens for this region to prevent duplicates
+	for i := startLine; i <= endLine; i++ {
+		h.lineTokens[i] = nil
+	}
+
 	// Build text for the region
-	regionLines := h.lastContent[startLine:endLine+1]
+	regionLines := h.lastContent[startLine : endLine+1]
 	regionText := strings.Join(regionLines, "\n")
-	
+
 	// Tokenize the region
 	iterator, err := h.lexer.Tokenise(nil, regionText)
 	if err != nil {
 		return
 	}
-	
+
 	// Process tokens and assign to lines
 	currentLine := startLine
 	currentPos := 0
