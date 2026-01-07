@@ -148,6 +148,7 @@ func NewEditor() *Editor {
 		for i, tab := range e.tabs {
 			if tab.id == id {
 				path = tab.path
+				e.tabs[i] = nil
 				e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
 				break
 			}
@@ -316,6 +317,7 @@ func (e *Editor) closePreviewTab() {
 		if tab.isPreview {
 			previewTabID = tab.id
 			previewTabPath = tab.path
+			e.tabs[i] = nil
 			e.tabs = append(e.tabs[:i], e.tabs[i+1:]...)
 			break
 		}

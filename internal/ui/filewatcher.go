@@ -268,6 +268,9 @@ func (fw *FileWatcher) processEvents() {
 		if len(eventBatch) > 0 && fw.onChange != nil {
 			changes := make([]FileChange, len(eventBatch))
 			copy(changes, eventBatch)
+			for i := range eventBatch {
+				eventBatch[i] = FileChange{}
+			}
 			eventBatch = eventBatch[:0]
 			batchMu.Unlock()
 			fw.onChange(changes)
