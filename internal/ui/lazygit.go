@@ -81,6 +81,7 @@ func (l *LazygitModal) Show(onClose func()) {
 
 	l.terminal.ptyMgr.SetOnExit(func() {
 		l.app.QueueUpdateDraw(func() {
+			l.terminal.Stop()
 			l.Close()
 			if onClose != nil {
 				onClose()

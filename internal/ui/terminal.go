@@ -64,6 +64,7 @@ type Terminal struct {
 	onLastTabClosed func()
 	onEmedCommand   func(cmd string, args []string)
 	tabClickInfo    []components.TabClickInfo
+	emulators       map[int]*VT10XTerminal
 }
 
 // NewTerminal creates a new Terminal component with no tabs.
@@ -72,6 +73,7 @@ func NewTerminal() *Terminal {
 		container:   tview.NewFlex().SetDirection(tview.FlexRow),
 		contentArea: tview.NewPages(),
 		tabManager:  components.NewBaseTabManager(),
+		emulators:   make(map[int]*VT10XTerminal),
 	}
 
 	t.contentArea.SetBackgroundColor(tcell.ColorBlack)
@@ -129,6 +131,10 @@ func NewTerminal() *Terminal {
 	})
 
 	t.tabManager.SetOnTabClosed(func(id int) {
+		if emulator, ok := t.emulators[id]; ok {
+			emulator.Stop()
+			delete(t.emulators, id)
+		}
 		t.contentArea.RemovePage(fmt.Sprintf("term-%d", id))
 		t.UpdateTabBar()
 	})
@@ -193,6 +199,8 @@ func (t *Terminal) NewTab(workingDir string) {
 		t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), errorView, true, false)
 		return
 	}
+
+	t.emulators[tabID] = emulator
 
 	tab := &TerminalTab{
 		id:       tabID,
