@@ -391,40 +391,6 @@ func (fw *FileWatcher) Stop() {
 	}
 }
 
-// IsWatchingFile returns true if the directory containing the file is being watched.
-func (fw *FileWatcher) IsWatchingFile(path string) bool {
-	dir := filepath.Dir(path)
-
-	fw.dirMu.RLock()
-	defer fw.dirMu.RUnlock()
-
-	return fw.watchedDirs[dir]
-}
-
-// GetFileInfo returns file information and whether the file exists.
-func (fw *FileWatcher) GetFileInfo(path string) (os.FileInfo, bool) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, false
-	}
-	return info, true
-}
-
-// SetMaxDepth sets the maximum directory depth to watch.
-func (fw *FileWatcher) SetMaxDepth(depth int) {
-	fw.maxDepth = depth
-}
-
-// SetMaxWatchedDirs sets the maximum number of directories to watch.
-func (fw *FileWatcher) SetMaxWatchedDirs(max int) {
-	fw.maxWatchedDirs = max
-}
-
-// AddExclusionPattern adds a pattern to exclude from watching.
-func (fw *FileWatcher) AddExclusionPattern(pattern string) {
-	fw.excludePatterns = append(fw.excludePatterns, pattern)
-}
-
 // GetWatchedDirsCount returns the number of directories currently being watched.
 func (fw *FileWatcher) GetWatchedDirsCount() int {
 	fw.dirMu.RLock()
