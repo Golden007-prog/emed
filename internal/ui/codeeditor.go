@@ -80,6 +80,9 @@ type CodeEditor struct {
 	blameTimer     *time.Timer
 	blameMutex     sync.Mutex
 
+	highlightTimer *time.Timer
+	highlightMutex sync.Mutex
+
 	pendingCenterCursor bool
 }
 
@@ -812,8 +815,24 @@ func (e *CodeEditor) setModified(modified bool) {
 	}
 	if modified {
 		e.clearBlame()
-		e.updateHighlighter()
+		e.scheduleHighlighterUpdate()
 	}
+}
+
+func (e *CodeEditor) scheduleHighlighterUpdate() {
+	e.highlightMutex.Lock()
+	defer e.highlightMutex.Unlock()
+
+	if e.highlightTimer != nil {
+		e.highlightTimer.Stop()
+	}
+
+	e.highlightTimer = time.AfterFunc(150*time.Millisecond, func() {
+		e.updateHighlighter()
+		if e.app != nil {
+			e.app.QueueUpdateDraw(func() {})
+		}
+	})
 }
 
 func (e *CodeEditor) updateHighlighter() {
