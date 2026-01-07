@@ -213,9 +213,10 @@ func sortNodes(nodes []*HTreeNode) {
 type HTree struct {
 	*tview.Box
 
-	root         *HTreeNode
-	selected     *HTreeNode
-	visibleNodes []*HTreeNode
+	root              *HTreeNode
+	selected          *HTreeNode
+	visibleNodes      []*HTreeNode
+	visibleNodesDirty bool
 
 	scrollY        int
 	scrollX        int
@@ -244,10 +245,11 @@ type HTree struct {
 // NewHTree creates a new hierarchical tree widget.
 func NewHTree() *HTree {
 	return &HTree{
-		Box:       tview.NewBox(),
-		scrollY:   0,
-		scrollX:   0,
-		typeAhead: filemanager.NewTypeAheadBuffer(500 * time.Millisecond),
+		Box:               tview.NewBox(),
+		scrollY:           0,
+		scrollX:           0,
+		typeAhead:         filemanager.NewTypeAheadBuffer(500 * time.Millisecond),
+		visibleNodesDirty: true,
 	}
 }
 
@@ -255,15 +257,24 @@ func NewHTree() *HTree {
 func (t *HTree) SetRoot(node *HTreeNode) *HTree {
 	t.root = node
 	t.selected = node
-	t.buildVisibleNodes()
+	t.visibleNodesDirty = true
 	return t
 }
 
+// MarkDirty marks the visible nodes cache as needing rebuild.
+func (t *HTree) MarkDirty() {
+	t.visibleNodesDirty = true
+}
+
 func (t *HTree) buildVisibleNodes() {
+	if !t.visibleNodesDirty {
+		return
+	}
 	t.visibleNodes = nil
 	if t.root != nil {
 		t.addVisibleNode(t.root, 0, nil)
 	}
+	t.visibleNodesDirty = false
 }
 
 func (t *HTree) addVisibleNode(node *HTreeNode, depth int, ancestorIsLast []bool) {
@@ -583,17 +594,20 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 		case tcell.KeyRight:
 			if t.selected.IsDir && !t.selected.IsExpanded {
 				t.selected.IsExpanded = true
+				t.visibleNodesDirty = true
 				t.loadChildren(t.selected)
 			}
 		case tcell.KeyLeft:
 			if t.selected.IsDir && t.selected.IsExpanded {
 				t.selected.IsExpanded = false
+				t.visibleNodesDirty = true
 			} else if t.selected.Parent != nil {
 				t.selected = t.selected.Parent
 			}
 		case tcell.KeyEnter:
 			if t.selected.IsDir {
 				t.selected.IsExpanded = !t.selected.IsExpanded
+				t.visibleNodesDirty = true
 				if t.selected.IsExpanded {
 					t.loadChildren(t.selected)
 				}
@@ -655,6 +669,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 				case ' ':
 					if t.selected.IsDir {
 						t.selected.IsExpanded = !t.selected.IsExpanded
+						t.visibleNodesDirty = true
 						if t.selected.IsExpanded {
 							t.loadChildren(t.selected)
 						}
@@ -801,6 +816,7 @@ func (t *HTree) ExpandPath(path string) {
 
 		if current.IsDir && !current.IsExpanded {
 			current.IsExpanded = true
+			t.visibleNodesDirty = true
 			t.loadChildren(current)
 		}
 
@@ -837,6 +853,7 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 
 					if clickedNode.IsDir {
 						clickedNode.IsExpanded = !clickedNode.IsExpanded
+						t.visibleNodesDirty = true
 						if clickedNode.IsExpanded {
 							t.loadChildren(clickedNode)
 						}
@@ -918,6 +935,7 @@ func (t *HTree) restoreExpansionState(node *HTreeNode, expanded map[string]bool)
 	for _, child := range node.Children {
 		if child.IsDir && expanded[child.Path] {
 			child.IsExpanded = true
+			t.visibleNodesDirty = true
 			t.loadChildren(child)
 			t.restoreExpansionState(child, expanded)
 		}
