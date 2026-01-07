@@ -71,15 +71,16 @@ func naturalLess(a, b string) bool {
 
 // hasCodeExtension checks if a filename has a code-related extension.
 func hasCodeExtension(filename string) bool {
+	lower := strings.ToLower(filename)
 	extensions := []string{
 		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rb", ".java", ".c", ".cpp", ".h", ".hpp",
 		".rs", ".sh", ".bash", ".zsh", ".fish", ".php", ".html", ".css", ".scss", ".sass",
 		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
-		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r", ".R",
+		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r",
 	}
 
 	for _, ext := range extensions {
-		if strings.HasSuffix(strings.ToLower(filename), ext) {
+		if strings.HasSuffix(lower, ext) {
 			return true
 		}
 	}
@@ -87,8 +88,7 @@ func hasCodeExtension(filename string) bool {
 	return false
 }
 
-func isConfigFile(filename string) bool {
-	lower := strings.ToLower(filename)
+func isConfigFileLower(lower string, filename string) bool {
 	if strings.HasPrefix(filename, ".") {
 		return true
 	}
@@ -101,8 +101,7 @@ func isConfigFile(filename string) bool {
 	return false
 }
 
-func isImageFile(filename string) bool {
-	lower := strings.ToLower(filename)
+func isImageFileLower(lower string) bool {
 	imageExts := []string{".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico", ".tiff"}
 	for _, ext := range imageExts {
 		if strings.HasSuffix(lower, ext) {
@@ -112,8 +111,7 @@ func isImageFile(filename string) bool {
 	return false
 }
 
-func isAudioFile(filename string) bool {
-	lower := strings.ToLower(filename)
+func isAudioFileLower(lower string) bool {
 	audioExts := []string{".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus", ".aiff"}
 	for _, ext := range audioExts {
 		if strings.HasSuffix(lower, ext) {
@@ -123,8 +121,7 @@ func isAudioFile(filename string) bool {
 	return false
 }
 
-func isCompressedFile(filename string) bool {
-	lower := strings.ToLower(filename)
+func isCompressedFileLower(lower string) bool {
 	compressedExts := []string{".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz"}
 	for _, ext := range compressedExts {
 		if strings.HasSuffix(lower, ext) {
@@ -134,8 +131,7 @@ func isCompressedFile(filename string) bool {
 	return false
 }
 
-func isExecutableFile(filename string) bool {
-	lower := strings.ToLower(filename)
+func isExecutableFileLower(lower string) bool {
 	execExts := []string{".exe", ".bat", ".sh", ".cmd", ".ps1", ".app", ".bin", ".run"}
 	for _, ext := range execExts {
 		if strings.HasSuffix(lower, ext) {
@@ -152,19 +148,20 @@ func getFileEmoji(filename string, isDir bool, isExpanded bool) (rune, []rune) {
 		}
 		return '📁', nil
 	}
-	if isConfigFile(filename) {
+	lower := strings.ToLower(filename)
+	if isConfigFileLower(lower, filename) {
 		return '⚙', []rune{0xFE0F}
 	}
-	if isImageFile(filename) {
+	if isImageFileLower(lower) {
 		return '🖼', []rune{0xFE0F}
 	}
-	if isAudioFile(filename) {
+	if isAudioFileLower(lower) {
 		return '🎵', nil
 	}
-	if isCompressedFile(filename) {
+	if isCompressedFileLower(lower) {
 		return '📦', nil
 	}
-	if isExecutableFile(filename) {
+	if isExecutableFileLower(lower) {
 		return '⚡', nil
 	}
 	return '📄', nil

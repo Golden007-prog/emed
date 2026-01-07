@@ -148,15 +148,16 @@ func (fm *FileManager) loadInitialDirectory() {
 }
 
 func (fm *FileManager) isCodeFile(filename string) bool {
+	lower := strings.ToLower(filename)
 	extensions := []string{
 		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rb", ".java", ".c", ".cpp", ".h", ".hpp",
 		".rs", ".sh", ".bash", ".zsh", ".fish", ".php", ".html", ".css", ".scss", ".sass",
 		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
-		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r", ".R",
+		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r",
 	}
 
 	for _, ext := range extensions {
-		if strings.HasSuffix(strings.ToLower(filename), ext) {
+		if strings.HasSuffix(lower, ext) {
 			return true
 		}
 	}
