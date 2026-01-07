@@ -43,6 +43,29 @@ type GhostText struct {
 	StyleFunc func() tcell.Style // Optional custom style function
 }
 
+// wordOccurrence represents a position where the current word appears.
+type wordOccurrence struct {
+	row      int
+	startCol int
+	endCol   int
+}
+
+// bracketPairs maps opening brackets to closing brackets.
+var bracketPairs = map[rune]rune{
+	'(': ')',
+	'[': ']',
+	'{': '}',
+	'<': '>',
+}
+
+// closingBrackets maps closing brackets to opening brackets.
+var closingBrackets = map[rune]rune{
+	')': '(',
+	']': '[',
+	'}': '{',
+	'>': '<',
+}
+
 // CodeEditor provides text editing functionality with syntax highlighting.
 type CodeEditor struct {
 	*tview.Box
@@ -84,20 +107,54 @@ type CodeEditor struct {
 	highlightMutex sync.Mutex
 
 	pendingCenterCursor bool
+
+	// Bracket matching (stores both opening and closing positions)
+	bracketOpenRow   int
+	bracketOpenCol   int
+	bracketCloseRow  int
+	bracketCloseCol  int
+	hasBracketMatch  bool
+
+	// Word highlighting
+	currentWord      string
+	wordOccurrences  []wordOccurrence
+
+	// Indentation guide
+	indentGuideCol      int
+	indentGuideStartRow int
+	indentGuideEndRow   int
+
+	// Dirty tracking for highlights
+	lastHighlightRow int
+	lastHighlightCol int
+	highlightsDirty  bool
+
+	// Multi-click detection (double, triple, etc.)
+	lastClickTime  time.Time
+	lastClickRow   int
+	lastClickCol   int
+	clickCount     int
 }
 
 // NewCodeEditor creates a new code editor instance with default settings.
 func NewCodeEditor() *CodeEditor {
 	return &CodeEditor{
-		Box:            tview.NewBox(),
-		buffer:         buffer.New(),
-		selection:      selection.New(),
-		clipboard:      clipboard.New(),
-		readOnly:       false,
-		ghostTextStyle: tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
-		tabStyle:       tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
-		blameEnabled:   true,
-		blameRow:       -1,
+		Box:                tview.NewBox(),
+		buffer:             buffer.New(),
+		selection:          selection.New(),
+		clipboard:          clipboard.New(),
+		readOnly:           false,
+		ghostTextStyle:     tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
+		tabStyle:           tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
+		blameEnabled:      true,
+		blameRow:          -1,
+		bracketOpenRow:    -1,
+		bracketOpenCol:    -1,
+		bracketCloseRow:   -1,
+		bracketCloseCol:   -1,
+		lastHighlightRow:  -1,
+		lastHighlightCol:   -1,
+		highlightsDirty:    true,
 	}
 }
 
@@ -203,6 +260,15 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+height-1)
 	}
 
+	if e.highlightsDirty || e.cursorRow != e.lastHighlightRow || e.cursorCol != e.lastHighlightCol {
+		e.updateBracketMatch()
+		e.updateWordOccurrences()
+		e.updateIndentGuide()
+		e.lastHighlightRow = e.cursorRow
+		e.lastHighlightCol = e.cursorCol
+		e.highlightsDirty = false
+	}
+
 	lines := e.buffer.GetLines()
 	for row := 0; row < height && row+e.offsetRow < len(lines); row++ {
 		e.drawLineNumber(screen, row+e.offsetRow+1, x, y+row, lineNumWidth-1)
@@ -271,6 +337,14 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			}
 		}
 
+		if e.isBracketHighlight(lineNum, realCol) {
+			style = tcell.StyleDefault.Background(tcell.NewRGBColor(80, 80, 40)).Foreground(tcell.ColorYellow).Bold(true)
+		}
+
+		if e.isWordOccurrence(lineNum, realCol) {
+			style = style.Underline(true)
+		}
+
 		if ch == '\t' {
 			tabSize := e.buffer.GetTabSize()
 			nextTabStop := ((visualCol / tabSize) + 1) * tabSize
@@ -286,6 +360,10 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 					} else if i < spacesToAdd-1 {
 						displayChar = '─'
 						displayStyle = e.tabStyle
+					}
+					if e.shouldShowIndentGuide(lineNum) && visualCol == e.indentGuideCol {
+						displayChar = '│'
+						displayStyle = tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60))
 					}
 					screen.SetContent(screenX, y, displayChar, nil, displayStyle)
 					screenX++
@@ -310,7 +388,12 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			}
 
 			if visualCol >= e.offsetCol && screenX < x+maxWidth {
-				screen.SetContent(screenX, y, ch, combiningRunes, style)
+				if ch == ' ' && e.shouldShowIndentGuide(lineNum) && visualCol == e.indentGuideCol {
+					guideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60))
+					screen.SetContent(screenX, y, '│', nil, guideStyle)
+				} else {
+					screen.SetContent(screenX, y, ch, combiningRunes, style)
+				}
 				screenX += charWidth
 			}
 			visualCol += charWidth
@@ -355,8 +438,14 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		screenX = startX
 	}
 
+	indentGuideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60)).Background(tcell.NewRGBColor(0, 0, 0))
 	for screenX < x+maxWidth {
-		screen.SetContent(screenX, y, ' ', nil, defaultStyle)
+		currentVisualCol := screenX - x + e.offsetCol
+		if e.shouldShowIndentGuide(lineNum) && currentVisualCol == e.indentGuideCol {
+			screen.SetContent(screenX, y, '│', nil, indentGuideStyle)
+		} else {
+			screen.SetContent(screenX, y, ' ', nil, defaultStyle)
+		}
 		screenX++
 	}
 }
@@ -816,6 +905,7 @@ func (e *CodeEditor) setModified(modified bool) {
 	if modified {
 		e.clearBlame()
 		e.scheduleHighlighterUpdate()
+		e.highlightsDirty = true
 	}
 }
 
@@ -1152,26 +1242,61 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 
 			case tview.MouseLeftDown:
 				setFocus(e)
-				e.selection.Clear()
 
 				lineNumWidth := e.getLineNumberWidth() + 1
-				mouseX, mouseY := event.Position()
-				clickX := mouseX - rectX - lineNumWidth
-				clickY := mouseY - rectY
+				clickX := x - rectX - lineNumWidth
+				clickY := y - rectY
 
-				if clickX >= 0 && clickY >= 0 {
-					row := e.offsetRow + clickY
-					if row < e.buffer.GetLineCount() {
-						col := e.getRealColumn(row, e.offsetCol+clickX)
-						e.cursorRow = row
-						e.cursorCol = col
-						e.adjustCursorColumn()
+				// Calculate click position first
+				clickRow := e.offsetRow + clickY
+				if clickRow >= e.buffer.GetLineCount() {
+					clickRow = e.buffer.GetLineCount() - 1
+				}
+				if clickRow < 0 {
+					clickRow = 0
+				}
+				clickCol := e.getRealColumn(clickRow, e.offsetCol+clickX)
 
-						e.selection.StartMouseDrag(e.cursorRow, e.cursorCol)
-					}
+				// Multi-click detection
+				now := time.Now()
+				colDiff := e.lastClickCol - clickCol
+				if colDiff < 0 {
+					colDiff = -colDiff
+				}
+				isQuickClick := now.Sub(e.lastClickTime) < 400*time.Millisecond &&
+					e.lastClickRow == clickRow &&
+					colDiff <= 1
+
+				if isQuickClick {
+					e.clickCount++
+				} else {
+					e.clickCount = 1
 				}
 
-				return true, e // Capture for drag selection
+				e.lastClickTime = now
+				e.lastClickRow = clickRow
+				e.lastClickCol = clickCol
+				e.cursorRow = clickRow
+				e.cursorCol = clickCol
+
+				switch e.clickCount {
+				case 2: // Double-click: select word
+					e.selectWordUnderCursor()
+					return true, nil
+				case 3: // Triple-click: select line
+					e.selectCurrentLine()
+					return true, nil
+				case 4: // Quadruple-click: select all
+					e.selectAll()
+					e.clickCount = 0 // Reset
+					return true, nil
+				}
+
+				// Single click: start drag selection
+				e.selection.Clear()
+				e.adjustCursorColumn()
+				e.selection.StartMouseDrag(e.cursorRow, e.cursorCol)
+				return true, e
 
 			case tview.MouseLeftUp:
 				e.selection.StopMouseDrag()
@@ -1593,6 +1718,392 @@ func (e *CodeEditor) CenterCursor() {
 			e.offsetCol = 0
 		}
 	}
+}
+
+// updateBracketMatch finds and stores the matching bracket position.
+// It highlights brackets when cursor is ON them or BETWEEN a pair.
+func (e *CodeEditor) updateBracketMatch() {
+	e.hasBracketMatch = false
+	e.bracketOpenRow = -1
+	e.bracketOpenCol = -1
+	e.bracketCloseRow = -1
+	e.bracketCloseCol = -1
+
+	line := e.buffer.GetLine(e.cursorRow)
+	runes := []rune(line)
+
+	// First check if cursor is directly on a bracket
+	if e.cursorCol < len(runes) {
+		ch := runes[e.cursorCol]
+
+		if closingBracket, isOpening := bracketPairs[ch]; isOpening {
+			row, col := e.findMatchingBracket(e.cursorRow, e.cursorCol, ch, closingBracket, 1)
+			if row >= 0 {
+				e.hasBracketMatch = true
+				e.bracketOpenRow = e.cursorRow
+				e.bracketOpenCol = e.cursorCol
+				e.bracketCloseRow = row
+				e.bracketCloseCol = col
+			}
+			return
+		}
+
+		if openingBracket, isClosing := closingBrackets[ch]; isClosing {
+			row, col := e.findMatchingBracket(e.cursorRow, e.cursorCol, ch, openingBracket, -1)
+			if row >= 0 {
+				e.hasBracketMatch = true
+				e.bracketOpenRow = row
+				e.bracketOpenCol = col
+				e.bracketCloseRow = e.cursorRow
+				e.bracketCloseCol = e.cursorCol
+			}
+			return
+		}
+	}
+
+	// If not on a bracket, find the closest enclosing pair
+	openRow, openCol, openBracket := e.findEnclosingOpenBracket()
+	if openRow >= 0 {
+		closingBracket := bracketPairs[openBracket]
+		closeRow, closeCol := e.findMatchingBracket(openRow, openCol, openBracket, closingBracket, 1)
+		if closeRow >= 0 {
+			// Verify cursor is actually between them
+			cursorAfterOpen := e.cursorRow > openRow || (e.cursorRow == openRow && e.cursorCol > openCol)
+			cursorBeforeClose := e.cursorRow < closeRow || (e.cursorRow == closeRow && e.cursorCol < closeCol)
+			if cursorAfterOpen && cursorBeforeClose {
+				e.hasBracketMatch = true
+				e.bracketOpenRow = openRow
+				e.bracketOpenCol = openCol
+				e.bracketCloseRow = closeRow
+				e.bracketCloseCol = closeCol
+			}
+		}
+	}
+}
+
+// findEnclosingOpenBracket searches backwards for the nearest unmatched opening bracket.
+func (e *CodeEditor) findEnclosingOpenBracket() (row, col int, bracket rune) {
+	lines := e.buffer.GetLines()
+	row = e.cursorRow
+	col = e.cursorCol - 1
+	linesSearched := 0
+
+	// Track depth for each bracket type
+	depth := make(map[rune]int)
+
+	for row >= 0 && linesSearched < maxBracketSearchLines {
+		line := []rune(lines[row])
+
+		for col >= 0 {
+			ch := line[col]
+
+			// If it's a closing bracket, increase depth
+			if openBracket, isClosing := closingBrackets[ch]; isClosing {
+				depth[openBracket]++
+			}
+
+			// If it's an opening bracket
+			if _, isOpening := bracketPairs[ch]; isOpening {
+				if depth[ch] > 0 {
+					depth[ch]--
+				} else {
+					// Found an unmatched opening bracket
+					return row, col, ch
+				}
+			}
+
+			col--
+		}
+
+		row--
+		linesSearched++
+		if row >= 0 {
+			col = len([]rune(lines[row])) - 1
+		}
+	}
+
+	return -1, -1, 0
+}
+
+// maxBracketSearchLines limits bracket matching search distance.
+const maxBracketSearchLines = 500
+
+// findMatchingBracket searches for the matching bracket in the given direction.
+func (e *CodeEditor) findMatchingBracket(startRow, startCol int, currentBracket, targetBracket rune, direction int) (int, int) {
+	depth := 1
+	lines := e.buffer.GetLines()
+	row := startRow
+	col := startCol
+	linesSearched := 0
+
+	for row >= 0 && row < len(lines) && linesSearched < maxBracketSearchLines {
+		line := []rune(lines[row])
+
+		if direction > 0 {
+			col++
+		} else {
+			col--
+		}
+
+		for col >= 0 && col < len(line) {
+			ch := line[col]
+			if ch == currentBracket {
+				depth++
+			} else if ch == targetBracket {
+				depth--
+				if depth == 0 {
+					return row, col
+				}
+			}
+
+			if direction > 0 {
+				col++
+			} else {
+				col--
+			}
+		}
+
+		row += direction
+		linesSearched++
+		if row >= 0 && row < len(lines) {
+			if direction > 0 {
+				col = 0
+			} else {
+				col = len([]rune(lines[row])) - 1
+			}
+		}
+	}
+
+	return -1, -1
+}
+
+// updateWordOccurrences finds all occurrences of the word under cursor.
+func (e *CodeEditor) updateWordOccurrences() {
+	e.currentWord = ""
+	e.wordOccurrences = nil
+
+	word := e.getWordUnderCursor()
+	if word == "" || len(word) < 2 {
+		return
+	}
+
+	e.currentWord = word
+	lines := e.buffer.GetLines()
+
+	startLine := e.offsetRow
+	endLine := e.offsetRow + e.viewportHeight
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+
+	for row := startLine; row < endLine; row++ {
+		line := lines[row]
+		runes := []rune(line)
+		wordRunes := []rune(word)
+
+		for col := 0; col <= len(runes)-len(wordRunes); col++ {
+			if e.matchesWordAt(runes, wordRunes, col) {
+				e.wordOccurrences = append(e.wordOccurrences, wordOccurrence{
+					row:      row,
+					startCol: col,
+					endCol:   col + len(wordRunes),
+				})
+			}
+		}
+	}
+}
+
+// selectCurrentLine selects the entire current line.
+func (e *CodeEditor) selectCurrentLine() {
+	lineLen := e.buffer.GetLineLength(e.cursorRow)
+	e.selection.Start(e.cursorRow, 0)
+	e.selection.Extend(e.cursorRow, lineLen)
+	e.cursorCol = lineLen
+}
+
+// selectWordUnderCursor selects the word at the cursor position.
+func (e *CodeEditor) selectWordUnderCursor() {
+	line := e.buffer.GetLine(e.cursorRow)
+
+	if len(line) == 0 {
+		return
+	}
+
+	col := e.cursorCol
+	if col >= len(line) {
+		col = len(line) - 1
+	}
+	if col < 0 {
+		return
+	}
+
+	if !isWordChar(line[col]) {
+		return
+	}
+
+	start := col
+	for start > 0 && isWordChar(line[start-1]) {
+		start--
+	}
+
+	end := col
+	for end < len(line)-1 && isWordChar(line[end+1]) {
+		end++
+	}
+	end++ // end is exclusive
+
+	e.selection.Start(e.cursorRow, start)
+	e.selection.Extend(e.cursorRow, end)
+	e.cursorCol = end
+}
+
+// getWordUnderCursor returns the word at the cursor position.
+func (e *CodeEditor) getWordUnderCursor() string {
+	line := e.buffer.GetLine(e.cursorRow)
+	runes := []rune(line)
+
+	if len(runes) == 0 {
+		return ""
+	}
+
+	col := e.cursorCol
+	if col >= len(runes) {
+		col = len(runes) - 1
+	}
+	if col < 0 {
+		return ""
+	}
+
+	if !isWordChar(runes[col]) {
+		return ""
+	}
+
+	start := col
+	for start > 0 && isWordChar(runes[start-1]) {
+		start--
+	}
+
+	end := col
+	for end < len(runes)-1 && isWordChar(runes[end+1]) {
+		end++
+	}
+
+	return string(runes[start : end+1])
+}
+
+// matchesWordAt checks if a word matches at the given position with word boundaries.
+func (e *CodeEditor) matchesWordAt(line, word []rune, pos int) bool {
+	if pos > 0 && isWordChar(line[pos-1]) {
+		return false
+	}
+
+	endPos := pos + len(word)
+	if endPos < len(line) && isWordChar(line[endPos]) {
+		return false
+	}
+
+	for i, r := range word {
+		if line[pos+i] != r {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isWordOccurrence checks if a position is part of a word occurrence.
+func (e *CodeEditor) isWordOccurrence(row, col int) bool {
+	if e.currentWord == "" {
+		return false
+	}
+
+	for _, occ := range e.wordOccurrences {
+		if occ.row == row && col >= occ.startCol && col < occ.endCol {
+			return true
+		}
+	}
+	return false
+}
+
+// updateIndentGuide calculates the indentation guide column and block range.
+func (e *CodeEditor) updateIndentGuide() {
+	e.indentGuideCol = -1
+	e.indentGuideStartRow = -1
+	e.indentGuideEndRow = -1
+
+	// Use bracket match for block boundaries if available
+	if e.hasBracketMatch && e.bracketOpenRow >= 0 && e.bracketCloseRow >= 0 {
+		// Get indentation from the line with the opening bracket
+		openLine := e.buffer.GetLine(e.bracketOpenRow)
+		indent := e.getLineIndent(openLine)
+
+		if indent >= 0 {
+			e.indentGuideCol = indent
+			e.indentGuideStartRow = e.bracketOpenRow
+			e.indentGuideEndRow = e.bracketCloseRow
+		}
+		return
+	}
+
+	// Fallback: use current line's indentation (no block range)
+	line := e.buffer.GetLine(e.cursorRow)
+	indent := e.getLineIndent(line)
+	if indent > 0 {
+		e.indentGuideCol = indent
+	}
+}
+
+// shouldShowIndentGuide returns true if the indent guide should be shown for the given row.
+func (e *CodeEditor) shouldShowIndentGuide(row int) bool {
+	if e.indentGuideCol <= 0 {
+		return false
+	}
+
+	// If we have block boundaries, only show within the block
+	if e.indentGuideStartRow >= 0 && e.indentGuideEndRow >= 0 {
+		return row >= e.indentGuideStartRow && row <= e.indentGuideEndRow
+	}
+
+	// Fallback: always show (no block boundaries)
+	return true
+}
+
+// getLineIndent returns the visual indentation level of a line.
+func (e *CodeEditor) getLineIndent(line []rune) int {
+	if len(line) == 0 {
+		return -1
+	}
+
+	indent := 0
+	tabSize := e.buffer.GetTabSize()
+	for _, ch := range line {
+		if ch == ' ' {
+			indent++
+		} else if ch == '\t' {
+			indent = ((indent / tabSize) + 1) * tabSize
+		} else {
+			break
+		}
+	}
+
+	return indent
+}
+
+// isBracketHighlight checks if a position should be highlighted as a matching bracket.
+func (e *CodeEditor) isBracketHighlight(row, col int) bool {
+	if !e.hasBracketMatch {
+		return false
+	}
+
+	if row == e.bracketOpenRow && col == e.bracketOpenCol {
+		return true
+	}
+
+	if row == e.bracketCloseRow && col == e.bracketCloseCol {
+		return true
+	}
+
+	return false
 }
 
 // isSearchMatch checks if a position is part of a search match.
