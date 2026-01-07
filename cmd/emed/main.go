@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"syscall"
-	
+
 	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/ui"
@@ -16,7 +18,14 @@ import (
 
 func main() {
 	os.Setenv("COLORTERM", "truecolor")
-	
+
+	if pprofPort := os.Getenv("EMED_PPROF_PORT"); pprofPort != "" {
+		go func() {
+			addr := "localhost:" + pprofPort
+			http.ListenAndServe(addr, nil)
+		}()
+	}
+
 	var workingDir string
 	
 	if len(os.Args) > 1 {
