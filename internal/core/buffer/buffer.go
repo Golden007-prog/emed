@@ -511,12 +511,16 @@ func (b *TextBuffer) SaveState(cursorRow, cursorCol int) {
 	// Add to undo stack
 	b.undoStack = append(b.undoStack, state)
 	
-	// Limit undo stack size
+	// Limit undo stack size (nil out removed element to allow GC)
 	if len(b.undoStack) > b.maxUndoSize {
+		b.undoStack[0] = BufferState{}
 		b.undoStack = b.undoStack[1:]
 	}
 	
-	// Clear redo stack when new change is made
+	// Clear redo stack when new change is made (properly nil out elements to allow GC)
+	for i := range b.redoStack {
+		b.redoStack[i] = BufferState{}
+	}
 	b.redoStack = b.redoStack[:0]
 }
 
@@ -667,14 +671,15 @@ func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
 	}
 	b.redoStack = append(b.redoStack, currentState)
 	
-	// Pop from undo stack
-	state := b.undoStack[len(b.undoStack)-1]
-	b.undoStack = b.undoStack[:len(b.undoStack)-1]
-	
-	
-	// Restore state without recording undo
+	// Pop from undo stack (nil out to allow GC)
+	lastIdx := len(b.undoStack) - 1
+	state := b.undoStack[lastIdx]
+	b.undoStack[lastIdx] = BufferState{}
+	b.undoStack = b.undoStack[:lastIdx]
+
+	// Restore state without recording undo (no copy needed - we own this state now)
 	b.recordingUndo = false
-	b.lines = copyLines(state.lines)
+	b.lines = state.lines
 	
 	// Check if we're back to the initial state
 	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
@@ -702,13 +707,15 @@ func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	}
 	b.undoStack = append(b.undoStack, currentState)
 	
-	// Pop from redo stack
-	state := b.redoStack[len(b.redoStack)-1]
-	b.redoStack = b.redoStack[:len(b.redoStack)-1]
-	
-	// Restore state without recording undo
+	// Pop from redo stack (nil out to allow GC)
+	lastIdx := len(b.redoStack) - 1
+	state := b.redoStack[lastIdx]
+	b.redoStack[lastIdx] = BufferState{}
+	b.redoStack = b.redoStack[:lastIdx]
+
+	// Restore state without recording undo (no copy needed - we own this state now)
 	b.recordingUndo = false
-	b.lines = copyLines(state.lines)
+	b.lines = state.lines
 	
 	// Check if we're back to the initial state
 	if b.initialState != nil && linesEqual(b.lines, b.initialState) {
