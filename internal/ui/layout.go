@@ -807,22 +807,24 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 	
 	gitHeadChanged := false
 	
+	deletedFiles := make(map[string]bool)
+
 	for _, change := range changes {
 		if strings.HasSuffix(change.Path, ".git/HEAD") {
 			gitHeadChanged = true
 			continue
 		}
-		
+
 		dir := filepath.Dir(change.Path)
 		dirsToRefresh[dir] = true
-		
+
 		switch change.Type {
 		case FileModified:
 			if !strings.HasSuffix(change.Path, "/") {
 				modifiedFiles[change.Path] = true
 			}
 		case FileDeleted:
-			l.editor.HandleFileDeleted(change.Path)
+			deletedFiles[change.Path] = true
 		}
 	}
 	
@@ -836,6 +838,14 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 	
 	for filePath := range modifiedFiles {
 		l.editor.HandleFileModified(filePath)
+	}
+
+	for filePath := range deletedFiles {
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			l.editor.HandleFileDeleted(filePath)
+		} else {
+			l.editor.HandleFileModified(filePath)
+		}
 	}
 }
 
