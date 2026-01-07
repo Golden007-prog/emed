@@ -68,16 +68,16 @@ const (
 	RenderBatchSize = 1000
 )
 
-// CodeFileExtensions contains file extensions recognized as code files.
+// CodeFileExtensions contains file extensions recognized as code/text files.
 var CodeFileExtensions = []string{
 	".go", ".py", ".js", ".ts", ".jsx", ".tsx",
 	".java", ".c", ".cpp", ".h", ".hpp", ".cs",
 	".rb", ".php", ".swift", ".kt", ".rs", ".scala",
 	".sh", ".bash", ".zsh", ".fish", ".ps1",
 	".html", ".css", ".scss", ".sass", ".less",
-	".json", ".xml", ".yaml", ".yml", ".toml",
-	".sql", ".graphql", ".proto",
-	".md", ".txt", ".log",
+	".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
+	".sql", ".graphql", ".proto", ".lua", ".vim", ".r",
+	".md", ".markdown", ".rst", ".txt", ".log",
 }
 
 // Git Commands

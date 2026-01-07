@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
-
+	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/filemanager"
 	"github.com/rivo/tview"
 )
@@ -72,19 +72,11 @@ func naturalLess(a, b string) bool {
 // hasCodeExtension checks if a filename has a code-related extension.
 func hasCodeExtension(filename string) bool {
 	lower := strings.ToLower(filename)
-	extensions := []string{
-		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rb", ".java", ".c", ".cpp", ".h", ".hpp",
-		".rs", ".sh", ".bash", ".zsh", ".fish", ".php", ".html", ".css", ".scss", ".sass",
-		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config",
-		".md", ".markdown", ".rst", ".txt", ".vim", ".lua", ".sql", ".r",
-	}
-
-	for _, ext := range extensions {
+	for _, ext := range config.CodeFileExtensions {
 		if strings.HasSuffix(lower, ext) {
 			return true
 		}
 	}
-
 	return false
 }
 
