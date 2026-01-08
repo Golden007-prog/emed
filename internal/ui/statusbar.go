@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
@@ -27,12 +30,16 @@ type StatusBar struct {
 	leftText      string
 	rightText     string
 	gitUpdating   bool
+	rssBytes      uint64
+	rssMu         sync.RWMutex
+	rssStopChan   chan struct{}
 }
 
 // NewStatusBar creates a new status bar with project information.
 func NewStatusBar() *StatusBar {
 	sb := &StatusBar{
-		TextView: tview.NewTextView(),
+		TextView:    tview.NewTextView(),
+		rssStopChan: make(chan struct{}),
 	}
 
 	sb.
@@ -46,11 +53,47 @@ func NewStatusBar() *StatusBar {
 	}
 	sb.projectPath = filepath.Base(cwd)
 
+	sb.updateRSS()
+
 	go sb.updateGitBranch()
+	go sb.rssMonitorLoop()
 
 	sb.updateTextParts()
 
 	return sb
+}
+
+func (sb *StatusBar) updateRSS() {
+	var rusage syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &rusage); err != nil {
+		return
+	}
+	sb.rssMu.Lock()
+	sb.rssBytes = uint64(rusage.Maxrss)
+	sb.rssMu.Unlock()
+}
+
+func (sb *StatusBar) rssMonitorLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-sb.rssStopChan:
+			return
+		case <-ticker.C:
+			sb.updateRSS()
+			sb.updateTextParts()
+			if sb.app != nil {
+				sb.app.QueueUpdateDraw(func() {})
+			}
+		}
+	}
+}
+
+// Stop stops the RSS monitor goroutine.
+func (sb *StatusBar) Stop() {
+	close(sb.rssStopChan)
 }
 
 func (sb *StatusBar) updateGitBranch() {
@@ -110,11 +153,34 @@ func (sb *StatusBar) updateTextParts() {
 		parts = append(parts, fmt.Sprintf("watching: %d dirs", sb.watchedDirs))
 	}
 
+	sb.rssMu.RLock()
+	rss := sb.rssBytes
+	sb.rssMu.RUnlock()
+	if rss > 0 {
+		parts = append(parts, fmt.Sprintf("rss: %s", sb.formatRSS(rss)))
+	}
+
 	parts = append(parts, "[blue]F1 for help[-]")
 
 	sb.leftText = strings.Join(parts, " | ")
 
 	sb.rightText = fmt.Sprintf("%s v%s", config.AppName, config.Version)
+}
+
+func (sb *StatusBar) formatRSS(b uint64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case b >= GB:
+		return fmt.Sprintf("%.1fG", float64(b)/GB)
+	case b >= MB:
+		return fmt.Sprintf("%.1fM", float64(b)/MB)
+	default:
+		return fmt.Sprintf("%.1fK", float64(b)/KB)
+	}
 }
 
 // Draw renders the status bar to the screen.

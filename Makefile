@@ -6,7 +6,7 @@ MAIN_PATH=cmd/emed/main.go
 
 # Build variables
 BUILD_DIR=build
-INSTALL_PATH=/usr/local/bin
+INSTALL_PATH ?= /usr/local/bin
 
 # Go commands
 GOCMD=go
@@ -47,6 +47,7 @@ run: build
 
 # Install the binary
 install: build
+	sudo install -d $(INSTALL_PATH)
 	sudo install -m 755 $(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
 
 # Clean build artifacts

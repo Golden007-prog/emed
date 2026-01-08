@@ -382,6 +382,7 @@ func (l *Layout) getHelpText() string {
 
 [blue]GENERAL:[-]
   F1             Show This Help
+  F8             Show Performance Stats
   Ctrl+Q         Quit
 
 [blue]FILE MANAGEMENT:[-]
@@ -501,6 +502,9 @@ func (l *Layout) setupKeybindings() {
 			if l.terminal.HasTabs() {
 				l.cycleProportion()
 			}
+			return nil
+		case tcell.KeyF8:
+			ShowMemStatsModal(l.app, l.fileWatcher)
 			return nil
 		}
 		
