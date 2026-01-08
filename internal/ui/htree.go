@@ -901,6 +901,7 @@ func (t *HTree) RefreshNode(node *HTreeNode) {
 
 	node.Children = nil
 	t.loadChildren(node)
+	t.visibleNodesDirty = true
 
 	t.restoreExpansionState(node, expandedPaths)
 
