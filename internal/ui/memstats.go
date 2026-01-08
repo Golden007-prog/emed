@@ -209,7 +209,11 @@ func getRSSBytes() uint64 {
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &rusage); err != nil {
 		return 0
 	}
-	return uint64(rusage.Maxrss)
+	rss := uint64(rusage.Maxrss)
+	if runtime.GOOS == "linux" {
+		rss *= 1024
+	}
+	return rss
 }
 
 // ShowMemStatsModal displays a modal with memory and performance statistics.

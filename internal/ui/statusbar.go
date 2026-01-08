@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,8 +69,12 @@ func (sb *StatusBar) updateRSS() {
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &rusage); err != nil {
 		return
 	}
+	rss := uint64(rusage.Maxrss)
+	if runtime.GOOS == "linux" {
+		rss *= 1024
+	}
 	sb.rssMu.Lock()
-	sb.rssBytes = uint64(rusage.Maxrss)
+	sb.rssBytes = rss
 	sb.rssMu.Unlock()
 }
 
