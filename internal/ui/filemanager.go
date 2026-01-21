@@ -4,13 +4,12 @@ package ui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
+	coreclipboard "github.com/laborin/emed/internal/core/clipboard"
 	"github.com/laborin/emed/internal/filemanager/clipboard"
 	"github.com/laborin/emed/internal/filemanager/operations"
 	"github.com/laborin/emed/internal/logging"
@@ -68,16 +67,18 @@ func NewFileManager() *FileManager {
 
 	fm.loadInitialDirectory()
 
-	fm.htree.SetSelectedFunc(func(node *HTreeNode) {
+	fm.htree.SetSelectedFunc(func(node *HTreeNode, fromMouse bool) {
 		if !node.IsDir {
 			if fm.isBinaryFile(node.Path) {
 				fm.showBinaryFileDialog(node)
 				return
 			}
-			if fm.onFilePreview != nil {
+			if fromMouse && fm.onFilePreview != nil {
 				fm.onFilePreview(node.Path)
 			} else if fm.onFileSelected != nil {
 				fm.onFileSelected(node.Path)
+			} else if fm.onFilePreview != nil {
+				fm.onFilePreview(node.Path)
 			}
 		}
 	})
@@ -339,7 +340,7 @@ func (fm *FileManager) CreateNewDirectory() {
 	fullPath := filepath.Join(targetDir, dirName)
 	
 	if fm.app != nil {
-		fm.scheduleRefreshAndSelect(targetDir, fullPath)
+		fm.scheduleRefreshAndSelect(targetDir, fullPath, true)
 	}
 }
 
@@ -376,11 +377,11 @@ func (fm *FileManager) CreateNewFile() {
 	fullPath := filepath.Join(targetDir, fileName)
 	
 	if fm.app != nil {
-		fm.scheduleRefreshAndSelect(targetDir, fullPath)
+		fm.scheduleRefreshAndSelect(targetDir, fullPath, true)
 	}
 }
 
-func (fm *FileManager) scheduleRefreshAndSelect(targetDir, fullPath string) {
+func (fm *FileManager) scheduleRefreshAndSelect(targetDir, fullPath string, rename bool) {
 	go func() {
 		fm.app.QueueUpdateDraw(func() {
 			targetNode := fm.htree.FindNodeByPath(targetDir)
@@ -396,6 +397,9 @@ func (fm *FileManager) scheduleRefreshAndSelect(targetDir, fullPath string) {
 				if newNode != nil {
 					fm.htree.SetCurrentNode(newNode)
 					fm.app.SetFocus(fm.htree)
+					if rename {
+						fm.RenameSelected(nil)
+					}
 				}
 			}
 		})
@@ -563,9 +567,12 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 		SetText("New name:").
 		SetTextAlign(tview.AlignLeft)
 	
-	inputField := tview.NewInputField().
-		SetText(oldName).
-		SetFieldWidth(45)
+	inputArea := tview.NewTextArea().
+		SetText(oldName, true).
+		SetWrap(false)
+	inputArea.SetTextStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	inputArea.SetBackgroundColor(tcell.ColorBlack)
+	inputArea.Select(0, len(oldName))
 	
 	content.
 		AddItem(nil, 1, 0, false).
@@ -575,55 +582,63 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 			AddItem(nil, 2, 0, false), 1, 0, false).
 		AddItem(tview.NewFlex().
 			AddItem(nil, 2, 0, false).
-			AddItem(inputField, 0, 1, true).
+			AddItem(inputArea, 0, 1, true).
 			AddItem(nil, 2, 0, false), 1, 0, true).
 		AddItem(nil, 1, 0, false)
 	
-	inputField.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
-			newName := inputField.GetText()
-			if newName != "" && newName != oldName {
-				err := fm.fileOps.RenamePath(oldPath, newName)
-				if err == nil {
-					newPath := filepath.Join(filepath.Dir(oldPath), newName)
-					
-									if fm.onFileRenamed != nil {
-						fm.onFileRenamed(oldPath, newPath)
-					}
-					
-					modal.Close()
-					if parentModalWrapper != nil {
-						parentModalWrapper.Close()
-					}
-					
-									if fm.app != nil {
-						go func() {
-							fm.app.QueueUpdateDraw(func() {
-								parentPath := filepath.Dir(newPath)
-								parentNode := fm.htree.FindNodeByPath(parentPath)
-								if parentNode != nil {
-									fm.htree.RefreshNode(parentNode)
-									renamedNode := fm.htree.FindNodeByPath(newPath)
-									if renamedNode != nil {
-										fm.htree.SetCurrentNode(renamedNode)
-									}
+	applyRename := func() {
+		newName := inputArea.GetText()
+		if newName != "" && newName != oldName {
+			err := fm.fileOps.RenamePath(oldPath, newName)
+			if err == nil {
+				newPath := filepath.Join(filepath.Dir(oldPath), newName)
+				
+				if fm.onFileRenamed != nil {
+					fm.onFileRenamed(oldPath, newPath)
+				}
+				
+				modal.Close()
+				if parentModalWrapper != nil {
+					parentModalWrapper.Close()
+				}
+				
+				if fm.app != nil {
+					go func() {
+						fm.app.QueueUpdateDraw(func() {
+							parentPath := filepath.Dir(newPath)
+							parentNode := fm.htree.FindNodeByPath(parentPath)
+							if parentNode != nil {
+								fm.htree.RefreshNode(parentNode)
+								renamedNode := fm.htree.FindNodeByPath(newPath)
+								if renamedNode != nil {
+									fm.htree.SetCurrentNode(renamedNode)
 								}
-							})
-						}()
-					}
-				} else {
-					modal.Close()
+							}
+						})
+					}()
 				}
 			} else {
 				modal.Close()
 			}
-		} else if key == tcell.KeyEscape {
-			modal.Cancel()
+		} else {
+			modal.Close()
 		}
+	}
+	
+	inputArea.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEnter:
+			applyRename()
+			return nil
+		case tcell.KeyEscape:
+			modal.Cancel()
+			return nil
+		}
+		return event
 	})
 	
 	modal.Show()
-	fm.app.SetFocus(inputField)
+	fm.app.SetFocus(inputArea)
 }
 
 // DeleteSelected shows a confirmation dialog and deletes the selected item.
@@ -936,43 +951,10 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 }
 
 func copyToSystemClipboard(text string) error {
-	var cmd *exec.Cmd
-	
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("pbcopy")
-	case "linux":
-		if _, err := exec.LookPath("xclip"); err == nil {
-			cmd = exec.Command("xclip", "-selection", "clipboard")
-		} else if _, err := exec.LookPath("xsel"); err == nil {
-			cmd = exec.Command("xsel", "--clipboard", "--input")
-		} else {
-			return fmt.Errorf("no clipboard utility found")
-		}
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "clip")
-	default:
-		return fmt.Errorf("unsupported platform")
+	if text == "" {
+		return nil
 	}
-	
-	pipe, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	
-	if _, err := pipe.Write([]byte(text)); err != nil {
-		return err
-	}
-	
-	if err := pipe.Close(); err != nil {
-		return err
-	}
-	
-	return cmd.Wait()
+	return coreclipboard.New().Copy(text)
 }
 
 // RevealFile expands directories and selects the file in the tree.

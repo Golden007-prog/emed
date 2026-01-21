@@ -211,7 +211,7 @@ type HTree struct {
 	scrollX        int
 	freeScrollMode bool
 
-	onSelected        func(node *HTreeNode)
+	onSelected        func(node *HTreeNode, fromMouse bool)
 	onInfo            func(node *HTreeNode)
 	onCreateFile      func(node *HTreeNode)
 	onCreateDirectory func(node *HTreeNode)
@@ -601,7 +601,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 					t.loadChildren(t.selected)
 				}
 			} else if t.onSelected != nil {
-				t.onSelected(t.selected)
+				t.onSelected(t.selected, false)
 			}
 		case tcell.KeyCtrlN:
 			if event.Modifiers() == (tcell.ModCtrl | tcell.ModAlt) {
@@ -752,7 +752,7 @@ func (t *HTree) HasFocus() bool {
 }
 
 // SetSelectedFunc sets the callback for node selection.
-func (t *HTree) SetSelectedFunc(fn func(node *HTreeNode)) *HTree {
+func (t *HTree) SetSelectedFunc(fn func(node *HTreeNode, fromMouse bool)) *HTree {
 	t.onSelected = fn
 	return t
 }
@@ -847,7 +847,7 @@ func (t *HTree) MouseHandler() func(action tview.MouseAction, event *tcell.Event
 							t.loadChildren(clickedNode)
 						}
 					} else if t.onSelected != nil {
-						t.onSelected(clickedNode)
+						t.onSelected(clickedNode, true)
 					}
 				}
 			}
