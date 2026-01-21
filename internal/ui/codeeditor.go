@@ -196,6 +196,8 @@ func (e *CodeEditor) SetContent(content string) {
 	e.offsetRow = 0
 	e.offsetCol = 0
 	e.selection.Clear()
+	e.highlightsDirty = true
+	e.updateHighlighter()
 
 	if e.onModified != nil {
 		e.onModified(false)
@@ -605,6 +607,27 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 	}
 }
 
+func (e *CodeEditor) PasteHandler() func(pastedText string, setFocus func(p tview.Primitive)) {
+	return func(pastedText string, setFocus func(p tview.Primitive)) {
+		if !e.hasFocus || e.readOnly || pastedText == "" {
+			return
+		}
+
+		e.buffer.SaveState(e.cursorRow, e.cursorCol)
+
+		if e.selection.IsActive() {
+			e.deleteSelection()
+		}
+
+		newRow, newCol := e.buffer.InsertText(e.cursorRow, e.cursorCol, pastedText)
+		e.cursorRow = newRow
+		e.cursorCol = newCol
+
+		e.setModified(true)
+		e.ensureCursorVisible()
+	}
+}
+
 func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 	modifiers := event.Modifiers()
 	shiftHeld := modifiers&tcell.ModShift != 0
@@ -824,7 +847,8 @@ func (e *CodeEditor) scrollRight(cols int) {
 			maxVisualLength = visualLength
 		}
 	}
-	maxOffset := maxVisualLength - e.viewportWidth
+	extraOffset := 40
+	maxOffset := maxVisualLength - e.viewportWidth + extraOffset
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -1105,59 +1129,104 @@ func hasEmojiVariationSelector(runes []rune) bool {
 }
 
 func (e *CodeEditor) wordLeft() {
-	line := e.buffer.GetLine(e.cursorRow)
-	runes := []rune(line)
-
-	if e.cursorCol > len(runes) {
-		e.cursorCol = len(runes)
+	row := e.cursorRow
+	col := e.cursorCol
+	lineCount := e.buffer.GetLineCount()
+	if lineCount == 0 {
+		return
 	}
 
-	if e.cursorCol == 0 {
-		if e.cursorRow > 0 {
-			e.cursorRow--
-			e.cursorCol = e.buffer.GetLineLength(e.cursorRow)
-		}
-	} else {
-		e.cursorCol--
-
-		for e.cursorCol > 0 && !isWordChar(runes[e.cursorCol]) {
-			e.cursorCol--
-		}
-
-		for e.cursorCol > 0 && isWordChar(runes[e.cursorCol-1]) {
-			e.cursorCol--
-		}
+	if row >= lineCount {
+		row = lineCount - 1
 	}
+
+	for {
+		line := e.buffer.GetLine(row)
+		runes := []rune(line)
+		if col > len(runes) {
+			col = len(runes)
+		}
+
+		for col > 0 && !isWordChar(runes[col-1]) {
+			col--
+		}
+		if col > 0 {
+			for col > 0 && isWordChar(runes[col-1]) {
+				col--
+			}
+			break
+		}
+
+		if row == 0 {
+			break
+		}
+		row--
+		col = e.buffer.GetLineLength(row)
+	}
+
+	e.cursorRow = row
+	e.cursorCol = col
 
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
 	e.scheduleBlameUpdate()
+	e.ensureCursorVisible()
 }
 
 func (e *CodeEditor) wordRight() {
-	line := e.buffer.GetLine(e.cursorRow)
-	runes := []rune(line)
+	row := e.cursorRow
+	col := e.cursorCol
+	lineCount := e.buffer.GetLineCount()
+	if lineCount == 0 {
+		return
+	}
 
-	if e.cursorCol >= len(runes) {
-		if e.cursorRow < e.buffer.GetLineCount()-1 {
-			e.cursorRow++
-			e.cursorCol = 0
-		}
-	} else {
-		for e.cursorCol < len(runes) && isWordChar(runes[e.cursorCol]) {
-			e.cursorCol++
+	if row < 0 {
+		row = 0
+	}
+
+	for {
+		line := e.buffer.GetLine(row)
+		runes := []rune(line)
+		if col > len(runes) {
+			col = len(runes)
 		}
 
-		for e.cursorCol < len(runes) && !isWordChar(runes[e.cursorCol]) {
-			e.cursorCol++
+		if col < len(runes) && isWordChar(runes[col]) {
+			for col < len(runes) && isWordChar(runes[col]) {
+				col++
+			}
+		}
+
+		for {
+			for col < len(runes) && !isWordChar(runes[col]) {
+				col++
+			}
+			if col < len(runes) {
+				e.cursorRow = row
+				e.cursorCol = col
+				goto done
+			}
+			if row >= lineCount-1 {
+				e.cursorRow = row
+				e.cursorCol = len(runes)
+				goto done
+			}
+			row++
+			col = 0
+			line = e.buffer.GetLine(row)
+			runes = []rune(line)
 		}
 	}
+
+done:
 
 	if e.onCursorMove != nil {
 		e.onCursorMove(e.cursorRow, e.cursorCol)
 	}
 	e.scheduleBlameUpdate()
+	e.ensureCursorVisible()
 }
 
 // Focus sets focus to the code editor.
@@ -1205,24 +1274,24 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				return true, nil
 			}
 
-			switch action {
-			case tview.MouseScrollUp:
-				modifiers := event.Modifiers()
-				if modifiers&tcell.ModAlt != 0 {
-					e.scrollLeft(5)
-				} else {
-					e.scrollUp(1)
-				}
-				return true, nil
+		switch action {
+		case tview.MouseScrollUp:
+			modifiers := event.Modifiers()
+			if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
+				e.scrollLeft(5)
+			} else {
+				e.scrollUp(1)
+			}
+			return true, nil
 
-			case tview.MouseScrollDown:
-				modifiers := event.Modifiers()
-				if modifiers&tcell.ModAlt != 0 {
-					e.scrollRight(5)
-				} else {
-					e.scrollDown(1)
-				}
-				return true, nil
+		case tview.MouseScrollDown:
+			modifiers := event.Modifiers()
+			if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
+				e.scrollRight(5)
+			} else {
+				e.scrollDown(1)
+			}
+			return true, nil
 
 			case tview.MouseScrollLeft:
 				e.scrollLeft(5)
