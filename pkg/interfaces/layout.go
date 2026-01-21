@@ -11,14 +11,14 @@ type LayoutManagerInterface interface {
 	SetFileManager(fileManager FileManagerInterface)
 	GetTerminal() TerminalInterface
 	GetFileManager() FileManagerInterface
-	
+
 	// Focus management
 	FocusEditor()
 	FocusTerminal()
 	FocusFileManager()
 	GetFocusedComponent() ComponentType
 	CycleFocus()
-	
+
 	// Layout control
 	SetProportions(editorWidth, terminalHeight int)
 	GetProportions() (editorWidth, terminalHeight int)
@@ -26,22 +26,22 @@ type LayoutManagerInterface interface {
 	SetTerminalPosition(position TerminalPosition)
 	GetTerminalPosition() TerminalPosition
 	ToggleTerminalPosition()
-	
+
 	// Visibility
 	ShowTerminal()
 	HideTerminal()
 	ToggleTerminal()
 	IsTerminalVisible() bool
-	
+
 	// Status bar
 	SetStatusBar(statusBar StatusBarInterface)
 	GetStatusBar() StatusBarInterface
-	
+
 	// Application
 	GetApplication() *tview.Application
 	Run() error
 	Stop()
-	
+
 	// Events
 	OnComponentFocused(handler func(component ComponentType))
 	OnLayoutChanged(handler func())

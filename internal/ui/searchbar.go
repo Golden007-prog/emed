@@ -17,16 +17,16 @@ type SearchBar struct {
 	caseSensitive *tview.Checkbox
 	wholeWord     *tview.Checkbox
 	useRegex      *tview.Checkbox
-	
+
 	currentMatch int
 	totalMatches int
-	
-	onSearch      func(text string, caseSensitive, wholeWord, useRegex bool)
-	onReplace     func(searchText, replaceText string)
-	onReplaceAll  func(searchText, replaceText string)
-	onNext        func()
-	onPrevious    func()
-	onClose       func()
+
+	onSearch     func(text string, caseSensitive, wholeWord, useRegex bool)
+	onReplace    func(searchText, replaceText string)
+	onReplaceAll func(searchText, replaceText string)
+	onNext       func()
+	onPrevious   func()
+	onClose      func()
 }
 
 // NewSearchBar creates a new search bar component.
@@ -35,7 +35,7 @@ func NewSearchBar() *SearchBar {
 		Flex:         tview.NewFlex().SetDirection(tview.FlexRow),
 		matchCounter: tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight),
 	}
-	
+
 	sb.form = tview.NewForm()
 	sb.form.SetBorder(true)
 	sb.form.SetBorderColor(tcell.NewRGBColor(102, 102, 102))
@@ -44,7 +44,7 @@ func NewSearchBar() *SearchBar {
 	sb.form.SetBackgroundColor(tcell.ColorBlack)
 	sb.form.SetFieldBackgroundColor(tcell.ColorBlack)
 	sb.form.SetButtonBackgroundColor(tcell.ColorBlack)
-	
+
 	sb.searchInput = tview.NewInputField().
 		SetFieldBackgroundColor(tcell.ColorBlack).
 		SetChangedFunc(func(text string) {
@@ -52,32 +52,32 @@ func NewSearchBar() *SearchBar {
 				sb.onSearch(text, sb.caseSensitive.IsChecked(), sb.wholeWord.IsChecked(), sb.useRegex.IsChecked())
 			}
 		})
-	
+
 	sb.replaceInput = tview.NewInputField().
 		SetFieldBackgroundColor(tcell.ColorBlack)
-	
+
 	sb.caseSensitive = tview.NewCheckbox()
 	sb.wholeWord = tview.NewCheckbox()
 	sb.useRegex = tview.NewCheckbox()
-	
+
 	sb.caseSensitive.SetChangedFunc(func(checked bool) {
 		if sb.onSearch != nil && sb.searchInput.GetText() != "" {
 			sb.onSearch(sb.searchInput.GetText(), checked, sb.wholeWord.IsChecked(), sb.useRegex.IsChecked())
 		}
 	})
-	
+
 	sb.wholeWord.SetChangedFunc(func(checked bool) {
 		if sb.onSearch != nil && sb.searchInput.GetText() != "" {
 			sb.onSearch(sb.searchInput.GetText(), sb.caseSensitive.IsChecked(), checked, sb.useRegex.IsChecked())
 		}
 	})
-	
+
 	sb.useRegex.SetChangedFunc(func(checked bool) {
 		if sb.onSearch != nil && sb.searchInput.GetText() != "" {
 			sb.onSearch(sb.searchInput.GetText(), sb.caseSensitive.IsChecked(), sb.wholeWord.IsChecked(), checked)
 		}
 	})
-	
+
 	sb.form.
 		AddInputField("Find: ", "", 0, nil, nil).
 		AddInputField("Replace: ", "", 0, nil, nil).
@@ -104,7 +104,7 @@ func NewSearchBar() *SearchBar {
 				sb.onReplaceAll(sb.searchInput.GetText(), sb.replaceInput.GetText())
 			}
 		})
-	
+
 	formItem0 := sb.form.GetFormItemByLabel("Find: ")
 	sb.searchInput = formItem0.(*tview.InputField)
 	sb.searchInput.SetChangedFunc(func(text string) {
@@ -112,10 +112,10 @@ func NewSearchBar() *SearchBar {
 			sb.onSearch(text, sb.caseSensitive.IsChecked(), sb.wholeWord.IsChecked(), sb.useRegex.IsChecked())
 		}
 	})
-	
+
 	formItem1 := sb.form.GetFormItemByLabel("Replace: ")
 	sb.replaceInput = formItem1.(*tview.InputField)
-	
+
 	formItem2 := sb.form.GetFormItemByLabel("Case sensitive ")
 	sb.caseSensitive = formItem2.(*tview.Checkbox)
 	sb.caseSensitive.SetChangedFunc(func(checked bool) {
@@ -123,7 +123,7 @@ func NewSearchBar() *SearchBar {
 			sb.onSearch(sb.searchInput.GetText(), checked, sb.wholeWord.IsChecked(), sb.useRegex.IsChecked())
 		}
 	})
-	
+
 	formItem3 := sb.form.GetFormItemByLabel("Whole word ")
 	sb.wholeWord = formItem3.(*tview.Checkbox)
 	sb.wholeWord.SetChangedFunc(func(checked bool) {
@@ -131,7 +131,7 @@ func NewSearchBar() *SearchBar {
 			sb.onSearch(sb.searchInput.GetText(), sb.caseSensitive.IsChecked(), checked, sb.useRegex.IsChecked())
 		}
 	})
-	
+
 	formItem4 := sb.form.GetFormItemByLabel("Regex ")
 	sb.useRegex = formItem4.(*tview.Checkbox)
 	sb.useRegex.SetChangedFunc(func(checked bool) {
@@ -139,21 +139,21 @@ func NewSearchBar() *SearchBar {
 			sb.onSearch(sb.searchInput.GetText(), sb.caseSensitive.IsChecked(), sb.wholeWord.IsChecked(), checked)
 		}
 	})
-	
+
 	sb.form.SetHorizontal(false)
 	sb.form.SetItemPadding(0)
-	
+
 	counterContainer := tview.NewFlex().
 		AddItem(tview.NewBox(), 0, 1, false).
 		AddItem(sb.matchCounter, 20, 0, false).
 		AddItem(tview.NewBox(), 1, 0, false)
-	
+
 	sb.Flex.
 		AddItem(sb.form, 0, 1, true).
 		AddItem(counterContainer, 1, 0, false)
-	
+
 	sb.updateMatchCounter()
-	
+
 	return sb
 }
 
@@ -233,7 +233,7 @@ func (sb *SearchBar) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			}
 			return
 		}
-		
+
 		sb.form.InputHandler()(event, setFocus)
 	})
 }

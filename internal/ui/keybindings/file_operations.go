@@ -5,15 +5,15 @@ import "github.com/gdamore/tcell/v2"
 
 // FileOperationHandlers contains handlers for file operation shortcuts.
 type FileOperationHandlers struct {
-	Save         func() error
-	SaveAs       func() error
-	NewFile      func() error
-	NewFolder    func() error
-	DeleteFile   func() error
-	RenameFile   func() error
-	CopyFile     func() error
-	CutFile      func() error
-	PasteFile    func() error
+	Save       func() error
+	SaveAs     func() error
+	NewFile    func() error
+	NewFolder  func() error
+	DeleteFile func() error
+	RenameFile func() error
+	CopyFile   func() error
+	CutFile    func() error
+	PasteFile  func() error
 }
 
 // RegisterFileOperationHandlers registers file operation keyboard shortcuts with the manager.
@@ -27,7 +27,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.Save,
 		})
 	}
-	
+
 	if handlers.NewFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -37,7 +37,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.NewFile,
 		})
 	}
-	
+
 	if handlers.NewFolder != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -47,7 +47,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.NewFolder,
 		})
 	}
-	
+
 	if handlers.DeleteFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyDelete,
@@ -56,7 +56,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.DeleteFile,
 		})
 	}
-	
+
 	if handlers.RenameFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyF2,
@@ -65,7 +65,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.RenameFile,
 		})
 	}
-	
+
 	if handlers.CopyFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -75,7 +75,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.CopyFile,
 		})
 	}
-	
+
 	if handlers.CutFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -85,7 +85,7 @@ func RegisterFileOperationHandlers(manager *KeyBindingManager, handlers FileOper
 			Handler:     handlers.CutFile,
 		})
 	}
-	
+
 	if handlers.PasteFile != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,

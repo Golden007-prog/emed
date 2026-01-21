@@ -519,4 +519,3 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 	modal.Show()
 	app.SetFocus(closeButton)
 }
-

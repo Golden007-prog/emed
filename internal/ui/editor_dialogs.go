@@ -277,7 +277,7 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 	}
 
 	message := fmt.Sprintf("'%s' has unsaved changes.\n\nDo you want to close it anyway?", fileName)
-	
+
 	config := EmModalConfig{
 		UseFixedSize:    true,
 		FixedWidth:      50,

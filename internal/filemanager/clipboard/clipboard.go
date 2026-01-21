@@ -26,7 +26,7 @@ func New() *Clipboard {
 func (c *Clipboard) Copy(path string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.item = &ClipboardItem{
 		Path:  path,
 		IsCut: false,
@@ -37,7 +37,7 @@ func (c *Clipboard) Copy(path string) {
 func (c *Clipboard) Cut(path string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.item = &ClipboardItem{
 		Path:  path,
 		IsCut: true,
@@ -48,11 +48,11 @@ func (c *Clipboard) Cut(path string) {
 func (c *Clipboard) Get() *ClipboardItem {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	if c.item == nil {
 		return nil
 	}
-	
+
 	return &ClipboardItem{
 		Path:  c.item.Path,
 		IsCut: c.item.IsCut,
@@ -63,7 +63,7 @@ func (c *Clipboard) Get() *ClipboardItem {
 func (c *Clipboard) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.item = nil
 }
 
@@ -71,7 +71,7 @@ func (c *Clipboard) Clear() {
 func (c *Clipboard) HasContent() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return c.item != nil
 }
 
@@ -79,6 +79,6 @@ func (c *Clipboard) HasContent() bool {
 func (c *Clipboard) IsCutOperation() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return c.item != nil && c.item.IsCut
 }

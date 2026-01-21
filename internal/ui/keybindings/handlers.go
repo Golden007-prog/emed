@@ -48,7 +48,7 @@ func (m *KeyBindingManager) HandleKeyEvent(event *tcell.EventKey) (bool, error) 
 			return true, nil
 		}
 	}
-	
+
 	for _, handler := range m.handlers {
 		if m.matchesKey(event, handler) {
 			if err := handler.Handler(); err != nil {
@@ -57,7 +57,7 @@ func (m *KeyBindingManager) HandleKeyEvent(event *tcell.EventKey) (bool, error) 
 			return true, nil
 		}
 	}
-	
+
 	return false, nil
 }
 

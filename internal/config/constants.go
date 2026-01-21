@@ -9,11 +9,11 @@ const (
 	LayoutFileManagerProportion = 20
 	LayoutEditorProportion      = 50
 	LayoutTerminalProportion    = 30
-	
+
 	// Tab display
 	MaxVisibleTabs = 4
 	TabBarHeight   = 1
-	
+
 	// Modal dimensions
 	DefaultModalWidth  = 50
 	DefaultModalHeight = 10
@@ -21,13 +21,13 @@ const (
 	InfoModalHeight    = 20
 )
 
-// File Watcher Constants  
+// File Watcher Constants
 const (
 	// Watcher limits
 	MaxWatchDepth        = 3
 	MaxWatchedDirs       = 500
 	WatcherDebounceDelay = 100 * time.Millisecond
-	
+
 	// Event processing
 	EventBatchSize    = 100
 	EventProcessDelay = 50 * time.Millisecond
@@ -37,7 +37,7 @@ const (
 const (
 	// Log retention
 	LogRetentionDays = 7
-	
+
 	// Log file settings
 	LogFilePermissions = 0644
 	LogDirPermissions  = 0755
@@ -49,7 +49,7 @@ const (
 	TerminalExitAltScreen = "\033[?1049l"
 	TerminalShowCursor    = "\033[?25h"
 	TerminalResetColors   = "\033[0m"
-	
+
 	// Terminal buffer
 	DefaultScrollbackSize = 10000
 )
@@ -57,13 +57,13 @@ const (
 // Editor Constants
 const (
 	// Tab settings
-	DefaultTabSize   = 4
-	DefaultUseTabs   = false
-	DefaultAutoSave  = false
-	
+	DefaultTabSize  = 4
+	DefaultUseTabs  = false
+	DefaultAutoSave = false
+
 	// Search
 	SearchHighlightColor = "[yellow::b]"
-	
+
 	// Performance
 	RenderBatchSize = 1000
 )

@@ -225,9 +225,9 @@ type HTree struct {
 
 	typeAhead *filemanager.TypeAheadBuffer
 
-	marqueeOffset    int
-	marqueeNode      *HTreeNode
-	marqueeLastTick  time.Time
+	marqueeOffset     int
+	marqueeNode       *HTreeNode
+	marqueeLastTick   time.Time
 	marqueeWasFocused bool
 }
 
@@ -991,17 +991,17 @@ func (t *HTree) handleTypeAhead(r rune) {
 	if t.selected == nil {
 		return
 	}
-	
+
 	searchTerm := t.typeAhead.AddChar(r)
 	if searchTerm == "" {
 		return
 	}
-	
+
 	siblings := t.getSiblings()
 	if len(siblings) == 0 {
 		return
 	}
-	
+
 	// First try prefix matching
 	for _, node := range siblings {
 		if t.typeAhead.FileMatch(node.Text, searchTerm) {
@@ -1009,7 +1009,7 @@ func (t *HTree) handleTypeAhead(r rune) {
 			return
 		}
 	}
-	
+
 	// If no prefix match, try contains matching
 	for _, node := range siblings {
 		if t.typeAhead.FileContains(node.Text, searchTerm) {
@@ -1024,16 +1024,16 @@ func (t *HTree) getSiblings() []*HTreeNode {
 	if t.selected == nil {
 		return nil
 	}
-	
+
 	// If root is selected, it has no siblings
 	if t.selected == t.root {
 		return []*HTreeNode{t.root}
 	}
-	
+
 	// Get parent's children (which are the siblings)
 	if t.selected.Parent != nil {
 		return t.selected.Parent.Children
 	}
-	
+
 	return nil
 }

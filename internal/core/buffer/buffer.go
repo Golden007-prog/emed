@@ -561,7 +561,7 @@ func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string
 	if startRow < 0 || startRow >= len(b.lines) || endRow < 0 || endRow >= len(b.lines) {
 		return ""
 	}
-	
+
 	if startRow == endRow {
 		line := b.lines[startRow]
 		if startCol > len(line) {
@@ -572,27 +572,27 @@ func (b *TextBuffer) GetTextRange(startRow, startCol, endRow, endCol int) string
 		}
 		return string(line[startCol:endCol])
 	}
-	
+
 	var result strings.Builder
-	
+
 	startLine := b.lines[startRow]
 	if startCol > len(startLine) {
 		startCol = len(startLine)
 	}
 	result.WriteString(string(startLine[startCol:]))
 	result.WriteString("\n")
-	
+
 	for i := startRow + 1; i < endRow; i++ {
 		result.WriteString(string(b.lines[i]))
 		result.WriteString("\n")
 	}
-	
+
 	endLine := b.lines[endRow]
 	if endCol > len(endLine) {
 		endCol = len(endLine)
 	}
 	result.WriteString(string(endLine[:endCol]))
-	
+
 	return result.String()
 }
 
@@ -703,7 +703,7 @@ func (b *TextBuffer) NextMatch() (row, col int, found bool) {
 	if len(b.searchMatches) == 0 {
 		return 0, 0, false
 	}
-	
+
 	b.currentMatch = (b.currentMatch + 1) % len(b.searchMatches)
 	match := b.searchMatches[b.currentMatch]
 	return match.StartRow, match.StartCol, true
@@ -714,7 +714,7 @@ func (b *TextBuffer) PreviousMatch() (row, col int, found bool) {
 	if len(b.searchMatches) == 0 {
 		return 0, 0, false
 	}
-	
+
 	b.currentMatch--
 	if b.currentMatch < 0 {
 		b.currentMatch = len(b.searchMatches) - 1
@@ -736,39 +736,39 @@ func (b *TextBuffer) ReplaceCurrentMatch(replacement string) bool {
 	if len(b.searchMatches) == 0 || b.currentMatch >= len(b.searchMatches) {
 		return false
 	}
-	
+
 	match := b.searchMatches[b.currentMatch]
 	if match.StartRow != match.EndRow {
 		return false
 	}
-	
+
 	b.SaveState(match.StartRow, match.StartCol)
-	
+
 	actualReplacement := replacement
 	if b.searchRegex != nil {
 		matchedText := string(b.lines[match.StartRow][match.StartCol:match.EndCol])
 		actualReplacement = b.searchRegex.ReplaceAllString(matchedText, replacement)
 	}
-	
+
 	b.DeleteRange(match.StartRow, match.StartCol, match.EndRow, match.EndCol)
 	b.InsertText(match.StartRow, match.StartCol, actualReplacement)
-	
+
 	replacementLen := len([]rune(actualReplacement))
 	matchLen := match.EndCol - match.StartCol
 	adjustment := replacementLen - matchLen
-	
+
 	for i := b.currentMatch + 1; i < len(b.searchMatches); i++ {
 		if b.searchMatches[i].StartRow == match.StartRow {
 			b.searchMatches[i].StartCol += adjustment
 			b.searchMatches[i].EndCol += adjustment
 		}
 	}
-	
+
 	b.searchMatches = append(b.searchMatches[:b.currentMatch], b.searchMatches[b.currentMatch+1:]...)
 	if b.currentMatch >= len(b.searchMatches) && len(b.searchMatches) > 0 {
 		b.currentMatch = len(b.searchMatches) - 1
 	}
-	
+
 	return true
 }
 
@@ -777,31 +777,31 @@ func (b *TextBuffer) ReplaceAllMatches(replacement string) int {
 	if len(b.searchMatches) == 0 {
 		return 0
 	}
-	
+
 	b.SaveState(0, 0)
-	
+
 	count := 0
-	
+
 	for i := len(b.searchMatches) - 1; i >= 0; i-- {
 		match := b.searchMatches[i]
 		if match.StartRow != match.EndRow {
 			continue
 		}
-		
+
 		actualReplacement := replacement
 		if b.searchRegex != nil {
 			matchedText := string(b.lines[match.StartRow][match.StartCol:match.EndCol])
 			actualReplacement = b.searchRegex.ReplaceAllString(matchedText, replacement)
 		}
-		
+
 		b.DeleteRange(match.StartRow, match.StartCol, match.EndRow, match.EndCol)
 		b.InsertText(match.StartRow, match.StartCol, actualReplacement)
 		count++
 	}
-	
+
 	b.searchMatches = nil
 	b.currentMatch = 0
-	
+
 	return count
 }
 

@@ -29,7 +29,7 @@ func (m *MouseFocusDetector) MouseHandler() func(action tview.MouseAction, event
 		if handler := m.Primitive.MouseHandler(); handler != nil {
 			consumed, capture = handler(action, event, setFocus)
 		}
-		
+
 		if action == tview.MouseLeftClick || action == tview.MouseLeftDown {
 			go func() {
 				time.Sleep(10 * time.Millisecond)
@@ -38,7 +38,7 @@ func (m *MouseFocusDetector) MouseHandler() func(action tview.MouseAction, event
 				})
 			}()
 		}
-		
+
 		return consumed, capture
 	}
 }
@@ -65,9 +65,9 @@ type Layout struct {
 	proportionDir    int
 
 	// Project search
-	projectSearchModal *ProjectSearchModal
+	projectSearchModal        *ProjectSearchModal
 	projectSearchModalWrapper *modalWrapper
-	projectSearchState struct {
+	projectSearchState        struct {
 		searchTerm    string
 		replaceTerm   string
 		caseSensitive bool
@@ -98,12 +98,12 @@ func NewLayout(app *tview.Application) *Layout {
 		proportionDir:    1,
 		fileManagerWidth: 30,
 	}
-	
+
 	l.fileManager = NewFileManager()
 	l.editor = NewEditor()
 	l.terminal = NewTerminal()
 	l.statusBar = NewStatusBar()
-	
+
 	l.initialize()
 	return l
 }
@@ -112,7 +112,7 @@ func (l *Layout) initialize() {
 	l.editor.SetApp(l.app)
 	l.terminal.SetApp(l.app)
 	l.statusBar.SetApp(l.app)
-	
+
 	l.editor.SetOnLastTabClosed(func() {
 		l.rebuildLayout()
 		// Defer focus setting to ensure UI is ready
@@ -122,7 +122,7 @@ func (l *Layout) initialize() {
 			})
 		}()
 	})
-	
+
 	l.editor.SetOnTabClosed(func(path string) {
 		if l.fileWatcher != nil {
 			l.fileWatcher.RemoveOpenFile(path)
@@ -130,7 +130,7 @@ func (l *Layout) initialize() {
 		}
 		l.writeClaudeState("")
 	})
-	
+
 	l.terminal.SetOnLastTabClosed(func() {
 		l.rebuildLayout()
 		if l.editor.HasTabs() {
@@ -151,15 +151,15 @@ func (l *Layout) initialize() {
 	l.fileManager.SetFileSelectedHandler(func(path string) {
 		l.OpenFile(path)
 	})
-	
+
 	l.fileManager.SetClipboardChangeHandler(func(path string, isCut bool) {
 		l.statusBar.SetClipboard(path, isCut)
 	})
-	
+
 	l.fileManager.SetFileRenamedHandler(func(oldPath, newPath string) {
 		l.editor.UpdateFilePath(oldPath, newPath)
 	})
-	
+
 	l.fileManager.SetFileDeletedHandler(func(path string) {
 		l.editor.CloseFileTab(path)
 	})
@@ -168,7 +168,7 @@ func (l *Layout) initialize() {
 		l.statusBar.UpdateGitBranchForFile(path)
 		l.fileManager.RevealFile(path)
 	})
-	
+
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
 
 	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
@@ -177,7 +177,7 @@ func (l *Layout) initialize() {
 		l.checkAndUpdateWidth()
 		return x, y, width, height
 	})
-	
+
 	l.rightSide = tview.NewFlex()
 	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
 
@@ -189,18 +189,18 @@ func (l *Layout) initialize() {
 		AddItem(l.mainArea, 0, 1, true).
 		AddItem(l.statusBar.GetView(), 1, 0, false)
 	mainLayout.SetBackgroundColor(tcell.ColorBlack)
-	
+
 	rootWithMouse := &MouseFocusDetector{
 		Primitive: mainLayout,
 		layout:    l,
 	}
-	
+
 	l.root = rootWithMouse
-	
+
 	SetMainAppRoot(l.root)
-	
+
 	l.fileManager.SetApp(l.app)
-	
+
 	l.setupKeybindings()
 
 	l.scanGitRepositories()
@@ -249,12 +249,12 @@ func (l *Layout) checkAndUpdateWidth() {
 
 func (l *Layout) rebuildLayout() {
 	l.rightSide.Clear()
-	
+
 	l.mainArea.Clear()
-	
+
 	hasEditorTabs := l.editor.HasTabs()
 	hasTerminalTabs := l.terminal.HasTabs()
-	
+
 	if !hasEditorTabs && !hasTerminalTabs {
 		noDocsView := l.editor.GetNoDocsView()
 		if box, ok := noDocsView.(*tview.Box); ok {
@@ -281,10 +281,10 @@ func (l *Layout) rebuildLayout() {
 			{3, 7},
 			{2, 8},
 		}
-		
+
 		editorProp := proportions[l.proportionIndex][0]
 		terminalProp := proportions[l.proportionIndex][1]
-		
+
 		if l.terminalPosition == "bottom" {
 			l.rightSide.SetDirection(tview.FlexRow).
 				Clear().
@@ -297,7 +297,7 @@ func (l *Layout) rebuildLayout() {
 				AddItem(l.terminal.GetView(), 0, terminalProp, false)
 		}
 	}
-	
+
 	l.mainArea.
 		AddItem(l.fileManager.GetView(), l.fileManagerWidth, 0, false).
 		AddItem(l.rightSide, 0, 1, false)
@@ -307,9 +307,9 @@ func (l *Layout) cycleProportion() {
 	if !l.terminal.HasTabs() {
 		return
 	}
-	
+
 	l.proportionIndex += l.proportionDir
-	
+
 	if l.proportionIndex >= 7 {
 		l.proportionIndex = 5
 		l.proportionDir = -1
@@ -317,7 +317,7 @@ func (l *Layout) cycleProportion() {
 		l.proportionIndex = 1
 		l.proportionDir = 1
 	}
-	
+
 	l.rebuildLayout()
 }
 
@@ -325,7 +325,7 @@ func (l *Layout) togglePosition() {
 	if !l.terminal.HasTabs() {
 		return
 	}
-	
+
 	if l.terminalPosition == "bottom" {
 		l.terminalPosition = "right"
 	} else {
@@ -426,7 +426,7 @@ func (l *Layout) setupKeybindings() {
 		if IsModalOpen() {
 			return event
 		}
-		
+
 		currentFocus := l.app.GetFocus()
 		if l.fileManager.HasFocus(currentFocus) {
 			l.focusedPanel = 0
@@ -435,11 +435,11 @@ func (l *Layout) setupKeybindings() {
 		} else if l.terminal.HasFocus(currentFocus) {
 			l.focusedPanel = 2
 		}
-		
+
 		if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
 			return event
 		}
-		
+
 		switch event.Key() {
 		case tcell.KeyF1:
 			l.showHelp()
@@ -447,7 +447,7 @@ func (l *Layout) setupKeybindings() {
 		case tcell.KeyF2:
 			hasEditor := l.editor.HasTabs()
 			hasTerminal := l.terminal.HasTabs()
-			
+
 			if !hasEditor && !hasTerminal {
 				l.focusFileManager()
 			} else if !hasEditor {
@@ -507,7 +507,7 @@ func (l *Layout) setupKeybindings() {
 			ShowMemStatsModal(l.app, l.fileWatcher)
 			return nil
 		}
-		
+
 		if event.Key() == tcell.KeyLeft || event.Key() == tcell.KeyRight {
 			if event.Modifiers()&tcell.ModCtrl != 0 &&
 				event.Modifiers()&(tcell.ModShift|tcell.ModAlt|tcell.ModMeta) != 0 {
@@ -617,7 +617,7 @@ func (l *Layout) setupKeybindings() {
 				return nil
 			}
 		}
-		
+
 		return event
 	})
 }
@@ -739,15 +739,15 @@ func (l *Layout) setupFocusDetection() {
 
 func (l *Layout) checkFocusChange() {
 	currentFocus := l.app.GetFocus()
-	
+
 	if currentFocus == l.lastFocus {
 		return
 	}
-	
+
 	l.lastFocus = currentFocus
-	
+
 	oldPanel := l.focusedPanel
-	
+
 	if l.fileManager.HasFocus(currentFocus) {
 		l.focusedPanel = 0
 	} else if l.editor.HasFocus(currentFocus) {
@@ -755,7 +755,7 @@ func (l *Layout) checkFocusChange() {
 	} else if l.terminal.HasFocus(currentFocus) {
 		l.focusedPanel = 2
 	}
-	
+
 	if oldPanel != l.focusedPanel {
 		l.editor.UpdateTabBar()
 		l.terminal.UpdateTabBar()
@@ -767,23 +767,23 @@ func (l *Layout) setupFileWatcher() {
 	if err != nil {
 		return
 	}
-	
+
 	l.fileWatcher = NewFileWatcher(cwd)
-	
+
 	l.fileWatcher.SetOnChange(func(changes []FileChange) {
 		l.app.QueueUpdateDraw(func() {
 			l.handleFileChanges(changes)
 		})
 	})
-	
+
 	err = l.fileWatcher.Start()
 	if err != nil {
 		return
 	}
-	
+
 	if l.fileWatcher != nil {
 		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
-		
+
 		l.stopTicker = make(chan bool)
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
@@ -807,11 +807,11 @@ func (l *Layout) setupFileWatcher() {
 
 func (l *Layout) handleFileChanges(changes []FileChange) {
 	dirsToRefresh := make(map[string]bool)
-	
+
 	modifiedFiles := make(map[string]bool)
-	
+
 	gitHeadChanged := false
-	
+
 	deletedFiles := make(map[string]bool)
 
 	for _, change := range changes {
@@ -832,15 +832,15 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 			deletedFiles[change.Path] = true
 		}
 	}
-	
+
 	if gitHeadChanged {
 		l.statusBar.RefreshGitBranch()
 	}
-	
+
 	for dir := range dirsToRefresh {
 		l.fileManager.RefreshDirectory(dir)
 	}
-	
+
 	for filePath := range modifiedFiles {
 		l.editor.HandleFileModified(filePath)
 	}
@@ -856,9 +856,9 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 
 func (l *Layout) tryQuit() {
 	hasUnsaved := l.editor.HasUnsavedChanges()
-	
+
 	hasTerminals := l.terminal.HasTabs()
-	
+
 	if hasUnsaved || hasTerminals {
 		var messages []string
 		if hasUnsaved {
@@ -868,13 +868,13 @@ func (l *Layout) tryQuit() {
 			messages = append(messages, "You have open terminal sessions.")
 		}
 		messages = append(messages, "\n\nAre you sure you want to quit?")
-		
+
 		message := strings.Join(messages, " ")
-		
-		ShowConfirmModal(l.app, "Confirm Quit", message, 
+
+		ShowConfirmModal(l.app, "Confirm Quit", message,
 			func() {
 				l.app.Stop()
-			}, 
+			},
 			func() {
 			})
 	} else {
@@ -888,20 +888,20 @@ func (l *Layout) showProjectSearch() {
 		l.projectSearchModal.Stop()
 		l.projectSearchModal = nil
 	}
-	
+
 	l.projectSearchModal = NewProjectSearchModal(l.app)
-	
+
 	l.projectSearchModal.SetCallbacks(
 		func(path string, line int, column int) {
 			if l.projectSearchModal != nil {
 				l.projectSearchModal.Stop()
 			}
-			
+
 			if l.projectSearchModalWrapper != nil {
 				l.projectSearchModalWrapper.Close()
 				l.projectSearchModalWrapper = nil
 			}
-			
+
 			absPath, err := filepath.Abs(path)
 			if err == nil {
 				l.OpenFileAtLine(absPath, line, column)
@@ -918,19 +918,19 @@ func (l *Layout) showProjectSearch() {
 				l.projectSearchState.caseSensitive = caseSens
 				l.projectSearchState.wholeWord = wholeWord
 				l.projectSearchState.useRegex = useRegex
-				
+
 				l.projectSearchModal.Stop()
 			}
-			
+
 			if l.projectSearchModalWrapper != nil {
 				l.projectSearchModalWrapper.Close()
 				l.projectSearchModalWrapper = nil
 			}
-			
+
 			l.projectSearchModal = nil
 		},
 	)
-	
+
 	l.projectSearchModal.RestoreState(
 		l.projectSearchState.searchTerm,
 		l.projectSearchState.replaceTerm,
@@ -938,7 +938,7 @@ func (l *Layout) showProjectSearch() {
 		l.projectSearchState.wholeWord,
 		l.projectSearchState.useRegex,
 	)
-	
+
 	l.projectSearchModal.ActivateHandlers()
 
 	_, _, termWidth, termHeight := l.mainArea.GetRect()
@@ -961,13 +961,13 @@ func (l *Layout) showProjectSearch() {
 		Title:        " Project Search & Replace ",
 		TitleAlign:   tview.AlignCenter,
 	}
-	
+
 	var content *tview.Flex
 	l.projectSearchModalWrapper, content = NewConfiguredModal(l.app, config, true)
 	l.projectSearchModalWrapper.SetPreviousRoot(l.root)
-	
+
 	content.AddItem(l.projectSearchModal.GetContainer(), 0, 1, true)
-	
+
 	l.projectSearchModalWrapper.Show()
 	l.projectSearchModal.Focus()
 }

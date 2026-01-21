@@ -93,14 +93,14 @@ func NewEditor() *Editor {
 		fileChangeHandler: components.NewFileChangeHandler(),
 		dialogManager:     nil,
 	}
-	
+
 	e.contentArea.SetBackgroundColor(tcell.NewRGBColor(0, 0, 0))
 
 	splashScreen := components.NewSplashScreen()
 	e.noDocsView = splashScreen.CreateNoDocsView()
-	
+
 	e.contentArea.AddPage("no-docs", e.noDocsView, true, false)
-	
+
 	e.container.
 		AddItem(e.contentArea, 0, 1, true).
 		SetBorder(true).
@@ -108,15 +108,15 @@ func NewEditor() *Editor {
 		SetTitle(" Editor ").
 		SetTitleColor(tcell.ColorLightGray).
 		SetTitleAlign(tview.AlignLeft)
-	
+
 	e.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftClick {
 			x, y := event.Position()
 			containerX, containerY, containerWidth, _ := e.container.GetRect()
-			
+
 			if y == containerY && x >= containerX && x < containerX+containerWidth {
 				relativeX := x - containerX - 1
-				
+
 				for _, clickInfo := range e.tabClickInfo {
 					if relativeX >= clickInfo.StartX && relativeX < clickInfo.EndX {
 						tabs := e.tabManager.GetTabs()
@@ -135,17 +135,16 @@ func NewEditor() *Editor {
 		}
 		return action, event
 	})
-	
+
 	e.showNoDocsView()
-	
-	
+
 	e.tabManager.SetOnLastTabClosed(func() {
 		e.showNoDocsView()
 		if e.onLastTabClosed != nil {
 			e.onLastTabClosed()
 		}
 	})
-	
+
 	e.tabManager.SetOnTabClosed(func(id int) {
 		e.tabsMu.Lock()
 		var path string
@@ -171,7 +170,7 @@ func NewEditor() *Editor {
 		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
 		e.UpdateTabBar()
 	})
-	
+
 	return e
 }
 
@@ -216,19 +215,19 @@ func (e *Editor) OpenFile(path string) {
 		e.switchToTabByID(existingTab.id)
 		return
 	}
-	
+
 	codeEditor := NewCodeEditor()
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
 	}
-	
+
 	err := codeEditor.LoadFile(path)
 	if err != nil {
 		return
 	}
-	
+
 	tabID := e.tabManager.GetNextTabID()
-	
+
 	codeEditor.SetOnModified(func(modified bool) {
 		e.tabsMu.RLock()
 		for _, t := range e.tabs {
@@ -241,16 +240,16 @@ func (e *Editor) OpenFile(path string) {
 		}
 		e.tabsMu.RUnlock()
 	})
-	
+
 	var lastModTime time.Time
 	if info, err := os.Stat(path); err == nil {
 		lastModTime = info.ModTime()
 	}
-	
+
 	searchBar := NewSearchBar()
 	container := tview.NewFlex().SetDirection(tview.FlexRow)
 	container.AddItem(codeEditor, 0, 1, true)
-	
+
 	tab := &EditorTab{
 		id:                 tabID,
 		path:               path,
@@ -262,7 +261,7 @@ func (e *Editor) OpenFile(path string) {
 		searchVisible:      false,
 		container:          container,
 	}
-	
+
 	e.setupSearchBar(tab)
 
 	e.tabsMu.Lock()
@@ -446,9 +445,9 @@ func (e *Editor) NewDocument() {
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
 	}
-	
+
 	tabID := e.tabManager.GetNextTabID()
-	
+
 	codeEditor.SetOnModified(func(modified bool) {
 		e.tabsMu.RLock()
 		for _, t := range e.tabs {
@@ -461,11 +460,11 @@ func (e *Editor) NewDocument() {
 		}
 		e.tabsMu.RUnlock()
 	})
-	
+
 	searchBar := NewSearchBar()
 	container := tview.NewFlex().SetDirection(tview.FlexRow)
 	container.AddItem(codeEditor, 0, 1, true)
-	
+
 	tab := &EditorTab{
 		id:                 tabID,
 		path:               "",
@@ -477,7 +476,7 @@ func (e *Editor) NewDocument() {
 		searchVisible:      false,
 		container:          container,
 	}
-	
+
 	e.setupSearchBar(tab)
 
 	e.tabsMu.Lock()
@@ -499,7 +498,7 @@ func (e *Editor) switchToTab(index int) {
 	if index < 0 || index >= len(e.tabs) {
 		return
 	}
-	
+
 	tabID := e.tabManager.GoToTabByIndexWithID(index)
 	if tabID != -1 {
 		e.switchToTabByID(tabID)
@@ -512,13 +511,13 @@ func (e *Editor) UpdateTabBar() {
 		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 		return
 	}
-	
+
 	_, _, width, _ := e.container.GetRect()
 	availableWidth := width - 5
 	if availableWidth < 0 {
 		availableWidth = 0
 	}
-	
+
 	hasFocus := false
 	if e.app != nil {
 		hasFocus = e.HasFocus(e.app.GetFocus())
@@ -555,7 +554,7 @@ func (e *Editor) CloseCurrentTab() {
 	if activeID < 0 {
 		return
 	}
-	
+
 	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
@@ -565,11 +564,11 @@ func (e *Editor) CloseCurrentTab() {
 		}
 	}
 	e.tabsMu.RUnlock()
-	
+
 	if tab == nil {
 		return
 	}
-	
+
 	if tab.IsModified() {
 		fileName := filepath.Base(tab.path)
 		if e.dialogManager != nil {
@@ -590,7 +589,7 @@ func (e *Editor) doCloseCurrentTab() {
 	if activeID < 0 {
 		return
 	}
-	
+
 	e.tabManager.RemoveTab(activeID)
 }
 
@@ -603,7 +602,7 @@ func (e *Editor) SaveCurrentFile() {
 	if activeID < 0 {
 		return
 	}
-	
+
 	e.tabsMu.RLock()
 	var tab *EditorTab
 	for _, t := range e.tabs {
@@ -613,52 +612,50 @@ func (e *Editor) SaveCurrentFile() {
 		}
 	}
 	e.tabsMu.RUnlock()
-	
+
 	if tab == nil || tab.codeEditor == nil {
 		return
 	}
-	
+
 	if true {
 		if tab.path == "" {
 			// TODO: Show save dialog
 			return
 		}
-		
+
 		if tab.externallyModified {
 			// Check if file still exists
 			if _, err := os.Stat(tab.path); os.IsNotExist(err) {
-						if e.dialogManager != nil {
+				if e.dialogManager != nil {
 					e.showDeletedFileDialog(tab)
 				}
 			} else {
-					if e.dialogManager != nil {
+				if e.dialogManager != nil {
 					e.showSaveConflictDialog(tab)
 				}
 			}
 			return
 		}
-		
+
 		err := tab.codeEditor.SaveFile(tab.path)
 		if err != nil {
 			// TODO: Show error
 			return
 		}
-		
+
 		if info, err := os.Stat(tab.path); err == nil {
 			tab.lastModTime = info.ModTime()
 		}
-		
+
 		tab.modified = false
 		e.UpdateTabBar()
 	}
 }
 
-
 // GetView returns the root primitive for the editor component.
 func (e *Editor) GetView() tview.Primitive {
 	return e.container
 }
-
 
 // HasFocus checks if the given primitive is part of the editor component.
 func (e *Editor) HasFocus(focused tview.Primitive) bool {
@@ -749,7 +746,7 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 	if e.dialogManager == nil {
 		return
 	}
-	
+
 	e.dialogManager.ShowSaveConflictDialog(
 		tab.path,
 		func() {
@@ -791,9 +788,9 @@ func (e *Editor) HandleFileModified(filePath string) {
 				ExternallyModified: tab.externallyModified,
 				LastModTime:        tab.lastModTime,
 			}
-			
+
 			action := e.fileChangeHandler.HandleFileModified(fileInfo)
-			
+
 			switch action {
 			case components.FileChangeActionReload:
 				e.tabsMu.Unlock()
@@ -820,9 +817,9 @@ func (e *Editor) HandleFileDeleted(filePath string) {
 				ExternallyModified: tab.externallyModified,
 				LastModTime:        tab.lastModTime,
 			}
-			
+
 			action := e.fileChangeHandler.HandleFileDeleted(fileInfo)
-			
+
 			switch action {
 			case components.FileChangeActionClose:
 				tabID := tab.id
@@ -845,15 +842,15 @@ func (e *Editor) reloadTab(tab *EditorTab) {
 		logging.Error("Failed to reload file %s: %v", tab.path, err)
 		return
 	}
-	
+
 	tab.codeEditor.SetContent(string(content))
 	tab.modified = false
 	tab.externallyModified = false
-	
+
 	if info, err := os.Stat(tab.path); err == nil {
 		tab.lastModTime = info.ModTime()
 	}
-	
+
 	if tab.id == e.tabManager.GetActiveTabID() {
 		e.UpdateTabBar()
 	}
@@ -863,7 +860,7 @@ func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
 	if e.dialogManager == nil {
 		return
 	}
-	
+
 	e.dialogManager.ShowDeletedFileDialog(
 		tab.path,
 		func() {
@@ -914,22 +911,22 @@ func (e *Editor) ShowSearch() {
 	e.tabsMu.RLock()
 	currentTab := e.getCurrentTab()
 	e.tabsMu.RUnlock()
-	
+
 	if currentTab == nil {
 		return
 	}
-	
+
 	if !currentTab.searchVisible {
 		currentTab.searchVisible = true
 		currentTab.container.RemoveItem(currentTab.codeEditor)
 		currentTab.container.AddItem(currentTab.codeEditor, 0, 1, false)
 		currentTab.container.AddItem(currentTab.searchBar, 13, 0, true)
-		
+
 		selectedText := currentTab.codeEditor.GetSelectedText()
 		if selectedText != "" {
 			currentTab.searchBar.SetSearchText(selectedText)
 		}
-		
+
 		if e.app != nil {
 			e.app.SetFocus(currentTab.searchBar)
 		}
@@ -943,10 +940,10 @@ func (e *Editor) hideSearch(tab *EditorTab) {
 		tab.container.RemoveItem(tab.searchBar)
 		tab.container.RemoveItem(tab.codeEditor)
 		tab.container.AddItem(tab.codeEditor, 0, 1, true)
-		
+
 		tab.codeEditor.ClearSearchHighlights()
 		tab.codeEditor.buffer.ClearSearchMatches()
-		
+
 		if e.app != nil {
 			e.app.SetFocus(tab.codeEditor)
 		}
@@ -961,10 +958,10 @@ func (e *Editor) performSearch(tab *EditorTab, text string, caseSensitive, whole
 		tab.searchBar.UpdateMatches(0, 0)
 		return
 	}
-	
+
 	matches := tab.codeEditor.Search(text, caseSensitive, wholeWord, useRegex)
 	tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
-	
+
 	if len(matches) > 0 {
 		row, col, _ := tab.codeEditor.buffer.NextMatch()
 		tab.codeEditor.SetCursor(row, col)
@@ -1205,4 +1202,3 @@ func (e *Editor) GetTabCount() int {
 func (c *CodeEditor) GetCursor() (int, int) {
 	return c.cursorRow, c.cursorCol
 }
-

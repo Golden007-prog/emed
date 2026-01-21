@@ -24,7 +24,7 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 			Handler:     handlers.FocusFileManager,
 		})
 	}
-	
+
 	if handlers.FocusEditor != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -34,7 +34,7 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 			Handler:     handlers.FocusEditor,
 		})
 	}
-	
+
 	if handlers.FocusTerminal != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,
@@ -44,7 +44,7 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 			Handler:     handlers.FocusTerminal,
 		})
 	}
-	
+
 	if handlers.NextTab != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyTab,
@@ -53,7 +53,7 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 			Handler:     handlers.NextTab,
 		})
 	}
-	
+
 	if handlers.PreviousTab != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyBacktab,
@@ -62,7 +62,7 @@ func RegisterNavigationHandlers(manager *KeyBindingManager, handlers NavigationH
 			Handler:     handlers.PreviousTab,
 		})
 	}
-	
+
 	if handlers.CloseTab != nil {
 		manager.RegisterHandler(KeyHandler{
 			Key:         tcell.KeyRune,

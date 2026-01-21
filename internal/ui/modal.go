@@ -15,16 +15,16 @@ var (
 // EmModal represents a modal dialog that can overlay the application.
 type EmModal struct {
 	*tview.Box
-	app           *tview.Application
-	container     *tview.Box
-	content       tview.Primitive
-	cancellable   bool
+	app            *tview.Application
+	container      *tview.Box
+	content        tview.Primitive
+	cancellable    bool
 	escPassthrough bool
-	onCancel      func()
-	onClose       func()
-	previousRoot  tview.Primitive
-	savedFocus    tview.Primitive
-	isWrapped     bool
+	onCancel       func()
+	onClose        func()
+	previousRoot   tview.Primitive
+	savedFocus     tview.Primitive
+	isWrapped      bool
 }
 
 // SetPreviousRoot sets the root primitive to restore when the modal is closed.

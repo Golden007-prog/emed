@@ -110,35 +110,35 @@ func (p *PTYManager) Start(cols, rows int) error {
 // Stop terminates the PTY and associated shell process.
 func (p *PTYManager) Stop() error {
 	p.mu.Lock()
-	
+
 	if !p.running {
 		p.mu.Unlock()
 		return nil
 	}
-	
+
 	p.running = false
 	cmd := p.cmd
 	ptm := p.ptm
 	p.cmd = nil
 	p.ptm = nil
 	p.mu.Unlock()
-	
+
 	// Close PTY first to trigger EOF in readLoop
 	if ptm != nil {
 		ptm.Close()
 	}
-	
+
 	// Then terminate the process
 	if cmd != nil && cmd.Process != nil {
 		// Try graceful termination first
 		cmd.Process.Signal(syscall.SIGTERM)
-		
+
 		// Give it a moment to exit cleanly
 		done := make(chan error, 1)
 		go func() {
 			done <- cmd.Wait()
 		}()
-		
+
 		// Wait for process to exit or timeout
 		select {
 		case <-done:
@@ -149,22 +149,22 @@ func (p *PTYManager) Stop() error {
 			<-done
 		}
 	}
-	
+
 	return nil
 }
 
 // Write sends data to the PTY.
 func (p *PTYManager) Write(data []byte) error {
 	p.mu.RLock()
-	
+
 	if !p.running || p.ptm == nil {
 		p.mu.RUnlock()
 		return fmt.Errorf("PTY not running")
 	}
-	
+
 	ptm := p.ptm
 	p.mu.RUnlock() // Release lock before write to avoid blocking other operations
-	
+
 	_, err := ptm.Write(data)
 	return err
 }
@@ -173,11 +173,11 @@ func (p *PTYManager) Write(data []byte) error {
 func (p *PTYManager) Resize(cols, rows int) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	if !p.running || p.ptm == nil {
 		return fmt.Errorf("PTY not running")
 	}
-	
+
 	return pty.Setsize(p.ptm, &pty.Winsize{
 		Rows: uint16(rows),
 		Cols: uint16(cols),
@@ -213,7 +213,7 @@ func (p *PTYManager) SetOnExit(fn func()) {
 
 func (p *PTYManager) readLoop() {
 	buf := make([]byte, 4096)
-	
+
 	for {
 		p.mu.RLock()
 		if !p.running || p.ptm == nil {
@@ -222,7 +222,7 @@ func (p *PTYManager) readLoop() {
 		}
 		ptm := p.ptm
 		p.mu.RUnlock()
-		
+
 		n, err := ptm.Read(buf)
 		if err != nil {
 			break
@@ -231,7 +231,7 @@ func (p *PTYManager) readLoop() {
 			p.onData(buf[:n])
 		}
 	}
-	
+
 	p.mu.Lock()
 	if p.running {
 		p.running = false

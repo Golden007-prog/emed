@@ -22,16 +22,16 @@ type TabManager interface {
 	GetTabCount() int
 	HasTabs() bool
 	GetTabs() []Tab
-	
+
 	// Navigation
 	NextTab()
 	PreviousTab()
 	GoToTabByIndex(index int)
-	
+
 	// UI updates
 	UpdateTabBar()
 	GetView() tview.Primitive
-	
+
 	// Callbacks
 	SetOnTabClosed(callback func(id int))
 	SetOnLastTabClosed(callback func())

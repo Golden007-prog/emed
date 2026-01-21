@@ -37,9 +37,9 @@ type SearchMatch struct {
 
 // GhostText represents overlay text that appears in the editor but isn't part of the buffer.
 type GhostText struct {
-	Row       int      // Buffer row where ghost text starts
-	Col       int      // Column position (-1 means after end of line)
-	Lines     []string // Text content (supports multiline)
+	Row       int                // Buffer row where ghost text starts
+	Col       int                // Column position (-1 means after end of line)
+	Lines     []string           // Text content (supports multiline)
 	StyleFunc func() tcell.Style // Optional custom style function
 }
 
@@ -97,11 +97,11 @@ type CodeEditor struct {
 	ghostTextStyle tcell.Style
 	tabStyle       tcell.Style
 
-	blameEnabled   bool
-	blameText      string
-	blameRow       int
-	blameTimer     *time.Timer
-	blameMutex     sync.Mutex
+	blameEnabled bool
+	blameText    string
+	blameRow     int
+	blameTimer   *time.Timer
+	blameMutex   sync.Mutex
 
 	highlightTimer *time.Timer
 	highlightMutex sync.Mutex
@@ -109,15 +109,15 @@ type CodeEditor struct {
 	pendingCenterCursor bool
 
 	// Bracket matching (stores both opening and closing positions)
-	bracketOpenRow   int
-	bracketOpenCol   int
-	bracketCloseRow  int
-	bracketCloseCol  int
-	hasBracketMatch  bool
+	bracketOpenRow  int
+	bracketOpenCol  int
+	bracketCloseRow int
+	bracketCloseCol int
+	hasBracketMatch bool
 
 	// Word highlighting
-	currentWord      string
-	wordOccurrences  []wordOccurrence
+	currentWord     string
+	wordOccurrences []wordOccurrence
 
 	// Indentation guide
 	indentGuideCol      int
@@ -130,31 +130,31 @@ type CodeEditor struct {
 	highlightsDirty  bool
 
 	// Multi-click detection (double, triple, etc.)
-	lastClickTime  time.Time
-	lastClickRow   int
-	lastClickCol   int
-	clickCount     int
+	lastClickTime time.Time
+	lastClickRow  int
+	lastClickCol  int
+	clickCount    int
 }
 
 // NewCodeEditor creates a new code editor instance with default settings.
 func NewCodeEditor() *CodeEditor {
 	return &CodeEditor{
-		Box:                tview.NewBox(),
-		buffer:             buffer.New(),
-		selection:          selection.New(),
-		clipboard:          clipboard.New(),
-		readOnly:           false,
-		ghostTextStyle:     tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
-		tabStyle:           tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
-		blameEnabled:      true,
-		blameRow:          -1,
-		bracketOpenRow:    -1,
-		bracketOpenCol:    -1,
-		bracketCloseRow:   -1,
-		bracketCloseCol:   -1,
-		lastHighlightRow:  -1,
-		lastHighlightCol:   -1,
-		highlightsDirty:    true,
+		Box:              tview.NewBox(),
+		buffer:           buffer.New(),
+		selection:        selection.New(),
+		clipboard:        clipboard.New(),
+		readOnly:         false,
+		ghostTextStyle:   tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
+		tabStyle:         tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
+		blameEnabled:     true,
+		blameRow:         -1,
+		bracketOpenRow:   -1,
+		bracketOpenCol:   -1,
+		bracketCloseRow:  -1,
+		bracketCloseCol:  -1,
+		lastHighlightRow: -1,
+		lastHighlightCol: -1,
+		highlightsDirty:  true,
 	}
 }
 
@@ -313,9 +313,9 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		return defaultStyle
 	}
 
-	screenX := x    // Position on screen
-	visualCol := 0  // Visual column position (accounting for tabs)
-	realCol := 0    // Real column position in buffer
+	screenX := x   // Position on screen
+	visualCol := 0 // Visual column position (accounting for tabs)
+	realCol := 0   // Real column position in buffer
 
 	ghostText, ghostCol, ghostStyle := e.getGhostTextForLine(lineNum)
 
@@ -1254,7 +1254,7 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 			if x == rectX+width-1 {
 				buttons := event.Buttons()
 				if buttons&tcell.Button1 != 0 {
-						relativeY := y - rectY
+					relativeY := y - rectY
 					if relativeY >= 0 && relativeY < height {
 						totalLines := e.buffer.GetLineCount()
 						if totalLines > height {
@@ -1274,24 +1274,24 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				return true, nil
 			}
 
-		switch action {
-		case tview.MouseScrollUp:
-			modifiers := event.Modifiers()
-			if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
-				e.scrollLeft(5)
-			} else {
-				e.scrollUp(1)
-			}
-			return true, nil
+			switch action {
+			case tview.MouseScrollUp:
+				modifiers := event.Modifiers()
+				if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
+					e.scrollLeft(5)
+				} else {
+					e.scrollUp(1)
+				}
+				return true, nil
 
-		case tview.MouseScrollDown:
-			modifiers := event.Modifiers()
-			if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
-				e.scrollRight(5)
-			} else {
-				e.scrollDown(1)
-			}
-			return true, nil
+			case tview.MouseScrollDown:
+				modifiers := event.Modifiers()
+				if modifiers&(tcell.ModAlt|tcell.ModShift) != 0 {
+					e.scrollRight(5)
+				} else {
+					e.scrollDown(1)
+				}
+				return true, nil
 
 			case tview.MouseScrollLeft:
 				e.scrollLeft(5)
@@ -1661,15 +1661,15 @@ func (e *CodeEditor) Search(text string, caseSensitive, wholeWord, useRegex bool
 	for i, line := range lines {
 		runeLines[i] = []rune(line)
 	}
-	
+
 	options := SearchOptions{
 		CaseSensitive: caseSensitive,
 		WholeWord:     wholeWord,
 		UseRegex:      useRegex,
 	}
-	
+
 	matches := performTextSearch(runeLines, text, options)
-	
+
 	bufferMatches := make([]buffer.SearchMatch, len(matches))
 	for i, match := range matches {
 		bufferMatches[i] = buffer.SearchMatch{
@@ -1679,9 +1679,9 @@ func (e *CodeEditor) Search(text string, caseSensitive, wholeWord, useRegex bool
 			EndCol:   match.EndCol,
 		}
 	}
-	
+
 	e.buffer.SetSearchMatches(bufferMatches)
-	
+
 	if useRegex {
 		flags := ""
 		if !caseSensitive {
@@ -1697,7 +1697,7 @@ func (e *CodeEditor) Search(text string, caseSensitive, wholeWord, useRegex bool
 	} else {
 		e.buffer.SetSearchPattern(text, nil)
 	}
-	
+
 	return bufferMatches
 }
 
@@ -1711,7 +1711,7 @@ func (e *CodeEditor) GetSelectedText() string {
 	if !e.selection.IsActive() {
 		return ""
 	}
-	
+
 	startRow, startCol, endRow, endCol := e.selection.GetNormalizedRange()
 	return e.buffer.GetTextRange(startRow, startCol, endRow, endCol)
 }
@@ -2181,7 +2181,7 @@ func (e *CodeEditor) isSearchMatch(row, col int) (isMatch, isCurrent bool) {
 	if len(matches) == 0 {
 		return false, false
 	}
-	
+
 	currentIndex, _ := e.buffer.GetCurrentMatch()
 	for i, match := range matches {
 		if row == match.StartRow && col >= match.StartCol && col < match.EndCol {
@@ -2195,36 +2195,36 @@ func performTextSearch(lines [][]rune, pattern string, options SearchOptions) []
 	if pattern == "" {
 		return nil
 	}
-	
+
 	var matches []SearchMatch
-	
+
 	if options.UseRegex {
 		matches = searchWithRegex(lines, pattern, options)
 	} else {
 		matches = searchPlainText(lines, pattern, options)
 	}
-	
+
 	return matches
 }
 
 func searchPlainText(lines [][]rune, pattern string, options SearchOptions) []SearchMatch {
 	var matches []SearchMatch
 	searchPattern := pattern
-	
+
 	if !options.CaseSensitive {
 		searchPattern = strings.ToLower(pattern)
 	}
-	
+
 	patternRunes := []rune(searchPattern)
 	patternLen := len(patternRunes)
-	
+
 	for row, line := range lines {
 		lineStr := string(line)
 		if !options.CaseSensitive {
 			lineStr = strings.ToLower(lineStr)
 		}
 		lineRunes := []rune(lineStr)
-		
+
 		for col := 0; col <= len(lineRunes)-patternLen; col++ {
 			if matchesAt(lineRunes, patternRunes, col) {
 				if options.WholeWord {
@@ -2241,35 +2241,35 @@ func searchPlainText(lines [][]rune, pattern string, options SearchOptions) []Se
 			}
 		}
 	}
-	
+
 	return matches
 }
 
 func searchWithRegex(lines [][]rune, pattern string, options SearchOptions) []SearchMatch {
 	var matches []SearchMatch
-	
+
 	flags := ""
 	if !options.CaseSensitive {
 		flags = "(?i)"
 	}
-	
+
 	if options.WholeWord {
 		pattern = `\b` + pattern + `\b`
 	}
-	
+
 	re, err := regexp.Compile(flags + pattern)
 	if err != nil {
 		return nil
 	}
-	
+
 	for row, line := range lines {
 		lineStr := string(line)
 		allMatches := re.FindAllStringIndex(lineStr, -1)
-		
+
 		for _, match := range allMatches {
 			startCol := len([]rune(lineStr[:match[0]]))
 			endCol := len([]rune(lineStr[:match[1]]))
-			
+
 			matches = append(matches, SearchMatch{
 				StartRow: row,
 				StartCol: startCol,
@@ -2278,7 +2278,7 @@ func searchWithRegex(lines [][]rune, pattern string, options SearchOptions) []Se
 			})
 		}
 	}
-	
+
 	return matches
 }
 
@@ -2286,13 +2286,13 @@ func matchesAt(line, pattern []rune, pos int) bool {
 	if pos+len(pattern) > len(line) {
 		return false
 	}
-	
+
 	for i, r := range pattern {
 		if line[pos+i] != r {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -2303,7 +2303,7 @@ func isWordBoundary(line []rune, start, end int) bool {
 			return false
 		}
 	}
-	
+
 	if end < len(line) {
 		nextChar := line[end]
 		if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) || nextChar == '_' {

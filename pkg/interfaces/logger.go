@@ -19,23 +19,23 @@ type Logger interface {
 	Warn(msg string, fields ...Field)
 	Error(msg string, fields ...Field)
 	Fatal(msg string, fields ...Field)
-	
+
 	// Formatted logging
 	Debugf(format string, args ...interface{})
 	Infof(format string, args ...interface{})
 	Warnf(format string, args ...interface{})
 	Errorf(format string, args ...interface{})
 	Fatalf(format string, args ...interface{})
-	
+
 	// With context
 	With(fields ...Field) Logger
 	WithError(err error) Logger
-	
+
 	// Configuration
 	SetLevel(level LogLevel)
 	GetLevel() LogLevel
 	SetOutput(output LogOutput)
-	
+
 	// Child loggers
 	Named(name string) Logger
 }

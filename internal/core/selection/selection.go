@@ -9,9 +9,9 @@ type Position struct {
 
 // Selection manages text selection state including keyboard and mouse selections.
 type Selection struct {
-	start        Position
-	end          Position
-	active       bool
+	start         Position
+	end           Position
+	active        bool
 	mouseDragging bool // Track if currently dragging with mouse
 }
 
@@ -86,7 +86,7 @@ func (s *Selection) GetStart() Position {
 	if !s.active {
 		return Position{}
 	}
-	
+
 	if s.start.Row < s.end.Row || (s.start.Row == s.end.Row && s.start.Col <= s.end.Col) {
 		return s.start
 	}
@@ -98,7 +98,7 @@ func (s *Selection) GetEnd() Position {
 	if !s.active {
 		return Position{}
 	}
-	
+
 	if s.start.Row > s.end.Row || (s.start.Row == s.end.Row && s.start.Col > s.end.Col) {
 		return s.start
 	}
@@ -110,7 +110,7 @@ func (s *Selection) GetNormalizedRange() (startRow, startCol, endRow, endCol int
 	if !s.active {
 		return 0, 0, 0, 0
 	}
-	
+
 	start := s.GetStart()
 	end := s.GetEnd()
 	return start.Row, start.Col, end.Row, end.Col
@@ -121,25 +121,25 @@ func (s *Selection) IsPositionSelected(row, col int) bool {
 	if !s.active {
 		return false
 	}
-	
+
 	startRow, startCol, endRow, endCol := s.GetNormalizedRange()
-	
+
 	if row < startRow || row > endRow {
 		return false
 	}
-	
+
 	if row == startRow && row == endRow {
 		return col >= startCol && col < endCol
 	}
-	
+
 	if row == startRow {
 		return col >= startCol
 	}
-	
+
 	if row == endRow {
 		return col < endCol
 	}
-	
+
 	return true
 }
 
@@ -155,19 +155,19 @@ func (s *Selection) UpdateAfterEdit(editRow, editCol int, rowDelta, colDelta int
 	if !s.active {
 		return
 	}
-	
+
 	if s.start.Row > editRow {
 		s.start.Row += rowDelta
 	} else if s.start.Row == editRow && s.start.Col > editCol {
 		s.start.Col += colDelta
 	}
-	
+
 	if s.end.Row > editRow {
 		s.end.Row += rowDelta
 	} else if s.end.Row == editRow && s.end.Col > editCol {
 		s.end.Col += colDelta
 	}
-	
+
 	if s.start.Row < 0 {
 		s.start.Row = 0
 	}

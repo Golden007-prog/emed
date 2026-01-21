@@ -97,10 +97,10 @@ func NewTerminal() *Terminal {
 		if action == tview.MouseLeftClick {
 			x, y := event.Position()
 			containerX, containerY, containerWidth, _ := t.container.GetRect()
-			
+
 			if y == containerY && x >= containerX && x < containerX+containerWidth {
 				relativeX := x - containerX - 1
-				
+
 				for _, clickInfo := range t.tabClickInfo {
 					if relativeX >= clickInfo.StartX && relativeX < clickInfo.EndX {
 						tabs := t.tabManager.GetTabs()
@@ -121,7 +121,6 @@ func NewTerminal() *Terminal {
 	})
 
 	t.showNoTermsView()
-
 
 	t.tabManager.SetOnLastTabClosed(func() {
 		t.showNoTermsView()
@@ -168,7 +167,7 @@ func (t *Terminal) NewTab(workingDir string) {
 			})
 		}
 	})
-	
+
 	emulator.SetOnTitleChange(func(title string) {
 		if t.app != nil {
 			t.app.QueueUpdateDraw(func() {
@@ -242,7 +241,7 @@ func (t *Terminal) UpdateTabBar() {
 	if availableWidth < 0 {
 		availableWidth = 0
 	}
-	
+
 	hasFocus := false
 	if t.app != nil {
 		hasFocus = t.HasFocus(t.app.GetFocus())

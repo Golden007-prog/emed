@@ -27,18 +27,18 @@ func NewTypeAheadBuffer(timeout time.Duration) *TypeAheadBuffer {
 func (t *TypeAheadBuffer) AddChar(char rune) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	if t.timer != nil {
 		t.timer.Stop()
 	}
-	
+
 	t.buffer += string(char)
 	t.lastKeyTime = time.Now()
-	
+
 	t.timer = time.AfterFunc(t.timeout, func() {
 		t.Clear()
 	})
-	
+
 	return t.buffer
 }
 
@@ -53,7 +53,7 @@ func (t *TypeAheadBuffer) GetBuffer() string {
 func (t *TypeAheadBuffer) Clear() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	t.buffer = ""
 	if t.timer != nil {
 		t.timer.Stop()
@@ -67,10 +67,10 @@ func (t *TypeAheadBuffer) FileMatch(filename string, searchTerm string) bool {
 	if searchTerm == "" {
 		return false
 	}
-	
+
 	filenameLower := strings.ToLower(filename)
 	searchLower := strings.ToLower(searchTerm)
-	
+
 	return strings.HasPrefix(filenameLower, searchLower)
 }
 
@@ -79,9 +79,9 @@ func (t *TypeAheadBuffer) FileContains(filename string, searchTerm string) bool 
 	if searchTerm == "" {
 		return false
 	}
-	
+
 	filenameLower := strings.ToLower(filename)
 	searchLower := strings.ToLower(searchTerm)
-	
+
 	return strings.Contains(filenameLower, searchLower)
 }

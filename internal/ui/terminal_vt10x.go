@@ -41,10 +41,10 @@ type VT10XTerminal struct {
 	hasFocus bool
 	app      *tview.Application
 
-	mouseReporting      bool
-	mouseSGRMode        bool
-	alternateScreen     bool
-	bracketedPasteMode  bool
+	mouseReporting     bool
+	mouseSGRMode       bool
+	alternateScreen    bool
+	bracketedPasteMode bool
 
 	onModeChange  func(mode TerminalMode)
 	onExit        func()

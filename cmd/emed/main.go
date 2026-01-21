@@ -27,16 +27,16 @@ func main() {
 	}
 
 	var workingDir string
-	
+
 	if len(os.Args) > 1 {
 		argPath := os.Args[1]
-		
+
 		info, err := os.Stat(argPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Cannot access '%s': %v\n", argPath, err)
 			os.Exit(1)
 		}
-		
+
 		if info.IsDir() {
 			workingDir, err = filepath.Abs(argPath)
 			if err != nil {
@@ -64,22 +64,22 @@ func main() {
 			workingDir = cwd
 		}
 	}
-	
+
 	if err := os.Chdir(workingDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Cannot change to directory '%s': %v\n", workingDir, err)
 		os.Exit(1)
 	}
-	
+
 	logger := logging.GetLogger()
 	defer logger.Close()
 	logging.Info("Emed started in directory: %s", workingDir)
-	
+
 	app := tview.NewApplication()
 	layout := ui.NewLayout(app)
-	
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
-	
+
 	go func() {
 		<-sigChan
 		layout.Stop()
@@ -89,7 +89,7 @@ func main() {
 		app.Stop()
 		os.Exit(0)
 	}()
-	
+
 	defer func() {
 		if r := recover(); r != nil {
 			layout.Stop()
@@ -102,12 +102,12 @@ func main() {
 			fmt.Printf("Stack trace:\n%s\n", buf[:n])
 		}
 	}()
-	
+
 	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).EnablePaste(true).Run(); err != nil {
 		fmt.Print(config.TerminalExitAltScreen)
 		fmt.Print(config.TerminalShowCursor)
 		panic(err)
 	}
-	
+
 	layout.Stop()
 }
