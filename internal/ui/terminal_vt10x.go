@@ -982,6 +982,14 @@ func (t *VT10XTerminal) InputHandler() func(event *tcell.EventKey, setFocus func
 			t.scrollbuf.ResetScroll()
 		}
 
+		if event.Key() == tcell.KeyRune && event.Modifiers()&tcell.ModMeta != 0 {
+			if strings.ToLower(string(event.Rune())) == "c" && t.selectionActive {
+				t.copySelectionToClipboard()
+				t.ClearSelection()
+				return
+			}
+		}
+
 		// Handle Ctrl+C: if there's a selection, copy it instead of sending SIGINT
 		if event.Key() == tcell.KeyCtrlC && t.selectionActive {
 			t.copySelectionToClipboard()

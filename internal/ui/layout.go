@@ -365,8 +365,8 @@ func (l *Layout) getHelpText() string {
   Alt+T          Toggle Terminal Mode (Passthrough/Application)
   
 [blue]TABS:[-]
-  Ctrl+Shift+←   Previous Tab (or F3)
-  Ctrl+Shift+→   Next Tab (or F4)
+  Ctrl+Shift+←   Previous Tab (or F3, Ctrl+Alt+←)
+  Ctrl+Shift+→   Next Tab (or F4, Ctrl+Alt+→)
   F3             Previous Tab
   F4             Next Tab
   
@@ -508,16 +508,17 @@ func (l *Layout) setupKeybindings() {
 			return nil
 		}
 		
-		if event.Modifiers() == tcell.ModCtrl|tcell.ModShift {
-			switch event.Key() {
-			case tcell.KeyLeft:
-				if l.focusedPanel == 1 {
-					l.editor.PreviousTab()
-				} else if l.focusedPanel == 2 {
-					l.terminal.PreviousTab()
+		if event.Key() == tcell.KeyLeft || event.Key() == tcell.KeyRight {
+			if event.Modifiers()&tcell.ModCtrl != 0 &&
+				event.Modifiers()&(tcell.ModShift|tcell.ModAlt|tcell.ModMeta) != 0 {
+				if event.Key() == tcell.KeyLeft {
+					if l.focusedPanel == 1 {
+						l.editor.PreviousTab()
+					} else if l.focusedPanel == 2 {
+						l.terminal.PreviousTab()
+					}
+					return nil
 				}
-				return nil
-			case tcell.KeyRight:
 				if l.focusedPanel == 1 {
 					l.editor.NextTab()
 				} else if l.focusedPanel == 2 {
@@ -526,7 +527,7 @@ func (l *Layout) setupKeybindings() {
 				return nil
 			}
 		}
-		
+
 		if event.Modifiers() == tcell.ModCtrl {
 			switch event.Key() {
 			case tcell.KeyCtrlA:
