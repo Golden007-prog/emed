@@ -950,11 +950,12 @@ func (e *CodeEditor) scheduleHighlighterUpdate() {
 }
 
 func (e *CodeEditor) updateHighlighter() {
-	if e.highlighter != nil {
-		content := e.buffer.GetContent()
-		lines := strings.Split(content, "\n")
-		e.highlighter.UpdateContent(lines)
+	if e.buffer == nil || e.highlighter == nil {
+		return
 	}
+	content := e.buffer.GetContent()
+	lines := strings.Split(content, "\n")
+	e.highlighter.UpdateContent(lines)
 }
 
 func (e *CodeEditor) insertTab() {
@@ -1532,8 +1533,25 @@ func (e *CodeEditor) Close() {
 	e.blameMutex.Lock()
 	if e.blameTimer != nil {
 		e.blameTimer.Stop()
+		e.blameTimer = nil
 	}
 	e.blameMutex.Unlock()
+
+	e.highlightMutex.Lock()
+	if e.highlightTimer != nil {
+		e.highlightTimer.Stop()
+		e.highlightTimer = nil
+	}
+	e.highlightMutex.Unlock()
+
+	e.buffer = nil
+	e.selection = nil
+	e.ghostTexts = nil
+	e.onModified = nil
+	e.onCursorMove = nil
+	e.filePath = ""
+	e.blameText = ""
+	e.blameEnabled = false
 }
 
 func (e *CodeEditor) scheduleBlameUpdate() {

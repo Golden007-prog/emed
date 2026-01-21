@@ -147,9 +147,11 @@ func NewEditor() *Editor {
 
 	e.tabManager.SetOnTabClosed(func(id int) {
 		e.tabsMu.Lock()
+		var tab *EditorTab
 		var path string
-		if tab, ok := e.tabsByID[id]; ok {
-			path = tab.path
+		if current, ok := e.tabsByID[id]; ok {
+			tab = current
+			path = current.path
 			delete(e.tabsByID, id)
 			if path != "" {
 				delete(e.tabsByPath, path)
@@ -164,10 +166,11 @@ func NewEditor() *Editor {
 		}
 		e.tabsMu.Unlock()
 
+		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
+		e.releaseTabResources(tab)
 		if e.onTabClosed != nil && path != "" {
 			e.onTabClosed(path)
 		}
-		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
 		e.UpdateTabBar()
 	})
 
@@ -316,10 +319,12 @@ func (e *Editor) closePreviewTab() {
 	e.tabsMu.Lock()
 	var previewTabID int = -1
 	var previewTabPath string
+	var previewTab *EditorTab
 	for i, tab := range e.tabs {
 		if tab.isPreview {
 			previewTabID = tab.id
 			previewTabPath = tab.path
+			previewTab = tab
 			delete(e.tabsByID, tab.id)
 			if tab.path != "" {
 				delete(e.tabsByPath, tab.path)
@@ -333,6 +338,7 @@ func (e *Editor) closePreviewTab() {
 
 	if previewTabID != -1 {
 		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", previewTabID))
+		e.releaseTabResources(previewTab)
 		e.tabManager.RemoveTabSilently(previewTabID)
 		if e.onTabClosed != nil && previewTabPath != "" {
 			e.onTabClosed(previewTabPath)
@@ -591,6 +597,21 @@ func (e *Editor) doCloseCurrentTab() {
 	}
 
 	e.tabManager.RemoveTab(activeID)
+}
+
+func (e *Editor) releaseTabResources(tab *EditorTab) {
+	if tab == nil {
+		return
+	}
+	if tab.codeEditor != nil {
+		tab.codeEditor.Close()
+		tab.codeEditor = nil
+	}
+	if tab.container != nil {
+		tab.container.Clear()
+		tab.container = nil
+	}
+	tab.searchBar = nil
 }
 
 func (e *Editor) rebuildPages() {

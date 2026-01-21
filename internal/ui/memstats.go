@@ -2,9 +2,14 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -116,7 +121,14 @@ func (m *memStatsModal) updateStats() {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
-	rss := getRSSBytes()
+	currentRSS, currentRSSOK := getCurrentRSSBytes()
+	currentRSSText := "n/a"
+	if currentRSSOK {
+		currentRSSText = formatBytes(currentRSS)
+	}
+
+	maxRSS := getRSSBytes()
+	maxRSSText := formatBytes(maxRSS)
 
 	goroutines := runtime.NumGoroutine()
 
@@ -128,11 +140,14 @@ func (m *memStatsModal) updateStats() {
 	text := fmt.Sprintf(`[yellow]Memory[-]
   Heap Alloc:     %s
   Heap In-Use:    %s
+  Heap Idle:      %s
+  Heap Released:  %s
   Heap Objects:   %s
   Stack In-Use:   %s
   Total Alloc:    %s
   Sys (reserved): %s
-  RSS (process):  %s
+  RSS (current):  %s
+  RSS (max):      %s
 
 [yellow]Garbage Collector[-]
   Last GC:        %s ago
@@ -145,11 +160,14 @@ func (m *memStatsModal) updateStats() {
 `,
 		formatBytes(ms.HeapAlloc),
 		formatBytes(ms.HeapInuse),
+		formatBytes(ms.HeapIdle),
+		formatBytes(ms.HeapReleased),
 		formatCount(ms.HeapObjects),
 		formatBytes(ms.StackInuse),
 		formatBytes(ms.TotalAlloc),
 		formatBytes(ms.Sys),
-		formatBytes(rss),
+		currentRSSText,
+		maxRSSText,
 		formatDuration(time.Since(time.Unix(0, int64(ms.LastGC)))),
 		ms.NumGC,
 		ms.GCCPUFraction*100,
@@ -202,6 +220,61 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%.1fm", d.Minutes())
 	}
 	return fmt.Sprintf("%.1fh", d.Hours())
+}
+
+func getCurrentRSSBytes() (uint64, bool) {
+	pid := os.Getpid()
+	if runtime.GOOS == "linux" {
+		if rss, err := readLinuxRSSBytes(); err == nil {
+			return rss, true
+		}
+		if rss, err := rssFromPS(pid); err == nil {
+			return rss, true
+		}
+		return 0, false
+	}
+	if runtime.GOOS == "darwin" {
+		if rss, err := rssFromPS(pid); err == nil {
+			return rss, true
+		}
+		return 0, false
+	}
+	if rss, err := rssFromPS(pid); err == nil {
+		return rss, true
+	}
+	return 0, false
+}
+
+func readLinuxRSSBytes() (uint64, error) {
+	data, err := os.ReadFile("/proc/self/statm")
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 2 {
+		return 0, errors.New("invalid statm")
+	}
+	pages, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return pages * uint64(os.Getpagesize()), nil
+}
+
+func rssFromPS(pid int) (uint64, error) {
+	out, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0, errors.New("empty rss")
+	}
+	value, err := strconv.ParseUint(fields[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return value * 1024, nil
 }
 
 func getRSSBytes() uint64 {

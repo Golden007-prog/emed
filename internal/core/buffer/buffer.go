@@ -21,6 +21,7 @@ const (
 
 // EditOp represents a single edit operation for undo/redo
 type EditOp struct {
+	ID        uint64
 	Type      OpType
 	Row       int
 	Col       int
@@ -28,24 +29,6 @@ type EditOp struct {
 	CursorRow int
 	CursorCol int
 	Timestamp time.Time
-}
-
-// linesEqual checks if two sets of lines are identical
-func linesEqual(a, b [][]rune) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if len(a[i]) != len(b[i]) {
-			return false
-		}
-		for j := range a[i] {
-			if a[i][j] != b[i][j] {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // TextBuffer represents a text buffer with undo/redo functionality.
@@ -60,7 +43,9 @@ type TextBuffer struct {
 	undoStack    []EditOp
 	redoStack    []EditOp
 	maxUndoSize  int
-	initialLines [][]rune
+	savePointIdx int
+	savePointID  uint64
+	nextOpID     uint64
 
 	// Coalescing: group consecutive char inserts/deletes
 	lastOpTime    time.Time
@@ -96,7 +81,9 @@ func New() *TextBuffer {
 		maxUndoSize:   1000,
 		coalesceDelay: 500 * time.Millisecond,
 		recordingUndo: true,
-		initialLines:  [][]rune{{}},
+		savePointIdx:  0,
+		savePointID:   0,
+		nextOpID:      1,
 	}
 }
 
@@ -129,11 +116,6 @@ func (b *TextBuffer) LoadFile(path string) error {
 
 	b.lines = lines
 	b.modified = false
-	b.initialLines = make([][]rune, len(lines))
-	for i, line := range lines {
-		b.initialLines[i] = make([]rune, len(line))
-		copy(b.initialLines[i], line)
-	}
 	b.ClearUndoHistory()
 	return nil
 }
@@ -169,13 +151,20 @@ func (b *TextBuffer) SaveFile(path string) error {
 
 	err = writer.Flush()
 	if err == nil {
-		b.modified = false
+		b.markClean()
 	}
 	return err
 }
 
 // SetContent sets the buffer content from a string.
 func (b *TextBuffer) SetContent(content string) {
+	b.trailingNewline = len(content) > 0 && (content[len(content)-1] == '\n' || content[len(content)-1] == '\r')
+
+	b.detectLineEndingsFromContent(content)
+
+	content = strings.TrimSuffix(content, "\n")
+	content = strings.TrimSuffix(content, "\r")
+
 	if content == "" {
 		b.lines = [][]rune{{}}
 	} else {
@@ -185,7 +174,8 @@ func (b *TextBuffer) SetContent(content string) {
 			b.lines[i] = []rune(line)
 		}
 	}
-	b.modified = true
+	b.ClearUndoHistory()
+	b.markClean()
 }
 
 // GetContent returns the buffer content as a string.
@@ -602,6 +592,8 @@ func (b *TextBuffer) pushOp(op EditOp) {
 		return
 	}
 
+	op.ID = b.nextOpID
+	b.nextOpID++
 	op.Timestamp = time.Now()
 
 	// Check if we can coalesce with previous operation
@@ -619,6 +611,7 @@ func (b *TextBuffer) pushOp(op EditOp) {
 			last.CursorRow = op.CursorRow
 			last.CursorCol = op.CursorCol
 			last.Timestamp = op.Timestamp
+			last.ID = op.ID
 			b.lastOpTime = op.Timestamp
 			return
 		}
@@ -630,6 +623,14 @@ func (b *TextBuffer) pushOp(op EditOp) {
 	// Limit undo stack size
 	if len(b.undoStack) > b.maxUndoSize {
 		b.undoStack = b.undoStack[1:]
+		if b.savePointIdx >= 0 {
+			if b.savePointIdx <= 1 {
+				b.savePointIdx = -1
+				b.savePointID = 0
+			} else {
+				b.savePointIdx--
+			}
+		}
 	}
 
 	// Clear redo stack on new edit
@@ -826,11 +827,7 @@ func (b *TextBuffer) Undo() (cursorX, cursorY int, success bool) {
 	b.redoStack = append(b.redoStack, op)
 
 	// Update modified state
-	if len(b.undoStack) == 0 && linesEqual(b.lines, b.initialLines) {
-		b.modified = false
-	} else {
-		b.modified = true
-	}
+	b.modified = !b.isAtSavePoint()
 
 	return cursorX, cursorY, true
 }
@@ -856,7 +853,7 @@ func (b *TextBuffer) Redo() (cursorX, cursorY int, success bool) {
 	b.undoStack = append(b.undoStack, op)
 
 	// Update modified state
-	b.modified = !linesEqual(b.lines, b.initialLines)
+	b.modified = !b.isAtSavePoint()
 
 	return cursorX, cursorY, true
 }
@@ -1063,6 +1060,36 @@ func (b *TextBuffer) CanRedo() bool {
 func (b *TextBuffer) ClearUndoHistory() {
 	b.undoStack = b.undoStack[:0]
 	b.redoStack = b.redoStack[:0]
+	b.savePointIdx = 0
+	b.savePointID = 0
+	b.nextOpID = 1
+}
+
+func (b *TextBuffer) markClean() {
+	b.modified = false
+	b.savePointIdx = len(b.undoStack)
+	if b.savePointIdx > 0 {
+		b.savePointID = b.undoStack[b.savePointIdx-1].ID
+		b.undoStack[b.savePointIdx-1].Timestamp = time.Time{}
+	} else {
+		b.savePointID = 0
+	}
+}
+
+func (b *TextBuffer) isAtSavePoint() bool {
+	if b.savePointIdx < 0 {
+		return false
+	}
+	if len(b.undoStack) != b.savePointIdx {
+		return false
+	}
+	if b.savePointIdx == 0 {
+		return true
+	}
+	if b.savePointIdx-1 >= len(b.undoStack) {
+		return false
+	}
+	return b.undoStack[b.savePointIdx-1].ID == b.savePointID
 }
 
 // SetLine replaces the content of a specific line
