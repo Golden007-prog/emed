@@ -65,6 +65,9 @@ type Terminal struct {
 	onEmedCommand   func(cmd string, args []string)
 	tabClickInfo    []components.TabClickInfo
 	emulators       map[int]*VT10XTerminal
+	claudePort      int
+	claudeExecTabID int
+	claudeTabID     int
 }
 
 // NewTerminal creates a new Terminal component with no tabs.
@@ -149,6 +152,13 @@ func (t *Terminal) SetApp(app *tview.Application) {
 // NewTab creates and adds a new terminal tab with the specified working directory.
 func (t *Terminal) NewTab(workingDir string) {
 	emulator := NewVT10XTerminal(workingDir)
+
+	if t.claudePort > 0 {
+		emulator.SetExtraEnv([]string{
+			fmt.Sprintf("CLAUDE_CODE_SSE_PORT=%d", t.claudePort),
+			"ENABLE_IDE_INTEGRATION=true",
+		})
+	}
 
 	if t.app != nil {
 		emulator.SetApp(t.app)
@@ -336,4 +346,151 @@ func (t *Terminal) GetCurrentPID() int {
 		return termTab.emulator.GetPID()
 	}
 	return 0
+}
+
+// SetClaudePort sets the Claude Code server port for environment injection.
+func (t *Terminal) SetClaudePort(port int) {
+	t.claudePort = port
+}
+
+// WriteToActive writes data to the active terminal.
+func (t *Terminal) WriteToActive(data string) {
+	activeTab := t.tabManager.GetActiveTab()
+	if termTab, ok := activeTab.(*TerminalTab); ok && termTab.emulator != nil {
+		termTab.emulator.Write([]byte(data))
+	}
+}
+
+// EnsureClaudeExecTerminal creates or ensures a dedicated terminal exists for Claude code execution.
+func (t *Terminal) EnsureClaudeExecTerminal(workingDir string) {
+	if t.claudeExecTabID != 0 {
+		tabs := t.tabManager.GetTabs()
+		for _, tab := range tabs {
+			if tab.GetID() == t.claudeExecTabID {
+				return
+			}
+		}
+		t.claudeExecTabID = 0
+	}
+
+	emulator := NewVT10XTerminal(workingDir)
+
+	if t.app != nil {
+		emulator.SetApp(t.app)
+	}
+
+	tabID := t.tabManager.GetNextTabID()
+	t.claudeExecTabID = tabID
+
+	emulator.SetOnModeChange(func(mode TerminalMode) {
+		t.UpdateTabBar()
+	})
+
+	emulator.SetOnExit(func() {
+		if t.app != nil {
+			t.app.QueueUpdateDraw(func() {
+				if t.claudeExecTabID == tabID {
+					t.claudeExecTabID = 0
+				}
+				t.tabManager.RemoveTab(tabID)
+			})
+		}
+	})
+
+	emulator.SetOnTitleChange(func(title string) {
+		if t.app != nil {
+			t.app.QueueUpdateDraw(func() {
+				tabs := t.tabManager.GetTabs()
+				for _, tab := range tabs {
+					if tab.GetID() == tabID {
+						if termTab, ok := tab.(*TerminalTab); ok {
+							termTab.title = title
+							t.UpdateTabBar()
+						}
+						break
+					}
+				}
+			})
+		}
+	})
+
+	if err := emulator.Start(); err != nil {
+		errorView := tview.NewTextView().
+			SetText(fmt.Sprintf("Failed to start Claude exec terminal: %v", err)).
+			SetTextColor(tcell.ColorRed)
+		t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), errorView, true, false)
+		t.claudeExecTabID = 0
+		return
+	}
+
+	t.emulators[tabID] = emulator
+
+	tab := &TerminalTab{
+		id:       tabID,
+		emulator: emulator,
+		title:    "Claude Exec",
+	}
+
+	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), emulator, true, false)
+
+	t.tabManager.AddTab(tab)
+	t.UpdateTabBar()
+}
+
+// WriteToClaudeExec writes data to the dedicated Claude execution terminal.
+func (t *Terminal) WriteToClaudeExec(data string) {
+	if t.claudeExecTabID == 0 {
+		return
+	}
+
+	if emulator, ok := t.emulators[t.claudeExecTabID]; ok {
+		emulator.Write([]byte(data))
+	}
+}
+
+// SetClaudeTabID sets the terminal tab ID where Claude Code is running.
+func (t *Terminal) SetClaudeTabID(id int) {
+	t.claudeTabID = id
+}
+
+// GetClaudeTabID returns the terminal tab ID where Claude Code is running.
+func (t *Terminal) GetClaudeTabID() int {
+	return t.claudeTabID
+}
+
+// SwitchToClaudeTab switches to the Claude Code terminal tab if it exists.
+func (t *Terminal) SwitchToClaudeTab() bool {
+	if t.claudeTabID == 0 {
+		return false
+	}
+
+	tabs := t.tabManager.GetTabs()
+	for _, tab := range tabs {
+		if tab.GetID() == t.claudeTabID {
+			t.tabManager.SwitchToTab(t.claudeTabID)
+			t.switchToTabByID(t.claudeTabID)
+			return true
+		}
+	}
+
+	t.claudeTabID = 0
+	return false
+}
+
+// GetActiveTabID returns the ID of the currently active terminal tab.
+func (t *Terminal) GetActiveTabID() int {
+	activeTab := t.tabManager.GetActiveTab()
+	if activeTab != nil {
+		return activeTab.GetID()
+	}
+	return 0
+}
+
+// GetLastCreatedTabID returns the ID of the most recently created tab.
+func (t *Terminal) GetLastCreatedTabID() int {
+	tabs := t.tabManager.GetTabs()
+	if len(tabs) == 0 {
+		return 0
+	}
+	return tabs[len(tabs)-1].GetID()
 }

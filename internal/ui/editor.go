@@ -62,6 +62,21 @@ func (t *EditorTab) IsPreview() bool {
 	return t.isPreview
 }
 
+// GetPath returns the file path of the editor tab.
+func (t *EditorTab) GetPath() string {
+	return t.path
+}
+
+// IsDirty returns whether the tab has unsaved changes.
+func (t *EditorTab) IsDirty() bool {
+	return t.modified
+}
+
+// GetCodeEditor returns the underlying code editor.
+func (t *EditorTab) GetCodeEditor() *CodeEditor {
+	return t.codeEditor
+}
+
 // Editor manages multiple file tabs and provides text editing functionality.
 type Editor struct {
 	container           *tview.Flex
@@ -76,6 +91,8 @@ type Editor struct {
 	onLastTabClosed     func()
 	onTabClosed         func(path string)
 	onActiveFileChanged func(path string)
+	onSelectionChange   func(path string, text string, startRow, startCol, endRow, endCol int)
+	onFileSaved         func(path string)
 	fileChangeHandler   *components.FileChangeHandler
 	dialogManager       *EditorDialogManager
 	tabClickInfo        []components.TabClickInfo
@@ -244,6 +261,17 @@ func (e *Editor) OpenFile(path string) {
 		e.tabsMu.RUnlock()
 	})
 
+	filePath := path
+	codeEditor.SetOnSelectionChange(func() {
+		if e.onSelectionChange == nil {
+			return
+		}
+		text, startRow, startCol, endRow, endCol, active := codeEditor.GetSelectionInfo()
+		if active {
+			e.onSelectionChange(filePath, text, startRow, startCol, endRow, endCol)
+		}
+	})
+
 	var lastModTime time.Time
 	if info, err := os.Stat(path); err == nil {
 		lastModTime = info.ModTime()
@@ -395,6 +423,17 @@ func (e *Editor) OpenFilePreview(path string) bool {
 		e.tabsMu.Unlock()
 	})
 
+	filePath := path
+	codeEditor.SetOnSelectionChange(func() {
+		if e.onSelectionChange == nil {
+			return
+		}
+		text, startRow, startCol, endRow, endCol, active := codeEditor.GetSelectionInfo()
+		if active {
+			e.onSelectionChange(filePath, text, startRow, startCol, endRow, endCol)
+		}
+	})
+
 	var lastModTime time.Time
 	if info, err := os.Stat(path); err == nil {
 		lastModTime = info.ModTime()
@@ -465,6 +504,16 @@ func (e *Editor) NewDocument() {
 			}
 		}
 		e.tabsMu.RUnlock()
+	})
+
+	codeEditor.SetOnSelectionChange(func() {
+		if e.onSelectionChange == nil {
+			return
+		}
+		text, startRow, startCol, endRow, endCol, active := codeEditor.GetSelectionInfo()
+		if active {
+			e.onSelectionChange("", text, startRow, startCol, endRow, endCol)
+		}
 	})
 
 	searchBar := NewSearchBar()
@@ -670,6 +719,10 @@ func (e *Editor) SaveCurrentFile() {
 
 		tab.modified = false
 		e.UpdateTabBar()
+
+		if e.onFileSaved != nil {
+			e.onFileSaved(tab.path)
+		}
 	}
 }
 
@@ -732,6 +785,16 @@ func (e *Editor) SetOnActiveFileChanged(handler func(path string)) {
 	e.onActiveFileChanged = handler
 }
 
+// SetOnSelectionChange sets a callback for when the selection changes in any editor.
+func (e *Editor) SetOnSelectionChange(handler func(path string, text string, startRow, startCol, endRow, endCol int)) {
+	e.onSelectionChange = handler
+}
+
+// SetOnFileSaved sets a callback for when a file is saved.
+func (e *Editor) SetOnFileSaved(handler func(path string)) {
+	e.onFileSaved = handler
+}
+
 // HasTabs returns true if there are any open editor tabs.
 func (e *Editor) HasTabs() bool {
 	return e.tabManager.HasTabs()
@@ -779,6 +842,9 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 				}
 				tab.modified = false
 				e.UpdateTabBar()
+				if e.onFileSaved != nil {
+					e.onFileSaved(tab.path)
+				}
 			}
 		},
 		func(copyPath string) {
@@ -791,6 +857,9 @@ func (e *Editor) showSaveConflictDialog(tab *EditorTab) {
 					tab.lastModTime = info.ModTime()
 				}
 				e.UpdateTabBar()
+				if e.onFileSaved != nil {
+					e.onFileSaved(copyPath)
+				}
 			}
 		},
 		func() {
@@ -893,6 +962,9 @@ func (e *Editor) showDeletedFileDialog(tab *EditorTab) {
 				}
 				tab.modified = false
 				e.UpdateTabBar()
+				if e.onFileSaved != nil {
+					e.onFileSaved(tab.path)
+				}
 			}
 		},
 		func() {
@@ -1112,6 +1184,9 @@ func (e *Editor) SaveFileByPath(path string) bool {
 			if err := tab.codeEditor.SaveFile(tab.path); err == nil {
 				tab.modified = false
 				e.UpdateTabBar()
+				if e.onFileSaved != nil {
+					e.onFileSaved(tab.path)
+				}
 				return true
 			}
 		}
@@ -1205,6 +1280,9 @@ func (e *Editor) SaveAllModifiedFiles() int {
 			if err := tab.codeEditor.SaveFile(tab.path); err == nil {
 				tab.modified = false
 				saved++
+				if e.onFileSaved != nil {
+					e.onFileSaved(tab.path)
+				}
 			}
 		}
 	}
@@ -1217,6 +1295,42 @@ func (e *Editor) SaveAllModifiedFiles() int {
 // GetTabCount returns the number of open editor tabs.
 func (e *Editor) GetTabCount() int {
 	return len(e.tabs)
+}
+
+// GetAllTabs returns all open editor tabs.
+func (e *Editor) GetAllTabs() []*EditorTab {
+	e.tabsMu.RLock()
+	defer e.tabsMu.RUnlock()
+
+	result := make([]*EditorTab, len(e.tabs))
+	copy(result, e.tabs)
+	return result
+}
+
+// GetActiveTab returns the currently active editor tab.
+func (e *Editor) GetActiveTab() *EditorTab {
+	activeID := e.tabManager.GetActiveTabID()
+	e.tabsMu.RLock()
+	defer e.tabsMu.RUnlock()
+	return e.tabsByID[activeID]
+}
+
+// GetTabByPath returns the editor tab for the given file path.
+func (e *Editor) GetTabByPath(path string) *EditorTab {
+	e.tabsMu.RLock()
+	defer e.tabsMu.RUnlock()
+	return e.tabsByPath[path]
+}
+
+// ReloadFile reloads a file from disk if it's open in the editor.
+func (e *Editor) ReloadFile(path string) {
+	e.tabsMu.RLock()
+	tab := e.tabsByPath[path]
+	e.tabsMu.RUnlock()
+
+	if tab != nil {
+		e.reloadTab(tab)
+	}
 }
 
 // GetCursor returns the current cursor position (row, col) for the code editor.

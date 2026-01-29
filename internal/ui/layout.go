@@ -13,7 +13,9 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/claude"
 	"github.com/laborin/emed/internal/git"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/rivo/tview"
 )
 
@@ -75,10 +77,15 @@ type Layout struct {
 		useRegex      bool
 	}
 
-	// Claude integration
+	// Claude integration (file-based)
 	claudeStateDir    string
 	claudeCmdWatcher  *fsnotify.Watcher
 	stopClaudeWatcher chan bool
+
+	// Claude Code integration (WebSocket)
+	claudeIntegration  *ClaudeIntegration
+	activeDiffView     *DiffView
+	diffModalWrapper   *modalWrapper
 
 	// Dynamic sizing
 	lastTerminalWidth int
@@ -86,6 +93,9 @@ type Layout struct {
 
 	// Git repositories
 	gitRepos []git.Repository
+
+	// Launch Claude on start
+	launchClaudeOnStart bool
 }
 
 // NewLayout creates a new Layout with all UI components.
@@ -121,6 +131,9 @@ func (l *Layout) initialize() {
 				l.focusFileManager()
 			})
 		}()
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyOpenEditorsChanged()
+		}
 	})
 
 	l.editor.SetOnTabClosed(func(path string) {
@@ -129,6 +142,9 @@ func (l *Layout) initialize() {
 			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 		}
 		l.writeClaudeState("")
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyOpenEditorsChanged()
+		}
 	})
 
 	l.terminal.SetOnLastTabClosed(func() {
@@ -158,15 +174,30 @@ func (l *Layout) initialize() {
 
 	l.fileManager.SetFileRenamedHandler(func(oldPath, newPath string) {
 		l.editor.UpdateFilePath(oldPath, newPath)
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyFileRenamed(oldPath, newPath)
+		}
 	})
 
 	l.fileManager.SetFileDeletedHandler(func(path string) {
 		l.editor.CloseFileTab(path)
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyFileDeleted(path)
+		}
+	})
+
+	l.fileManager.SetFileCreatedHandler(func(path string) {
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyFileCreated(path)
+		}
 	})
 
 	l.editor.SetOnActiveFileChanged(func(path string) {
 		l.statusBar.UpdateGitBranchForFile(path)
 		l.fileManager.RevealFile(path)
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyOpenEditorsChanged()
+		}
 	})
 
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
@@ -184,6 +215,30 @@ func (l *Layout) initialize() {
 	l.rebuildLayout()
 
 	l.startClaudeWatcher()
+
+	l.claudeIntegration = NewClaudeIntegration(l, l.editor, l.terminal, l.app)
+	if err := l.claudeIntegration.Start(); err != nil {
+		logging.Error("Failed to start Claude Code integration: %v", err)
+	}
+
+	l.editor.SetOnSelectionChange(func(path string, text string, startRow, startCol, endRow, endCol int) {
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.UpdateLatestSelection(&claude.Selection{
+				FilePath: path,
+				Text:     text,
+				Range: claude.Range{
+					Start: claude.Position{Line: startRow, Character: startCol},
+					End:   claude.Position{Line: endRow, Character: endCol},
+				},
+			})
+		}
+	})
+
+	l.editor.SetOnFileSaved(func(path string) {
+		if l.claudeIntegration != nil {
+			l.claudeIntegration.NotifyFileSaved(path)
+		}
+	})
 
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(l.mainArea, 0, 1, true).
@@ -216,6 +271,15 @@ func (l *Layout) initialize() {
 				l.focusEditor()
 			} else {
 				l.focusFileManager()
+			}
+		})
+	}()
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		l.app.QueueUpdateDraw(func() {
+			if l.launchClaudeOnStart {
+				l.LaunchClaude()
 			}
 		})
 	}()
@@ -383,6 +447,7 @@ func (l *Layout) getHelpText() string {
 [blue]GENERAL:[-]
   F1             Show This Help
   F8             Show Performance Stats
+  F9             Launch Claude Code
   Ctrl+Q         Quit
 
 [blue]FILE MANAGEMENT:[-]
@@ -505,6 +570,9 @@ func (l *Layout) setupKeybindings() {
 			return nil
 		case tcell.KeyF8:
 			ShowMemStatsModal(l.app, l.fileWatcher)
+			return nil
+		case tcell.KeyF9:
+			l.LaunchClaude()
 			return nil
 		}
 
@@ -1060,9 +1128,86 @@ func (l *Layout) showLazygit() {
 	}, nil)
 }
 
+// ShowDiffView displays a diff view as a modal overlay.
+func (l *Layout) ShowDiffView(dv *DiffView) {
+	l.activeDiffView = dv
+
+	config := EmModalConfig{
+		Width:       85,
+		Height:      85,
+		BorderColor: tcell.NewRGBColor(102, 102, 102),
+		TitleColor:  tcell.ColorWhite,
+		Title:       " " + dv.GetTabName() + " ",
+		TitleAlign:  tview.AlignCenter,
+	}
+
+	wrapper, content := NewConfiguredModal(l.app, config, true)
+	wrapper.SetPreviousRoot(l.root)
+
+	wrapper.modal.SetOnCancel(func() {
+		dv.Reject()
+	})
+
+	dv.SetBackgroundColor(tcell.ColorBlack)
+	content.AddItem(dv, 0, 1, true)
+
+	l.diffModalWrapper = wrapper
+	wrapper.Show()
+	l.app.SetFocus(dv)
+}
+
+// CloseDiffView closes the active diff view modal.
+func (l *Layout) CloseDiffView(dv *DiffView) {
+	if l.diffModalWrapper != nil && l.activeDiffView == dv {
+		l.diffModalWrapper.Close()
+		l.diffModalWrapper = nil
+		l.activeDiffView = nil
+	}
+}
+
+// SetLaunchClaudeOnStart sets whether to launch Claude Code on startup.
+func (l *Layout) SetLaunchClaudeOnStart(launch bool) {
+	l.launchClaudeOnStart = launch
+}
+
+// LaunchClaude opens a terminal and runs "claude -c" after shell warmup.
+// If Claude Code is already connected, switches to that terminal tab instead.
+func (l *Layout) LaunchClaude() {
+	if l.claudeIntegration != nil && l.claudeIntegration.IsConnected() {
+		if l.terminal.SwitchToClaudeTab() {
+			l.focusTerminal()
+			return
+		}
+	}
+
+	hadNoTabs := !l.terminal.HasTabs()
+
+	workingDir, _ := os.Getwd()
+	l.terminal.NewTab(workingDir)
+
+	if hadNoTabs {
+		l.rebuildLayout()
+	}
+
+	l.focusTerminal()
+
+	claudeTabID := l.terminal.GetLastCreatedTabID()
+	l.terminal.SetClaudeTabID(claudeTabID)
+
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		l.app.QueueUpdateDraw(func() {
+			l.terminal.WriteToActive("claude -c || claude\n")
+		})
+	}()
+}
+
 // Stop shuts down the layout and cleans up resources.
 func (l *Layout) Stop() {
 	l.writeClaudeState("")
+	if l.claudeIntegration != nil {
+		l.claudeIntegration.Stop()
+	}
 	if l.fileWatcher != nil {
 		l.fileWatcher.Stop()
 	}

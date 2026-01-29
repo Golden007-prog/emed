@@ -23,6 +23,7 @@ type PTYManager struct {
 	shell      string
 	customCmd  []string
 	workingDir string
+	extraEnv   []string
 	mu         sync.RWMutex
 	running    bool
 	onData     func([]byte)
@@ -88,6 +89,7 @@ func (p *PTYManager) Start(cols, rows int) error {
 	stateDir := filepath.Join(homeDir, ".emed", hex.EncodeToString(hash[:])[:12])
 	os.MkdirAll(stateDir, 0755)
 	p.cmd.Env = append(filtered, "TERM=xterm-256color", "EMED_STATE_DIR="+stateDir)
+	p.cmd.Env = append(p.cmd.Env, p.extraEnv...)
 
 	ptm, err := pty.StartWithSize(p.cmd, &pty.Winsize{
 		Rows: uint16(rows),
@@ -209,6 +211,11 @@ func (p *PTYManager) SetOnData(fn func([]byte)) {
 // SetOnExit sets the callback for PTY termination.
 func (p *PTYManager) SetOnExit(fn func()) {
 	p.onExit = fn
+}
+
+// SetExtraEnv sets additional environment variables for the PTY process.
+func (p *PTYManager) SetExtraEnv(env []string) {
+	p.extraEnv = env
 }
 
 func (p *PTYManager) readLoop() {

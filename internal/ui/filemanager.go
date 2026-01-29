@@ -31,6 +31,7 @@ type FileManager struct {
 	onClipboardChange func(path string, isCut bool)
 	onFileRenamed     func(oldPath, newPath string)
 	onFileDeleted     func(path string)
+	onFileCreated     func(path string)
 }
 
 // NewFileManager creates a new FileManager with the current working directory as root.
@@ -265,6 +266,11 @@ func (fm *FileManager) SetFileDeletedHandler(handler func(path string)) {
 	fm.onFileDeleted = handler
 }
 
+// SetFileCreatedHandler sets the callback for when files are created.
+func (fm *FileManager) SetFileCreatedHandler(handler func(path string)) {
+	fm.onFileCreated = handler
+}
+
 // ShowSearch displays the file search dialog.
 func (fm *FileManager) ShowSearch() {
 	// TODO: Implement fuzzy search
@@ -374,6 +380,10 @@ func (fm *FileManager) CreateNewFile() {
 	}
 
 	fullPath := filepath.Join(targetDir, fileName)
+
+	if fm.onFileCreated != nil {
+		fm.onFileCreated(fullPath)
+	}
 
 	if fm.app != nil {
 		fm.scheduleRefreshAndSelect(targetDir, fullPath, true)
@@ -490,6 +500,9 @@ func (fm *FileManager) PasteClipboard() {
 		}
 	} else {
 		err = fm.fileOps.CopyPath(clipboardItem.Path, targetPath)
+		if err == nil && fm.onFileCreated != nil {
+			fm.onFileCreated(targetPath)
+		}
 	}
 
 	if err != nil {

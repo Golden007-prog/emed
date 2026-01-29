@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/laborin/emed/internal/config"
@@ -27,26 +28,36 @@ func main() {
 	}
 
 	var workingDir string
+	var launchClaude bool
 
-	if len(os.Args) > 1 {
-		argPath := os.Args[1]
+	args := os.Args[1:]
+	var pathArg string
 
-		info, err := os.Stat(argPath)
+	for _, arg := range args {
+		if arg == "-c" || arg == "--claude" {
+			launchClaude = true
+		} else if !strings.HasPrefix(arg, "-") {
+			pathArg = arg
+		}
+	}
+
+	if pathArg != "" {
+		info, err := os.Stat(pathArg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access '%s': %v\n", argPath, err)
+			fmt.Fprintf(os.Stderr, "Error: Cannot access '%s': %v\n", pathArg, err)
 			os.Exit(1)
 		}
 
 		if info.IsDir() {
-			workingDir, err = filepath.Abs(argPath)
+			workingDir, err = filepath.Abs(pathArg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", argPath, err)
+				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", pathArg, err)
 				os.Exit(1)
 			}
 		} else {
-			absPath, err := filepath.Abs(argPath)
+			absPath, err := filepath.Abs(pathArg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", argPath, err)
+				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", pathArg, err)
 				os.Exit(1)
 			}
 			workingDir = filepath.Dir(absPath)
@@ -76,6 +87,10 @@ func main() {
 
 	app := tview.NewApplication()
 	layout := ui.NewLayout(app)
+
+	if launchClaude {
+		layout.SetLaunchClaudeOnStart(true)
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)

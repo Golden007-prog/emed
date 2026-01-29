@@ -88,8 +88,9 @@ type CodeEditor struct {
 	filePath string
 	readOnly bool
 
-	onModified   func(modified bool)
-	onCursorMove func(row, col int)
+	onModified        func(modified bool)
+	onCursorMove      func(row, col int)
+	onSelectionChange func()
 
 	app *tview.Application
 
@@ -668,8 +669,10 @@ func (e *CodeEditor) handleNavigationWithModifiers(event *tcell.EventKey) {
 
 	if extendSelection && e.selection.IsActive() {
 		e.selection.Extend(e.cursorRow, e.cursorCol)
+		e.notifySelectionChange()
 	} else if !shiftHeld && e.selection.IsActive() {
 		e.selection.Clear()
+		e.notifySelectionChange()
 	}
 }
 
@@ -1053,6 +1056,7 @@ func (e *CodeEditor) selectAll() {
 
 	e.cursorRow = lastRow
 	e.cursorCol = lastCol
+	e.notifySelectionChange()
 }
 
 func (e *CodeEditor) deleteSelection() {
@@ -1370,6 +1374,7 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 
 			case tview.MouseLeftUp:
 				e.selection.StopMouseDrag()
+				e.notifySelectionChange()
 				return true, nil
 
 			case tview.MouseMove:
@@ -1486,6 +1491,33 @@ func (e *CodeEditor) SetOnModified(handler func(modified bool)) *CodeEditor {
 func (e *CodeEditor) SetOnCursorMove(handler func(row, col int)) *CodeEditor {
 	e.onCursorMove = handler
 	return e
+}
+
+// SetOnSelectionChange sets the callback for when the selection changes.
+func (e *CodeEditor) SetOnSelectionChange(handler func()) *CodeEditor {
+	e.onSelectionChange = handler
+	return e
+}
+
+// GetSelectionInfo returns the current selection info or nil if no selection.
+func (e *CodeEditor) GetSelectionInfo() (text string, startRow, startCol, endRow, endCol int, active bool) {
+	if e.selection == nil || !e.selection.IsActive() {
+		return "", 0, 0, 0, 0, false
+	}
+	startRow, startCol, endRow, endCol = e.selection.GetNormalizedRange()
+	text = e.buffer.GetTextRange(startRow, startCol, endRow, endCol)
+	return text, startRow, startCol, endRow, endCol, true
+}
+
+// GetCursorPosition returns the current cursor position.
+func (e *CodeEditor) GetCursorPosition() (row, col int) {
+	return e.cursorRow, e.cursorCol
+}
+
+func (e *CodeEditor) notifySelectionChange() {
+	if e.onSelectionChange != nil {
+		e.onSelectionChange()
+	}
 }
 
 // Undo reverts the last edit operation.
@@ -2006,6 +2038,7 @@ func (e *CodeEditor) selectCurrentLine() {
 	e.selection.Start(e.cursorRow, 0)
 	e.selection.Extend(e.cursorRow, lineLen)
 	e.cursorCol = lineLen
+	e.notifySelectionChange()
 }
 
 // selectWordUnderCursor selects the word at the cursor position.
@@ -2042,6 +2075,7 @@ func (e *CodeEditor) selectWordUnderCursor() {
 	e.selection.Start(e.cursorRow, start)
 	e.selection.Extend(e.cursorRow, end)
 	e.cursorCol = end
+	e.notifySelectionChange()
 }
 
 // getWordUnderCursor returns the word at the cursor position.

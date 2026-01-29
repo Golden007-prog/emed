@@ -26,6 +26,21 @@ const (
 	ModePassthrough
 )
 
+// ptyWriter forwards terminal responses back to the PTY.
+type ptyWriter struct {
+	ptyMgr *pty.PTYManager
+}
+
+func (w *ptyWriter) Write(p []byte) (n int, err error) {
+	if w.ptyMgr != nil && w.ptyMgr.IsRunning() {
+		err = w.ptyMgr.Write(p)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
 // VT10XTerminal provides VT10X terminal emulation functionality.
 type VT10XTerminal struct {
 	*tview.Box
@@ -91,7 +106,10 @@ func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 		writeChan: make(chan []byte, 1000),
 	}
 
-	t.vt = vt10x.New(vt10x.WithSize(t.cols, t.rows))
+	t.vt = vt10x.New(
+		vt10x.WithSize(t.cols, t.rows),
+		vt10x.WithWriter(&ptyWriter{ptyMgr: t.ptyMgr}),
+	)
 
 	t.ptyMgr.SetOnData(t.onPTYData)
 	t.ptyMgr.SetOnExit(t.onPTYExit)
@@ -106,6 +124,11 @@ func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 // SetApp sets the tview application reference for the terminal.
 func (t *VT10XTerminal) SetApp(app *tview.Application) {
 	t.app = app
+}
+
+// SetExtraEnv sets extra environment variables for the terminal process.
+func (t *VT10XTerminal) SetExtraEnv(env []string) {
+	t.ptyMgr.SetExtraEnv(env)
 }
 
 // Start initializes and starts the terminal emulator.
