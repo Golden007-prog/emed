@@ -2,6 +2,7 @@
 package clipboard
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,15 @@ import (
 )
 
 var errNoSystemClipboard = errors.New("no system clipboard available")
+
+type clipboardMode string
+
+const (
+	clipboardModeAuto     clipboardMode = "auto"
+	clipboardModeSystem   clipboardMode = "system"
+	clipboardModeOSC52    clipboardMode = "osc52"
+	clipboardModeInternal clipboardMode = "internal"
+)
 
 type clipboardStore struct {
 	mu   sync.RWMutex
@@ -38,17 +48,47 @@ func (c *Clipboard) Copy(text string) error {
 
 	c.store.set(text)
 
-	if err := copyToSystemClipboard(text); err != nil && !errors.Is(err, errNoSystemClipboard) {
-		return err
+	mode := getClipboardMode()
+
+	switch mode {
+	case clipboardModeInternal:
+		return nil
+	case clipboardModeSystem:
+		return ignoreNoSystemClipboard(copyToSystemClipboard(text))
+	case clipboardModeOSC52:
+		return ignoreNoSystemClipboard(copyToOSC52Clipboard(text))
+	default:
+		systemErr := copyToSystemClipboard(text)
+		if systemErr == nil {
+			return nil
+		}
+
+		osc52Err := copyToOSC52Clipboard(text)
+		if osc52Err == nil {
+			return nil
+		}
+
+		if !isNoSystemClipboardError(systemErr) {
+			return systemErr
+		}
+		if !isNoSystemClipboardError(osc52Err) {
+			return osc52Err
+		}
+		return nil
 	}
-	return nil
 }
 
 // Paste retrieves text from the system clipboard.
 func (c *Clipboard) Paste() (string, error) {
-	text, err := pasteFromSystemClipboard()
-	if err == nil {
-		return text, nil
+	mode := getClipboardMode()
+	systemErr := errNoSystemClipboard
+
+	if mode != clipboardModeInternal {
+		text, err := pasteFromSystemClipboard()
+		if err == nil {
+			return text, nil
+		}
+		systemErr = err
 	}
 
 	fallback := c.store.get()
@@ -56,7 +96,7 @@ func (c *Clipboard) Paste() (string, error) {
 		return fallback, nil
 	}
 
-	return "", err
+	return "", systemErr
 }
 
 func (s *clipboardStore) set(text string) {
@@ -95,6 +135,77 @@ func pasteFromSystemClipboard() (string, error) {
 		text = strings.TrimSuffix(text, "\r\n")
 	}
 	return text, nil
+}
+
+func copyToOSC52Clipboard(text string) error {
+	sequence, err := buildOSC52Sequence(text)
+	if err != nil {
+		return err
+	}
+
+	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	if err == nil {
+		defer tty.Close()
+		_, err = tty.WriteString(sequence)
+		return err
+	}
+
+	_, err = os.Stdout.WriteString(sequence)
+	return err
+}
+
+func buildOSC52Sequence(text string) (string, error) {
+	if runtime.GOOS == "windows" {
+		return "", errNoSystemClipboard
+	}
+
+	term := strings.ToLower(strings.TrimSpace(os.Getenv("TERM")))
+	if term == "dumb" {
+		return "", errNoSystemClipboard
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(text))
+	sequence := "\x1b]52;c;" + encoded + "\a"
+
+	if os.Getenv("TMUX") != "" {
+		return "\x1bPtmux;\x1b" + sequence + "\x1b\\", nil
+	}
+
+	if isScreenSession() {
+		return "\x1bP" + sequence + "\x1b\\", nil
+	}
+
+	return sequence, nil
+}
+
+func isScreenSession() bool {
+	if os.Getenv("STY") != "" {
+		return true
+	}
+
+	term := strings.ToLower(strings.TrimSpace(os.Getenv("TERM")))
+	return strings.HasPrefix(term, "screen")
+}
+
+func getClipboardMode() clipboardMode {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("EMED_CLIPBOARD")))
+	switch clipboardMode(mode) {
+	case clipboardModeSystem, clipboardModeOSC52, clipboardModeInternal:
+		return clipboardMode(mode)
+	default:
+		return clipboardModeAuto
+	}
+}
+
+func isNoSystemClipboardError(err error) bool {
+	return err == nil || errors.Is(err, errNoSystemClipboard)
+}
+
+func ignoreNoSystemClipboard(err error) error {
+	if isNoSystemClipboardError(err) {
+		return nil
+	}
+	return err
 }
 
 func buildCopyCommand() (*exec.Cmd, error) {
