@@ -58,15 +58,8 @@ func (c *Clipboard) Copy(text string) error {
 	case clipboardModeOSC52:
 		return ignoreNoSystemClipboard(copyToOSC52Clipboard(text))
 	default:
-		systemErr := copyToSystemClipboard(text)
-		if systemErr == nil {
-			return nil
-		}
-
 		osc52Err := copyToOSC52Clipboard(text)
-		if osc52Err == nil {
-			return nil
-		}
+		systemErr := copyToSystemClipboard(text)
 
 		if !isNoSystemClipboardError(systemErr) {
 			return systemErr
