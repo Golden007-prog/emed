@@ -94,27 +94,7 @@ func (b *TextBuffer) LoadFile(path string) error {
 		return err
 	}
 
-	content := string(data)
-
-	b.trailingNewline = len(content) > 0 && (content[len(content)-1] == '\n' || content[len(content)-1] == '\r')
-
-	b.detectLineEndingsFromContent(content)
-
-	content = strings.TrimSuffix(content, "\n")
-	content = strings.TrimSuffix(content, "\r")
-
-	var lines [][]rune
-	if content == "" {
-		lines = [][]rune{{}}
-	} else {
-		splitLines := strings.Split(content, "\n")
-		for _, line := range splitLines {
-			line = strings.TrimSuffix(line, "\r")
-			lines = append(lines, []rune(line))
-		}
-	}
-
-	b.lines = lines
+	b.setContentInternal(string(data))
 	b.modified = false
 	b.ClearUndoHistory()
 	return nil
@@ -158,22 +138,7 @@ func (b *TextBuffer) SaveFile(path string) error {
 
 // SetContent sets the buffer content from a string.
 func (b *TextBuffer) SetContent(content string) {
-	b.trailingNewline = len(content) > 0 && (content[len(content)-1] == '\n' || content[len(content)-1] == '\r')
-
-	b.detectLineEndingsFromContent(content)
-
-	content = strings.TrimSuffix(content, "\n")
-	content = strings.TrimSuffix(content, "\r")
-
-	if content == "" {
-		b.lines = [][]rune{{}}
-	} else {
-		lines := strings.Split(content, "\n")
-		b.lines = make([][]rune, len(lines))
-		for i, line := range lines {
-			b.lines[i] = []rune(line)
-		}
-	}
+	b.setContentInternal(content)
 	b.ClearUndoHistory()
 	b.markClean()
 }
@@ -543,6 +508,28 @@ func (b *TextBuffer) detectLineEndingsFromContent(content string) {
 		b.lineEndings = "\r"
 	} else {
 		b.lineEndings = "\n"
+	}
+}
+
+func (b *TextBuffer) setContentInternal(content string) {
+	b.trailingNewline = len(content) > 0 && (content[len(content)-1] == '\n' || content[len(content)-1] == '\r')
+	b.detectLineEndingsFromContent(content)
+
+	content = strings.TrimSuffix(content, "\n")
+	content = strings.TrimSuffix(content, "\r")
+
+	if content == "" {
+		b.lines = [][]rune{{}}
+		return
+	}
+
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	splitLines := strings.Split(normalized, "\n")
+	b.lines = make([][]rune, len(splitLines))
+	for i, line := range splitLines {
+		b.lines[i] = []rune(line)
 	}
 }
 
