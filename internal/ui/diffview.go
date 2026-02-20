@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -30,9 +31,10 @@ type diffOp struct {
 }
 
 var (
-	deltaCheckOnce sync.Once
-	deltaBinary    string
-	ansiTagPattern = regexp.MustCompile(`^\[(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?:(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?(?::(?:-|[bdiulrs]+)?)?\]$`)
+	deltaCheckOnce  sync.Once
+	deltaBinary     string
+	ansiTagPattern  = regexp.MustCompile(`^\[(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?:(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?(?::(?:-|[bdiulrs]+)?)?\]$`)
+	tagStripPattern = regexp.MustCompile(`\[[^\[\]]*\]`)
 )
 
 type DiffView struct {
@@ -64,8 +66,9 @@ func NewDiffView(filePath, oldContent, newContent, tabName string) *DiffView {
 	}
 
 	d.SetBorder(false)
-	d.SetText(d.renderContent())
-	d.ScrollToBeginning()
+	content, scrollRow := d.renderContent()
+	d.SetText(content)
+	d.scrollToChange(scrollRow)
 	d.SetInputCapture(d.captureInput)
 
 	return d
@@ -126,17 +129,43 @@ func (d *DiffView) GetNewContent() string {
 	return d.newContent
 }
 
-func (d *DiffView) renderContent() string {
+func (d *DiffView) renderContent() (string, int) {
 	oldLines := splitDiffLines(d.oldContent)
 	newLines := splitDiffLines(d.newContent)
 	ops := computeDiffOps(oldLines, newLines)
 	unified := buildUnifiedPatch(d.filePath, oldLines, newLines, ops)
+	changeIdx, changeOldNum, changeNewNum, hasChanges := firstChangedOp(ops)
 
 	if rendered, ok := renderWithDelta(unified); ok {
-		return formatRenderedDiff("delta", rendered)
+		scrollRow := -1
+		if hasChanges {
+			row := findDeltaChangeRow(rendered, changeOldNum, changeNewNum)
+			if row >= 0 {
+				scrollRow = 2 + row
+			}
+		}
+		return formatRenderedDiff("delta", rendered), scrollRow
 	}
 
-	return formatRenderedDiff("internal", renderFallbackDiff(d.filePath, oldLines, newLines, ops))
+	body := renderFallbackDiff(d.filePath, oldLines, newLines, ops)
+	scrollRow := -1
+	if hasChanges {
+		scrollRow = 2 + 3 + changeIdx
+	}
+	return formatRenderedDiff("internal", body), scrollRow
+}
+
+func (d *DiffView) scrollToChange(scrollRow int) {
+	if scrollRow < 0 {
+		d.ScrollToBeginning()
+		return
+	}
+
+	row := scrollRow - 2
+	if row < 0 {
+		row = 0
+	}
+	d.ScrollTo(row, 0)
 }
 
 func formatRenderedDiff(renderer string, body string) string {
@@ -148,6 +177,15 @@ func splitDiffLines(content string) []string {
 		return []string{}
 	}
 	return strings.Split(content, "\n")
+}
+
+func firstChangedOp(ops []diffOp) (int, int, int, bool) {
+	for i, op := range ops {
+		if op.kind != diffContext {
+			return i, op.oldNum, op.newNum, true
+		}
+	}
+	return -1, 0, 0, false
 }
 
 func computeDiffOps(oldLines, newLines []string) []diffOp {
@@ -380,4 +418,75 @@ func renderFallbackDiff(filePath string, oldLines, newLines []string, ops []diff
 	}
 
 	return b.String()
+}
+
+func findDeltaChangeRow(rendered string, targetOldNum, targetNewNum int) int {
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		oldNum, newNum, ok := extractDeltaLineNumbers(line)
+		if !ok {
+			continue
+		}
+
+		if targetOldNum > 0 && oldNum == targetOldNum {
+			return i
+		}
+		if targetNewNum > 0 && newNum == targetNewNum {
+			return i
+		}
+	}
+	return -1
+}
+
+func extractDeltaLineNumbers(line string) (int, int, bool) {
+	separatorIdx := strings.IndexRune(line, '│')
+	if separatorIdx < 0 {
+		return 0, 0, false
+	}
+
+	prefix := line[:separatorIdx]
+	prefix = tagStripPattern.ReplaceAllString(prefix, "")
+
+	gutterParts := strings.SplitN(prefix, "⋮", 2)
+	if len(gutterParts) != 2 {
+		return 0, 0, false
+	}
+
+	oldNum := parseLeadingGutterNumber(gutterParts[0])
+	newNum := parseLeadingGutterNumber(gutterParts[1])
+	if oldNum == 0 && newNum == 0 {
+		return 0, 0, false
+	}
+
+	return oldNum, newNum, true
+}
+
+func parseLeadingGutterNumber(text string) int {
+	field := strings.TrimSpace(text)
+	if field == "" {
+		return 0
+	}
+
+	start := -1
+	end := -1
+	for i, r := range field {
+		if r >= '0' && r <= '9' {
+			if start < 0 {
+				start = i
+			}
+			end = i + 1
+		} else if start >= 0 {
+			break
+		}
+	}
+
+	if start < 0 || end <= start {
+		return 0
+	}
+
+	n, err := strconv.Atoi(field[start:end])
+	if err != nil {
+		return 0
+	}
+	return n
 }
