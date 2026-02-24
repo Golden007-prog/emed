@@ -1220,6 +1220,9 @@ func (t *VT10XTerminal) convertInputToBytes(event *tcell.EventKey) []byte {
 	// Regular characters
 	case tcell.KeyRune:
 		r := event.Rune()
+		if isLineBreakRune(r) {
+			return []byte{0x0d}
+		}
 		if event.Modifiers()&tcell.ModAlt != 0 {
 			return []byte{0x1b, byte(r)}
 		}

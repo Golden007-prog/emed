@@ -12,6 +12,8 @@ func TestNormalizeLineEndings(t *testing.T) {
 		{name: "crlf", in: "a\r\nb\r\n", out: "a\nb\n"},
 		{name: "cr", in: "a\rb\r", out: "a\nb\n"},
 		{name: "mixed", in: "a\r\nb\rc\n", out: "a\nb\nc\n"},
+		{name: "unicode-separators", in: "a\u2028b\u2029c\u0085d", out: "a\nb\nc\nd"},
+		{name: "other-separators", in: "a\vb\fc", out: "a\nb\nc"},
 	}
 
 	for _, tc := range tests {

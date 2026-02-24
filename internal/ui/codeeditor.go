@@ -508,15 +508,20 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			return
 		}
 
+		if isLineBreakKey(event) {
+			e.insertNewline()
+			return
+		}
+
 		switch event.Key() {
 		case tcell.KeyEscape:
 			return
 
 		case tcell.KeyRune:
 			modifiers := event.Modifiers()
+			r := event.Rune()
 
 			if modifiers&(tcell.ModCtrl|tcell.ModMeta) != 0 {
-				r := event.Rune()
 				switch {
 				case r == 3 || r == 'c' || r == 'C': // Ctrl+C
 					e.copySelection()
@@ -537,7 +542,7 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 			}
 
 			if modifiers&(tcell.ModAlt|tcell.ModMeta) != 0 {
-				switch event.Rune() {
+				switch r {
 				case 'b', 'B':
 					e.wordLeft()
 					return
@@ -547,7 +552,7 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 				}
 			}
 
-			e.insertRune(event.Rune())
+			e.insertRune(r)
 
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			e.deleteCharBackward()

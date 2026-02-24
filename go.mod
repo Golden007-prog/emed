@@ -2,6 +2,8 @@ module github.com/laborin/emed
 
 go 1.23.2
 
+replace github.com/rivo/tview => ./third_party/tview
+
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/creack/pty v1.1.24

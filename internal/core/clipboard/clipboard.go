@@ -278,11 +278,16 @@ func isWaylandSession() bool {
 }
 
 func normalizeLineEndings(text string) string {
-	if strings.IndexByte(text, '\r') < 0 {
+	if strings.IndexAny(text, "\r\u0085\u2028\u2029\f\v") < 0 {
 		return text
 	}
 
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.ReplaceAll(text, "\u0085", "\n")
+	text = strings.ReplaceAll(text, "\u2028", "\n")
+	text = strings.ReplaceAll(text, "\u2029", "\n")
+	text = strings.ReplaceAll(text, "\f", "\n")
+	text = strings.ReplaceAll(text, "\v", "\n")
 	return text
 }

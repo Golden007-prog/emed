@@ -118,11 +118,38 @@ func main() {
 		}
 	}()
 
-	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).EnablePaste(true).Run(); err != nil {
+	enablePaste := shouldEnableTerminalPaste()
+	logging.Info("terminal paste capture enabled: %t", enablePaste)
+
+	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).EnablePaste(enablePaste).Run(); err != nil {
 		fmt.Print(config.TerminalExitAltScreen)
 		fmt.Print(config.TerminalShowCursor)
 		panic(err)
 	}
 
 	layout.Stop()
+}
+
+func shouldEnableTerminalPaste() bool {
+	if override, ok := parseBoolEnv("EMED_ENABLE_PASTE"); ok {
+		return override
+	}
+	if disable, ok := parseBoolEnv("EMED_DISABLE_PASTE"); ok {
+		return !disable
+	}
+	return true
+}
+
+func parseBoolEnv(name string) (bool, bool) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch value {
+	case "":
+		return false, false
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }
