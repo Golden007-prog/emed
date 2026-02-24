@@ -970,6 +970,7 @@ func (t *VT10XTerminal) CopySelection() {
 // PasteHandler returns the paste handler for the terminal.
 func (t *VT10XTerminal) PasteHandler() func(text string, setFocus func(p tview.Primitive)) {
 	return func(text string, setFocus func(p tview.Primitive)) {
+		text = normalizePastedText(text)
 		if !t.hasFocus || !t.ptyMgr.IsRunning() || text == "" {
 			return
 		}

@@ -610,6 +610,7 @@ func (e *CodeEditor) InputHandler() func(event *tcell.EventKey, setFocus func(p 
 
 func (e *CodeEditor) PasteHandler() func(pastedText string, setFocus func(p tview.Primitive)) {
 	return func(pastedText string, setFocus func(p tview.Primitive)) {
+		pastedText = normalizePastedText(pastedText)
 		if !e.hasFocus || e.readOnly || pastedText == "" {
 			return
 		}
@@ -1094,6 +1095,7 @@ func (e *CodeEditor) pasteText() {
 	}
 
 	text, err := e.clipboard.Paste()
+	text = normalizePastedText(text)
 	if err != nil || text == "" {
 		return
 	}

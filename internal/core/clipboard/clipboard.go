@@ -79,14 +79,14 @@ func (c *Clipboard) Paste() (string, error) {
 	if mode != clipboardModeInternal {
 		text, err := pasteFromSystemClipboard()
 		if err == nil {
-			return text, nil
+			return normalizeLineEndings(text), nil
 		}
 		systemErr = err
 	}
 
 	fallback := c.store.get()
 	if fallback != "" {
-		return fallback, nil
+		return normalizeLineEndings(fallback), nil
 	}
 
 	return "", systemErr
@@ -275,4 +275,14 @@ func isWaylandSession() bool {
 		return true
 	}
 	return false
+}
+
+func normalizeLineEndings(text string) string {
+	if strings.IndexByte(text, '\r') < 0 {
+		return text
+	}
+
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return text
 }
