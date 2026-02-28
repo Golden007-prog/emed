@@ -29,6 +29,8 @@ func main() {
 
 	var workingDir string
 	var launchClaude bool
+	var startupFile string
+	var singleFileMode bool
 
 	args := os.Args[1:]
 	var pathArg string
@@ -60,6 +62,8 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: Cannot resolve path '%s': %v\n", pathArg, err)
 				os.Exit(1)
 			}
+			startupFile = absPath
+			singleFileMode = true
 			workingDir = filepath.Dir(absPath)
 		}
 	} else {
@@ -86,10 +90,15 @@ func main() {
 	logging.Info("Emed started in directory: %s", workingDir)
 
 	app := tview.NewApplication()
-	layout := ui.NewLayout(app)
+	layout := ui.NewLayout(app, ui.LayoutOptions{
+		SingleFileMode: singleFileMode,
+		StartupFile:    startupFile,
+	})
 
-	if launchClaude {
+	if launchClaude && !singleFileMode {
 		layout.SetLaunchClaudeOnStart(true)
+	} else if launchClaude && singleFileMode {
+		logging.Info("ignoring --claude in single file mode")
 	}
 
 	sigChan := make(chan os.Signal, 1)

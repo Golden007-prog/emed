@@ -96,6 +96,7 @@ type Editor struct {
 	fileChangeHandler   *components.FileChangeHandler
 	dialogManager       *EditorDialogManager
 	tabClickInfo        []components.TabClickInfo
+	singleFileMode      bool
 }
 
 // NewEditor creates a new Editor component with no open files.
@@ -196,7 +197,7 @@ func NewEditor() *Editor {
 
 func (e *Editor) showNoDocsView() {
 	e.contentArea.SwitchToPage("no-docs")
-	e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
+	e.UpdateTabBar()
 }
 
 func (e *Editor) switchToTabByID(id int) {
@@ -226,6 +227,20 @@ func (e *Editor) switchToTabByIndex(index int) {
 
 // OpenFile opens a file in a new tab or switches to existing tab.
 func (e *Editor) OpenFile(path string) {
+	if e.singleFileMode {
+		e.tabsMu.RLock()
+		if len(e.tabs) > 0 {
+			current := e.tabs[0]
+			e.tabsMu.RUnlock()
+			if current.path == path {
+				e.tabManager.SwitchToTab(current.id)
+				e.switchToTabByID(current.id)
+			}
+			return
+		}
+		e.tabsMu.RUnlock()
+	}
+
 	e.tabsMu.RLock()
 	existingTab, exists := e.tabsByPath[path]
 	e.tabsMu.RUnlock()
@@ -378,6 +393,11 @@ func (e *Editor) closePreviewTab() {
 // opening another file, and convert to regular tabs on edit or second open.
 // Returns true if a preview tab was converted to regular (second click).
 func (e *Editor) OpenFilePreview(path string) bool {
+	if e.singleFileMode {
+		e.OpenFile(path)
+		return false
+	}
+
 	e.tabsMu.RLock()
 	existingTab, exists := e.tabsByPath[path]
 	e.tabsMu.RUnlock()
@@ -486,6 +506,10 @@ func (e *Editor) ConvertPreviewToRegular(path string) {
 
 // NewDocument creates a new untitled document tab.
 func (e *Editor) NewDocument() {
+	if e.singleFileMode {
+		return
+	}
+
 	codeEditor := NewCodeEditor()
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
@@ -562,6 +586,11 @@ func (e *Editor) switchToTab(index int) {
 
 // UpdateTabBar refreshes the tab bar display with current tabs.
 func (e *Editor) UpdateTabBar() {
+	if e.singleFileMode {
+		e.updateSingleFileTitle()
+		return
+	}
+
 	if !e.tabManager.HasTabs() {
 		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
 		return
@@ -587,6 +616,22 @@ func (e *Editor) UpdateTabBar() {
 	}
 }
 
+func (e *Editor) updateSingleFileTitle() {
+	title := " Editor "
+
+	tab := e.getCurrentTab()
+	if tab != nil {
+		name := tab.GetTitle()
+		if tab.IsModified() {
+			name += " *"
+		}
+		title = fmt.Sprintf(" Editor: %s ", name)
+	}
+
+	e.tabClickInfo = nil
+	e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
+}
+
 // NextTab switches to the next editor tab.
 func (e *Editor) NextTab() {
 	tabID := e.tabManager.NextTabWithID()
@@ -605,6 +650,10 @@ func (e *Editor) PreviousTab() {
 
 // CloseCurrentTab closes the currently active editor tab.
 func (e *Editor) CloseCurrentTab() {
+	if e.singleFileMode {
+		return
+	}
+
 	activeID := e.tabManager.GetActiveTabID()
 	if activeID < 0 {
 		return
@@ -768,6 +817,11 @@ func (e *Editor) UpdateFilePath(oldPath, newPath string) {
 func (e *Editor) SetApp(app *tview.Application) {
 	e.app = app
 	e.dialogManager = NewEditorDialogManager(app)
+}
+
+func (e *Editor) SetSingleFileMode(enabled bool) {
+	e.singleFileMode = enabled
+	e.UpdateTabBar()
 }
 
 // SetOnLastTabClosed sets a callback for when the last editor tab is closed.

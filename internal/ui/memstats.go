@@ -19,20 +19,24 @@ import (
 )
 
 type memStatsModal struct {
-	app         *tview.Application
-	modal       *modalWrapper
-	content     *tview.TextView
-	fileWatcher *FileWatcher
-	stopChan    chan struct{}
-	stopped     bool
-	mu          sync.Mutex
+	app          *tview.Application
+	modal        *modalWrapper
+	content      *tview.TextView
+	watcherStats WatcherStatsProvider
+	stopChan     chan struct{}
+	stopped      bool
+	mu           sync.Mutex
 }
 
-func newMemStatsModal(app *tview.Application, fw *FileWatcher) *memStatsModal {
+type WatcherStatsProvider interface {
+	GetWatchedDirsCount() int
+}
+
+func newMemStatsModal(app *tview.Application, watcherStats WatcherStatsProvider) *memStatsModal {
 	return &memStatsModal{
-		app:         app,
-		fileWatcher: fw,
-		stopChan:    make(chan struct{}),
+		app:          app,
+		watcherStats: watcherStats,
+		stopChan:     make(chan struct{}),
 	}
 }
 
@@ -133,8 +137,8 @@ func (m *memStatsModal) updateStats() {
 	goroutines := runtime.NumGoroutine()
 
 	var watchedDirs int
-	if m.fileWatcher != nil {
-		watchedDirs = m.fileWatcher.GetWatchedDirsCount()
+	if m.watcherStats != nil {
+		watchedDirs = m.watcherStats.GetWatchedDirsCount()
 	}
 
 	text := fmt.Sprintf(`[yellow]Memory[-]
@@ -290,7 +294,7 @@ func getRSSBytes() uint64 {
 }
 
 // ShowMemStatsModal displays a modal with memory and performance statistics.
-func ShowMemStatsModal(app *tview.Application, fw *FileWatcher) {
-	modal := newMemStatsModal(app, fw)
+func ShowMemStatsModal(app *tview.Application, watcherStats WatcherStatsProvider) {
+	modal := newMemStatsModal(app, watcherStats)
 	modal.Show()
 }

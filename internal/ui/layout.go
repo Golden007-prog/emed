@@ -83,9 +83,9 @@ type Layout struct {
 	stopClaudeWatcher chan bool
 
 	// Claude Code integration (WebSocket)
-	claudeIntegration  *ClaudeIntegration
-	activeDiffView     *DiffView
-	diffModalWrapper   *modalWrapper
+	claudeIntegration *ClaudeIntegration
+	activeDiffView    *DiffView
+	diffModalWrapper  *modalWrapper
 
 	// Dynamic sizing
 	lastTerminalWidth int
@@ -96,10 +96,20 @@ type Layout struct {
 
 	// Launch Claude on start
 	launchClaudeOnStart bool
+
+	// Single file mode
+	singleFileMode    bool
+	startupFile       string
+	singleFileWatcher *SingleFileWatcher
+}
+
+type LayoutOptions struct {
+	SingleFileMode bool
+	StartupFile    string
 }
 
 // NewLayout creates a new Layout with all UI components.
-func NewLayout(app *tview.Application) *Layout {
+func NewLayout(app *tview.Application, opts LayoutOptions) *Layout {
 	l := &Layout{
 		app:              app,
 		focusedPanel:     0,
@@ -107,12 +117,18 @@ func NewLayout(app *tview.Application) *Layout {
 		proportionIndex:  1,
 		proportionDir:    1,
 		fileManagerWidth: 30,
+		singleFileMode:   opts.SingleFileMode,
+		startupFile:      opts.StartupFile,
 	}
 
-	l.fileManager = NewFileManager()
 	l.editor = NewEditor()
-	l.terminal = NewTerminal()
-	l.statusBar = NewStatusBar()
+	if l.singleFileMode {
+		l.editor.SetSingleFileMode(true)
+	} else {
+		l.fileManager = NewFileManager()
+		l.terminal = NewTerminal()
+		l.statusBar = NewStatusBar()
+	}
 
 	l.initialize()
 	return l
@@ -120,6 +136,11 @@ func NewLayout(app *tview.Application) *Layout {
 
 func (l *Layout) initialize() {
 	l.editor.SetApp(l.app)
+	if l.singleFileMode {
+		l.initializeSingleFileMode()
+		return
+	}
+
 	l.terminal.SetApp(l.app)
 	l.statusBar.SetApp(l.app)
 
@@ -285,6 +306,31 @@ func (l *Layout) initialize() {
 	}()
 }
 
+func (l *Layout) initializeSingleFileMode() {
+	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
+	l.mainArea.AddItem(l.editor.GetView(), 0, 1, true)
+
+	l.root = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(l.mainArea, 0, 1, true)
+
+	SetMainAppRoot(l.root)
+
+	l.setupKeybindings()
+	l.setupFocusDetection()
+
+	if l.startupFile != "" {
+		l.OpenFile(l.startupFile)
+		l.setupSingleFileWatcher(l.startupFile)
+	}
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		l.app.QueueUpdateDraw(func() {
+			l.focusEditor()
+		})
+	}()
+}
+
 // GetRoot returns the root primitive for the layout.
 func (l *Layout) GetRoot() tview.Primitive {
 	return l.root
@@ -312,6 +358,12 @@ func (l *Layout) checkAndUpdateWidth() {
 }
 
 func (l *Layout) rebuildLayout() {
+	if l.singleFileMode {
+		l.mainArea.Clear()
+		l.mainArea.AddItem(l.editor.GetView(), 0, 1, true)
+		return
+	}
+
 	l.rightSide.Clear()
 
 	l.mainArea.Clear()
@@ -399,6 +451,28 @@ func (l *Layout) togglePosition() {
 }
 
 func (l *Layout) getHelpText() string {
+	if l.singleFileMode {
+		return `[::b]SINGLE FILE MODE[-::-]
+
+[blue]EDITOR:[-]
+  Ctrl+S         Save File
+  Ctrl+F         Find/Replace in Document
+  Ctrl+Z         Undo
+  Ctrl+Y         Redo
+  Ctrl+C         Copy Selection
+  Ctrl+X         Cut Selection
+  Ctrl+V         Paste
+  Arrow Keys     Navigate
+  Shift+Arrows   Select Text
+
+[blue]GENERAL:[-]
+  F1             Show This Help
+  F8             Show Performance Stats
+  Ctrl+Q         Quit
+
+[::d]Press ESC or click outside to close[-::-]`
+	}
+
 	return `[::b]KEYBOARD SHORTCUTS[-::-]
 
 [blue]FILE MANAGER (when focused):[-]
@@ -487,6 +561,11 @@ func (l *Layout) showBlameModal() {
 }
 
 func (l *Layout) setupKeybindings() {
+	if l.singleFileMode {
+		l.setupSingleFileKeybindings()
+		return
+	}
+
 	l.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if IsModalOpen() {
 			return event
@@ -569,7 +648,7 @@ func (l *Layout) setupKeybindings() {
 			}
 			return nil
 		case tcell.KeyF8:
-			ShowMemStatsModal(l.app, l.fileWatcher)
+			ShowMemStatsModal(l.app, l.getWatcherStatsProvider())
 			return nil
 		case tcell.KeyF9:
 			l.LaunchClaude()
@@ -690,17 +769,59 @@ func (l *Layout) setupKeybindings() {
 	})
 }
 
+func (l *Layout) setupSingleFileKeybindings() {
+	l.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if IsModalOpen() {
+			return event
+		}
+
+		switch event.Key() {
+		case tcell.KeyF1:
+			l.showHelp()
+			return nil
+		case tcell.KeyF8:
+			ShowMemStatsModal(l.app, l.getWatcherStatsProvider())
+			return nil
+		}
+
+		if event.Modifiers() == tcell.ModCtrl {
+			switch event.Key() {
+			case tcell.KeyCtrlS:
+				l.editor.SaveCurrentFile()
+				return nil
+			case tcell.KeyCtrlF:
+				l.editor.ShowSearch()
+				return nil
+			case tcell.KeyCtrlQ:
+				l.tryQuit()
+				return nil
+			case tcell.KeyCtrlZ, tcell.KeyCtrlY:
+				return event
+			case tcell.KeyCtrlC:
+				return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModCtrl)
+			}
+		}
+
+		return event
+	})
+}
+
 func (l *Layout) focusFileManager() {
+	if l.fileManager == nil {
+		return
+	}
 	l.focusedPanel = 0
 	view := l.fileManager.GetView()
 	l.app.SetFocus(view)
 	l.lastFocus = view
 	l.editor.UpdateTabBar()
-	l.terminal.UpdateTabBar()
+	if l.terminal != nil {
+		l.terminal.UpdateTabBar()
+	}
 }
 
 func (l *Layout) focusEditor() {
-	if l.focusedPanel == 0 {
+	if l.focusedPanel == 0 && l.fileManager != nil {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 1
@@ -708,11 +829,16 @@ func (l *Layout) focusEditor() {
 	l.app.SetFocus(view)
 	l.lastFocus = view
 	l.editor.UpdateTabBar()
-	l.terminal.UpdateTabBar()
+	if l.terminal != nil {
+		l.terminal.UpdateTabBar()
+	}
 }
 
 func (l *Layout) focusTerminal() {
-	if l.focusedPanel == 0 {
+	if l.terminal == nil {
+		return
+	}
+	if l.focusedPanel == 0 && l.fileManager != nil {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 2
@@ -816,21 +942,27 @@ func (l *Layout) checkFocusChange() {
 
 	oldPanel := l.focusedPanel
 
-	if l.fileManager.HasFocus(currentFocus) {
+	if l.fileManager != nil && l.fileManager.HasFocus(currentFocus) {
 		l.focusedPanel = 0
 	} else if l.editor.HasFocus(currentFocus) {
 		l.focusedPanel = 1
-	} else if l.terminal.HasFocus(currentFocus) {
+	} else if l.terminal != nil && l.terminal.HasFocus(currentFocus) {
 		l.focusedPanel = 2
 	}
 
 	if oldPanel != l.focusedPanel {
 		l.editor.UpdateTabBar()
-		l.terminal.UpdateTabBar()
+		if l.terminal != nil {
+			l.terminal.UpdateTabBar()
+		}
 	}
 }
 
 func (l *Layout) setupFileWatcher() {
+	if l.singleFileMode {
+		return
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return
@@ -902,11 +1034,15 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 	}
 
 	if gitHeadChanged {
-		l.statusBar.RefreshGitBranch()
+		if l.statusBar != nil {
+			l.statusBar.RefreshGitBranch()
+		}
 	}
 
-	for dir := range dirsToRefresh {
-		l.fileManager.RefreshDirectory(dir)
+	if l.fileManager != nil {
+		for dir := range dirsToRefresh {
+			l.fileManager.RefreshDirectory(dir)
+		}
 	}
 
 	for filePath := range modifiedFiles {
@@ -925,7 +1061,7 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 func (l *Layout) tryQuit() {
 	hasUnsaved := l.editor.HasUnsavedChanges()
 
-	hasTerminals := l.terminal.HasTabs()
+	hasTerminals := l.terminal != nil && l.terminal.HasTabs()
 
 	if hasUnsaved || hasTerminals {
 		var messages []string
@@ -1211,6 +1347,9 @@ func (l *Layout) Stop() {
 	if l.fileWatcher != nil {
 		l.fileWatcher.Stop()
 	}
+	if l.singleFileWatcher != nil {
+		l.singleFileWatcher.Stop()
+	}
 	if l.stopTicker != nil {
 		close(l.stopTicker)
 	}
@@ -1223,6 +1362,34 @@ func (l *Layout) Stop() {
 	if l.claudeCmdWatcher != nil {
 		l.claudeCmdWatcher.Close()
 	}
+	if l.statusBar != nil {
+		l.statusBar.Stop()
+	}
+}
+
+func (l *Layout) setupSingleFileWatcher(path string) {
+	if path == "" {
+		return
+	}
+
+	watcher := NewSingleFileWatcher(path)
+	watcher.SetOnChange(func(changes []FileChange) {
+		l.app.QueueUpdateDraw(func() {
+			l.handleFileChanges(changes)
+		})
+	})
+	if err := watcher.Start(); err != nil {
+		return
+	}
+
+	l.singleFileWatcher = watcher
+}
+
+func (l *Layout) getWatcherStatsProvider() WatcherStatsProvider {
+	if l.singleFileMode {
+		return l.singleFileWatcher
+	}
+	return l.fileWatcher
 }
 
 func (l *Layout) restoreFromStateFile() {
