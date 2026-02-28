@@ -452,7 +452,7 @@ func (l *Layout) togglePosition() {
 
 func (l *Layout) getHelpText() string {
 	if l.singleFileMode {
-		return `[::b]SINGLE FILE MODE[-::-]
+		return `[::b]EMED - Emmanuel's Editor [single-file mode][-::-]
 
 [blue]EDITOR:[-]
   Ctrl+S         Save File

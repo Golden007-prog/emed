@@ -617,15 +617,11 @@ func (e *Editor) UpdateTabBar() {
 }
 
 func (e *Editor) updateSingleFileTitle() {
-	title := " Editor "
+	title := " EMED - F1 for Help "
 
 	tab := e.getCurrentTab()
 	if tab != nil {
-		name := tab.GetTitle()
-		if tab.IsModified() {
-			name += " *"
-		}
-		title = fmt.Sprintf(" Editor: %s ", name)
+		title = fmt.Sprintf(" [%s] - EMED - F1 for Help ", tab.GetTitle())
 	}
 
 	e.tabClickInfo = nil
