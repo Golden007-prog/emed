@@ -733,17 +733,13 @@ func (t *HTree) loadChildren(node *HTreeNode) {
 // Focus sets focus to the tree.
 func (t *HTree) Focus(delegate func(p tview.Primitive)) {
 	t.hasFocus = true
-	if t.Box.Focus != nil {
-		t.Box.Focus(delegate)
-	}
+	t.Box.Focus(delegate)
 }
 
 // Blur removes focus from the tree.
 func (t *HTree) Blur() {
 	t.hasFocus = false
-	if t.Box.Blur != nil {
-		t.Box.Blur()
-	}
+	t.Box.Blur()
 }
 
 // HasFocus returns whether the tree has focus.

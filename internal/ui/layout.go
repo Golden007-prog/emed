@@ -2,16 +2,11 @@
 package ui
 
 import (
-	"crypto/md5"
-	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/claude"
 	"github.com/laborin/emed/internal/git"
@@ -76,11 +71,6 @@ type Layout struct {
 		wholeWord     bool
 		useRegex      bool
 	}
-
-	// Claude integration (file-based)
-	claudeStateDir    string
-	claudeCmdWatcher  *fsnotify.Watcher
-	stopClaudeWatcher chan bool
 
 	// Claude Code integration (WebSocket)
 	claudeIntegration *ClaudeIntegration
@@ -162,7 +152,6 @@ func (l *Layout) initialize() {
 			l.fileWatcher.RemoveOpenFile(path)
 			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
 		}
-		l.writeClaudeState("")
 		if l.claudeIntegration != nil {
 			l.claudeIntegration.NotifyOpenEditorsChanged()
 		}
@@ -175,10 +164,6 @@ func (l *Layout) initialize() {
 		} else {
 			l.focusFileManager()
 		}
-	})
-
-	l.terminal.SetOnEmedCommand(func(cmd string, args []string) {
-		l.handleEmedCommand(cmd, args)
 	})
 
 	l.fileManager.SetFilePreviewHandler(func(path string) {
@@ -234,8 +219,6 @@ func (l *Layout) initialize() {
 	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
 
 	l.rebuildLayout()
-
-	l.startClaudeWatcher()
 
 	l.claudeIntegration = NewClaudeIntegration(l, l.editor, l.terminal, l.app)
 	if err := l.claudeIntegration.Start(); err != nil {
@@ -865,7 +848,6 @@ func (l *Layout) OpenFile(path string) {
 	}
 
 	l.focusEditor()
-	l.writeClaudeState("")
 }
 
 // OpenFilePreview opens a file in preview mode without moving focus from file manager.
@@ -888,24 +870,6 @@ func (l *Layout) OpenFilePreview(path string) {
 	}
 
 	l.editor.UpdateTabBar()
-	l.writeClaudeState("")
-}
-
-func (l *Layout) openFileWithoutFocus(path string) {
-	hadNoTabs := !l.editor.HasTabs()
-
-	l.editor.OpenFile(path)
-
-	if l.fileWatcher != nil {
-		l.fileWatcher.AddOpenFile(path)
-		l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
-	}
-
-	if hadNoTabs && l.editor.HasTabs() {
-		l.rebuildLayout()
-	}
-
-	l.writeClaudeState("")
 }
 
 // OpenFileAtLine opens a file at a specific line and column
@@ -924,7 +888,6 @@ func (l *Layout) OpenFileAtLine(path string, line int, column int) {
 	}
 
 	l.focusEditor()
-	l.writeClaudeState("")
 }
 
 func (l *Layout) setupFocusDetection() {
@@ -1340,7 +1303,6 @@ func (l *Layout) LaunchClaude() {
 
 // Stop shuts down the layout and cleans up resources.
 func (l *Layout) Stop() {
-	l.writeClaudeState("")
 	if l.claudeIntegration != nil {
 		l.claudeIntegration.Stop()
 	}
@@ -1355,12 +1317,6 @@ func (l *Layout) Stop() {
 	}
 	if l.stopFocus != nil {
 		close(l.stopFocus)
-	}
-	if l.stopClaudeWatcher != nil {
-		close(l.stopClaudeWatcher)
-	}
-	if l.claudeCmdWatcher != nil {
-		l.claudeCmdWatcher.Close()
 	}
 	if l.statusBar != nil {
 		l.statusBar.Stop()
@@ -1390,578 +1346,4 @@ func (l *Layout) getWatcherStatsProvider() WatcherStatsProvider {
 		return l.singleFileWatcher
 	}
 	return l.fileWatcher
-}
-
-func (l *Layout) restoreFromStateFile() {
-	stateFile := filepath.Join(l.claudeStateDir, "state.json")
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		return
-	}
-
-	var state map[string]interface{}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return
-	}
-
-	stateInner, ok := state["state"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	openFilesRaw, ok := stateInner["openFiles"].([]interface{})
-	if !ok {
-		return
-	}
-
-	for _, f := range openFilesRaw {
-		if filePath, ok := f.(string); ok {
-			if _, err := os.Stat(filePath); err == nil {
-				l.editor.OpenFile(filePath)
-			}
-		}
-	}
-
-	if activeFile, ok := stateInner["activeFile"].(string); ok && activeFile != "" {
-		l.editor.OpenFile(activeFile)
-	}
-
-	if l.editor.HasTabs() {
-		l.rebuildLayout()
-	}
-}
-
-func (l *Layout) handleEmedCommand(cmd string, args []string) {
-	if l.app == nil {
-		return
-	}
-
-	l.app.QueueUpdateDraw(func() {
-		switch cmd {
-		case "open":
-			l.handleEmedOpen(args)
-		case "sync":
-			l.handleEmedSync()
-		}
-	})
-}
-
-func (l *Layout) handleEmedOpen(args []string) {
-	if len(args) < 1 {
-		return
-	}
-
-	filePath := args[0]
-	if !filepath.IsAbs(filePath) {
-		cwd, _ := os.Getwd()
-		filePath = filepath.Join(cwd, filePath)
-	}
-
-	line := 1
-	if len(args) >= 2 {
-		if n, err := strconv.Atoi(args[1]); err == nil && n > 0 {
-			line = n
-		}
-	}
-
-	l.OpenFile(filePath)
-	l.focusEditor()
-
-	if line > 1 {
-		l.editor.GoToLine(line)
-	}
-}
-
-func (l *Layout) handleEmedSync() {
-	l.writeClaudeState("")
-}
-
-func (l *Layout) writeClaudeState(lastCmdOutput string) {
-	if l.claudeStateDir == "" {
-		return
-	}
-
-	terminalTabs := 0
-	if l.terminal != nil && l.terminal.HasTabs() {
-		terminalTabs = len(l.terminal.tabManager.GetTabs())
-	}
-
-	focusedPanel := "file_manager"
-	if l.focusedPanel == 1 {
-		focusedPanel = "editor"
-	} else if l.focusedPanel == 2 {
-		focusedPanel = "terminal"
-	}
-
-	state := map[string]interface{}{
-		"state": map[string]interface{}{
-			"openFiles":     l.editor.GetOpenFilePaths(),
-			"activeFile":    l.editor.GetActiveFilePath(),
-			"cursorLine":    l.editor.GetActiveCursorLine(),
-			"modifiedFiles": l.editor.GetModifiedFiles(),
-			"tabCount":      l.editor.GetTabCount(),
-			"terminalTabs":  terminalTabs,
-			"focusedPanel":  focusedPanel,
-		},
-		"commands": map[string]interface{}{
-			"init": map[string]interface{}{
-				"description": "Initialize communication with emed. Run this first to get state and command list.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"First command to run when starting inside emed",
-					"Discover available commands and current state",
-				},
-				"example": `{"cmd":"init"}`,
-			},
-			"open": map[string]interface{}{
-				"description": "Open a file in the editor. If the file is already open, switches to that tab.",
-				"params": map[string]string{
-					"file":   "(required) Path to the file, relative or absolute",
-					"line":   "(optional) Line number to jump to (1-based)",
-					"column": "(optional) Column number to jump to (1-based)",
-				},
-				"useCases": []string{
-					"Open a file you need to review or edit",
-					"Jump to a specific error location",
-					"Navigate to a function definition",
-				},
-				"example": `{"cmd":"open","file":"main.go","line":42,"column":10}`,
-			},
-			"openMultiple": map[string]interface{}{
-				"description": "Open multiple files at once. Avoid opening more than 5 files at once to keep the UI responsive.",
-				"params": map[string]string{
-					"files": "(required) Array of file paths to open",
-				},
-				"useCases": []string{
-					"Open related files for a feature you're working on",
-					"Open test file alongside implementation",
-					"Review multiple files at once",
-				},
-				"example": `{"cmd":"openMultiple","files":["main.go","config.go","utils.go"]}`,
-			},
-			"close": map[string]interface{}{
-				"description": "Close a file tab. Does not prompt for save, use 'save' first if needed.",
-				"params": map[string]string{
-					"file": "(required) Path to the file to close",
-				},
-				"useCases": []string{
-					"Close a file after you're done reviewing it",
-					"Clean up editor tabs to reduce clutter",
-				},
-				"example": `{"cmd":"close","file":"main.go"}`,
-			},
-			"save": map[string]interface{}{
-				"description": "Save a file. If no file specified, saves the currently active file.",
-				"params": map[string]string{
-					"file": "(optional) Path to the file to save. If omited, saves the active file.",
-				},
-				"useCases": []string{
-					"Save changes after editing a file",
-					"Persist auto-generated code before running tests",
-				},
-				"example": `{"cmd":"save","file":"main.go"}`,
-			},
-			"saveAll": map[string]interface{}{
-				"description": "Save all modified files at once.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Save all changes before running build or tests",
-					"Quick save everything before switching tasks",
-				},
-				"example": `{"cmd":"saveAll"}`,
-			},
-			"getContent": map[string]interface{}{
-				"description": "Get the current buffer content of a file (includes unsaved changes).",
-				"params": map[string]string{
-					"file": "(optional) Path to the file. If omited, returns content of active file.",
-				},
-				"useCases": []string{
-					"Read the current state of a file with unsaved edits",
-					"Get file content without re-reading from disk",
-					"Inspect what the user has changed",
-				},
-				"example": `{"cmd":"getContent","file":"main.go"}`,
-			},
-			"getSelection": map[string]interface{}{
-				"description": "Get the currently selected text in the active editor.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Get text the user has highlighted for context",
-					"Process user-selected code snippet",
-					"Apply operations to selected region only",
-				},
-				"example": `{"cmd":"getSelection"}`,
-			},
-			"getDiff": map[string]interface{}{
-				"description": "Get list of files with unsaved modifications.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Check what files have unsaved changes",
-					"Verify changes before commit",
-				},
-				"example": `{"cmd":"getDiff"}`,
-			},
-			"goto": map[string]interface{}{
-				"description": "Move cursor to a specific line and column. Can optionaly open a file first.",
-				"params": map[string]string{
-					"file":   "(optional) Path to open before jumping",
-					"line":   "(required) Line number to go to (1-based)",
-					"column": "(optional) Column number to go to (1-based)",
-				},
-				"useCases": []string{
-					"Navigate to a specific location in the code",
-					"Jump to an error or warning location",
-					"Move to a function or variable definition",
-				},
-				"example": `{"cmd":"goto","file":"main.go","line":100,"column":5}`,
-			},
-			"focus": map[string]interface{}{
-				"description": "Focus the editor panel.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Switch focus from terminal to editor",
-					"Return focus to editor after file operations",
-				},
-				"example": `{"cmd":"focus"}`,
-			},
-			"focusTerminal": map[string]interface{}{
-				"description": "Focus the terminal panel. Creates a new terminal if none exists.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Switch to terminal to run commands",
-					"Ensure terminal is visible and focused",
-				},
-				"example": `{"cmd":"focusTerminal"}`,
-			},
-			"focusFileManager": map[string]interface{}{
-				"description": "Focus the file manager panel.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Navigate the file tree",
-					"Browse project structure",
-				},
-				"example": `{"cmd":"focusFileManager"}`,
-			},
-			"newTerminal": map[string]interface{}{
-				"description": "Create a new terminal tab and focus it.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Open additional terminal for parallel tasks",
-					"Create a fresh terminal environment",
-				},
-				"example": `{"cmd":"newTerminal"}`,
-			},
-			"listModified": map[string]interface{}{
-				"description": "Get a list of files with unsaved changes.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Check which files need saving",
-					"Verify pending changes before operations",
-				},
-				"example": `{"cmd":"listModified"}`,
-			},
-			"status": map[string]interface{}{
-				"description": "Get detailed editor status as JSON including all state information.",
-				"params":      map[string]string{},
-				"useCases": []string{
-					"Get comprehensive editor state in one call",
-					"Debug or inspect current editor status",
-					"Monitor editor state programmatically",
-				},
-				"example": `{"cmd":"status"}`,
-			},
-		},
-		"lastCommandOutput": lastCmdOutput,
-	}
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return
-	}
-
-	syncFile := filepath.Join(l.claudeStateDir, "state.json")
-	os.WriteFile(syncFile, data, 0644)
-}
-
-func (l *Layout) startClaudeWatcher() {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-
-	hash := md5.Sum([]byte(cwd))
-	l.claudeStateDir = filepath.Join(homeDir, ".emed", hex.EncodeToString(hash[:])[:12])
-	os.MkdirAll(l.claudeStateDir, 0755)
-
-	l.restoreFromStateFile()
-	os.Remove(filepath.Join(l.claudeStateDir, "state.json"))
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return
-	}
-	l.claudeCmdWatcher = watcher
-	l.stopClaudeWatcher = make(chan bool)
-
-	if err := watcher.Add(l.claudeStateDir); err != nil {
-		watcher.Close()
-		return
-	}
-
-	go l.claudeWatcherLoop()
-}
-
-func (l *Layout) claudeWatcherLoop() {
-	cmdFile := filepath.Join(l.claudeStateDir, "command.json")
-	for {
-		select {
-		case <-l.stopClaudeWatcher:
-			return
-		case event, ok := <-l.claudeCmdWatcher.Events:
-			if !ok {
-				return
-			}
-			if (event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Write == fsnotify.Write) && event.Name == cmdFile {
-				time.Sleep(10 * time.Millisecond) // Let file finish writing
-				l.processClaudeCommand(cmdFile)
-			}
-		case _, ok := <-l.claudeCmdWatcher.Errors:
-			if !ok {
-				return
-			}
-		}
-	}
-}
-
-func (l *Layout) processClaudeCommand(cmdFile string) {
-	data, err := os.ReadFile(cmdFile)
-	if err != nil {
-		return
-	}
-
-	os.Remove(cmdFile)
-
-	var cmd struct {
-		Cmd    string   `json:"cmd"`
-		File   string   `json:"file"`
-		Files  []string `json:"files"`
-		Line   int      `json:"line"`
-		Column int      `json:"column"`
-	}
-	if err := json.Unmarshal(data, &cmd); err != nil {
-		l.writeClaudeState("error: invalid JSON")
-		return
-	}
-
-	if l.app != nil {
-		l.app.QueueUpdateDraw(func() {
-			output := l.executeClaudeCommand(cmd.Cmd, cmd.File, cmd.Files, cmd.Line, cmd.Column)
-			l.writeClaudeState(output)
-		})
-	}
-}
-
-func (l *Layout) executeClaudeCommand(cmd, file string, files []string, line, column int) string {
-	switch cmd {
-	case "open":
-		if file == "" {
-			return "error: file path required"
-		}
-		if !filepath.IsAbs(file) {
-			cwd, _ := os.Getwd()
-			file = filepath.Join(cwd, file)
-		}
-		l.openFileWithoutFocus(file)
-		if line > 0 {
-			if column > 0 {
-				l.editor.GoToPosition(line, column)
-			} else {
-				l.editor.GoToLine(line)
-			}
-		}
-		return "ok: opened " + file
-
-	case "openMultiple":
-		if len(files) == 0 {
-			return "error: files array required"
-		}
-		cwd, _ := os.Getwd()
-		opened := 0
-		for _, f := range files {
-			if f == "" {
-				continue
-			}
-			path := f
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(cwd, path)
-			}
-			l.openFileWithoutFocus(path)
-			opened++
-		}
-		return "ok: opened " + strconv.Itoa(opened) + " files"
-
-	case "close":
-		if file == "" {
-			return "error: file path required"
-		}
-		if !filepath.IsAbs(file) {
-			cwd, _ := os.Getwd()
-			file = filepath.Join(cwd, file)
-		}
-		if l.editor.CloseTabByPath(file) {
-			l.rebuildLayout()
-			return "ok: closed " + file
-		}
-		return "error: file not open"
-
-	case "save":
-		if file == "" {
-			l.editor.SaveCurrentFile()
-			return "ok: saved current file"
-		}
-		if !filepath.IsAbs(file) {
-			cwd, _ := os.Getwd()
-			file = filepath.Join(cwd, file)
-		}
-		if l.editor.SaveFileByPath(file) {
-			return "ok: saved " + file
-		}
-		return "error: file not open or save failed"
-
-	case "saveAll":
-		count := l.editor.SaveAllModifiedFiles()
-		return "ok: saved " + strconv.Itoa(count) + " files"
-
-	case "getContent":
-		if file == "" {
-			content := l.editor.GetCurrentBufferContent()
-			if content == "" {
-				return "error: no file open"
-			}
-			return content
-		}
-		if !filepath.IsAbs(file) {
-			cwd, _ := os.Getwd()
-			file = filepath.Join(cwd, file)
-		}
-		content := l.editor.GetBufferContent(file)
-		if content == "" {
-			return "error: file not open"
-		}
-		return content
-
-	case "getSelection":
-		selection := l.editor.GetSelection()
-		if selection == "" {
-			return "error: no selection"
-		}
-		return selection
-
-	case "getDiff":
-		modified := l.editor.GetModifiedFiles()
-		if len(modified) == 0 {
-			return "no modified files"
-		}
-		var diffs []string
-		for _, path := range modified {
-			diffs = append(diffs, "modified: "+path)
-		}
-		return strings.Join(diffs, "\n")
-
-	case "goto":
-		if line <= 0 {
-			return "error: line number required"
-		}
-		if file != "" {
-			if !filepath.IsAbs(file) {
-				cwd, _ := os.Getwd()
-				file = filepath.Join(cwd, file)
-			}
-			l.OpenFile(file)
-		}
-		if column > 0 {
-			l.editor.GoToPosition(line, column)
-		} else {
-			l.editor.GoToLine(line)
-		}
-		return "ok: moved to line " + strconv.Itoa(line)
-
-	case "focus":
-		l.focusEditor()
-		return "ok: focused editor"
-
-	case "focusTerminal":
-		if !l.terminal.HasTabs() {
-			l.terminal.NewTab(l.getTerminalWorkingDir())
-			l.rebuildLayout()
-		}
-		l.focusTerminal()
-		return "ok: focused terminal"
-
-	case "focusFileManager":
-		l.focusFileManager()
-		return "ok: focused file manager"
-
-	case "newTerminal":
-		hadNoTabs := !l.terminal.HasTabs()
-		l.terminal.NewTab(l.getTerminalWorkingDir())
-		if hadNoTabs {
-			l.rebuildLayout()
-		}
-		l.focusTerminal()
-		return "ok: created new terminal"
-
-	case "listModified":
-		modified := l.editor.GetModifiedFiles()
-		if len(modified) == 0 {
-			return "no modified files"
-		}
-		return strings.Join(modified, "\n")
-
-	case "status":
-		return l.getEditorStatus()
-
-	case "init":
-		return "ok: initialized"
-
-	default:
-		return "error: unknown command " + cmd
-	}
-}
-
-func (l *Layout) getEditorStatus() string {
-	openFiles := l.editor.GetOpenFilePaths()
-	activeFile := l.editor.GetActiveFilePath()
-	cursorLine := l.editor.GetActiveCursorLine()
-	modifiedFiles := l.editor.GetModifiedFiles()
-	tabCount := l.editor.GetTabCount()
-
-	terminalTabs := 0
-	if l.terminal != nil && l.terminal.HasTabs() {
-		terminalTabs = len(l.terminal.tabManager.GetTabs())
-	}
-
-	focusedPanel := "file_manager"
-	if l.focusedPanel == 1 {
-		focusedPanel = "editor"
-	} else if l.focusedPanel == 2 {
-		focusedPanel = "terminal"
-	}
-
-	status := map[string]interface{}{
-		"openFiles":     openFiles,
-		"activeFile":    activeFile,
-		"cursorLine":    cursorLine,
-		"modifiedFiles": modifiedFiles,
-		"tabCount":      tabCount,
-		"terminalTabs":  terminalTabs,
-		"focusedPanel":  focusedPanel,
-	}
-
-	data, _ := json.Marshal(status)
-	return string(data)
 }

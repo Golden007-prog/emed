@@ -62,7 +62,6 @@ type Terminal struct {
 	noTermsView     *tview.TextView
 	app             *tview.Application
 	onLastTabClosed func()
-	onEmedCommand   func(cmd string, args []string)
 	tabClickInfo    []components.TabClickInfo
 	emulators       map[int]*VT10XTerminal
 	claudePort      int
@@ -195,12 +194,6 @@ func (t *Terminal) NewTab(workingDir string) {
 		}
 	})
 
-	emulator.SetOnEmedCommand(func(cmd string, args []string) {
-		if t.onEmedCommand != nil {
-			t.onEmedCommand(cmd, args)
-		}
-	})
-
 	if err := emulator.Start(); err != nil {
 		errorView := tview.NewTextView().
 			SetText(fmt.Sprintf("Failed to start terminal: %v", err)).
@@ -323,11 +316,6 @@ func (t *Terminal) HasTabs() bool {
 // SetOnLastTabClosed sets a callback for when the last terminal tab is closed.
 func (t *Terminal) SetOnLastTabClosed(handler func()) {
 	t.onLastTabClosed = handler
-}
-
-// SetOnEmedCommand sets a callback for emed OSC commands from any terminal tab.
-func (t *Terminal) SetOnEmedCommand(handler func(cmd string, args []string)) {
-	t.onEmedCommand = handler
 }
 
 // IsInPassthroughMode returns true if the active terminal is in passthrough mode.

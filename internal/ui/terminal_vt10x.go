@@ -64,7 +64,6 @@ type VT10XTerminal struct {
 	onModeChange  func(mode TerminalMode)
 	onExit        func()
 	onTitleChange func(title string)
-	onEmedCommand func(cmd string, args []string)
 
 	rows int
 	cols int
@@ -243,11 +242,6 @@ func (t *VT10XTerminal) SetOnTitleChange(handler func(string)) {
 	t.onTitleChange = handler
 }
 
-// SetOnEmedCommand sets a callback for emed OSC commands from terminal output.
-func (t *VT10XTerminal) SetOnEmedCommand(handler func(cmd string, args []string)) {
-	t.onEmedCommand = handler
-}
-
 func (t *VT10XTerminal) pollTitle() {
 	t.vtMutex.Lock()
 	title := t.vt.Title()
@@ -396,35 +390,6 @@ func (t *VT10XTerminal) scanForControlSequences(data []byte) {
 		t.bracketedPasteMode = true
 	} else if lastBracketDisablePos > lastBracketEnablePos && lastBracketDisablePos >= 0 {
 		t.bracketedPasteMode = false
-	}
-
-	t.parseEmedOSC(str)
-}
-
-func (t *VT10XTerminal) parseEmedOSC(str string) {
-	const prefix = "\x1b]emed:"
-	const suffix = "\x07"
-
-	start := 0
-	for {
-		idx := strings.Index(str[start:], prefix)
-		if idx == -1 {
-			break
-		}
-		idx += start
-		end := strings.Index(str[idx:], suffix)
-		if end == -1 {
-			break
-		}
-		end += idx
-
-		cmdStr := str[idx+len(prefix) : end]
-		parts := strings.Split(cmdStr, ":")
-		if len(parts) > 0 && t.onEmedCommand != nil {
-			t.onEmedCommand(parts[0], parts[1:])
-		}
-
-		start = end + len(suffix)
 	}
 }
 
