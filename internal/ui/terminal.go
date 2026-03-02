@@ -111,7 +111,7 @@ func NewTerminal() *Terminal {
 							t.tabManager.SwitchToTab(tabID)
 							t.switchToTabByID(tabID)
 							if t.app != nil {
-								t.app.SetFocus(t.container)
+								t.app.SetFocus(t.focusTarget())
 							}
 						}
 						return action, nil
@@ -223,6 +223,20 @@ func (t *Terminal) showNoTermsView() {
 func (t *Terminal) switchToTabByID(id int) {
 	t.contentArea.SwitchToPage(fmt.Sprintf("term-%d", id))
 	t.UpdateTabBar()
+	if t.app != nil && t.HasFocus(t.app.GetFocus()) {
+		t.app.SetFocus(t.focusTarget())
+	}
+}
+
+func (t *Terminal) focusTarget() tview.Primitive {
+	activeTab := t.tabManager.GetActiveTab()
+	if termTab, ok := activeTab.(*TerminalTab); ok && termTab.emulator != nil {
+		return termTab.emulator
+	}
+	if t.noTermsView != nil {
+		return t.noTermsView
+	}
+	return t.container
 }
 
 func (t *Terminal) switchToTabByIndex(index int) {
@@ -293,7 +307,7 @@ func (t *Terminal) GetView() tview.Primitive {
 
 // HasFocus checks if the given primitive is part of the terminal component.
 func (t *Terminal) HasFocus(focused tview.Primitive) bool {
-	if focused == t.container {
+	if focused == t.container || focused == t.contentArea {
 		return true
 	}
 	tabs := t.tabManager.GetTabs()

@@ -38,6 +38,7 @@ func NewLazygitModal(app *tview.Application, repoPath string, commitHash string)
 		done:      make(chan struct{}),
 		writeChan: make(chan []byte, 1000),
 	}
+	term.Box.Primitive = term
 
 	term.vt = vt10x.New(vt10x.WithSize(term.cols, term.rows))
 	ptyMgr.SetOnData(term.onPTYData)

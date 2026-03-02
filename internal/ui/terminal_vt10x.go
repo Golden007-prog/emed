@@ -104,6 +104,7 @@ func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 		done:      make(chan struct{}),
 		writeChan: make(chan []byte, 1000),
 	}
+	t.Box.Primitive = t
 
 	t.vt = vt10x.New(
 		vt10x.WithSize(t.cols, t.rows),

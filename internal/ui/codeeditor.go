@@ -139,7 +139,7 @@ type CodeEditor struct {
 
 // NewCodeEditor creates a new code editor instance with default settings.
 func NewCodeEditor() *CodeEditor {
-	return &CodeEditor{
+	e := &CodeEditor{
 		Box:              tview.NewBox(),
 		buffer:           buffer.New(),
 		selection:        selection.New(),
@@ -157,6 +157,8 @@ func NewCodeEditor() *CodeEditor {
 		lastHighlightCol: -1,
 		highlightsDirty:  true,
 	}
+	e.Box.Primitive = e
+	return e
 }
 
 // LoadFile loads a file into the editor
@@ -1244,6 +1246,9 @@ done:
 // Focus sets focus to the code editor.
 func (e *CodeEditor) Focus(delegate func(p tview.Primitive)) {
 	e.hasFocus = true
+	if e.Box != nil {
+		e.Box.Focus(delegate)
+	}
 }
 
 // HasFocus returns whether the code editor has focus.
@@ -1254,6 +1259,9 @@ func (e *CodeEditor) HasFocus() bool {
 // Blur removes focus from the code editor.
 func (e *CodeEditor) Blur() {
 	e.hasFocus = false
+	if e.Box != nil {
+		e.Box.Blur()
+	}
 }
 
 // MouseHandler returns the mouse handler for mouse events.

@@ -233,13 +233,15 @@ type HTree struct {
 
 // NewHTree creates a new hierarchical tree widget.
 func NewHTree() *HTree {
-	return &HTree{
+	t := &HTree{
 		Box:               tview.NewBox(),
 		scrollY:           0,
 		scrollX:           0,
 		typeAhead:         filemanager.NewTypeAheadBuffer(500 * time.Millisecond),
 		visibleNodesDirty: true,
 	}
+	t.Box.Primitive = t
+	return t
 }
 
 // SetRoot sets the root node for the tree.

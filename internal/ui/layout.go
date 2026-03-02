@@ -808,7 +808,7 @@ func (l *Layout) focusEditor() {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 1
-	view := l.editor.GetView()
+	view := l.editor.focusTarget()
 	l.app.SetFocus(view)
 	l.lastFocus = view
 	l.editor.UpdateTabBar()
@@ -825,7 +825,7 @@ func (l *Layout) focusTerminal() {
 		l.fileManager.ClearClipboard()
 	}
 	l.focusedPanel = 2
-	view := l.terminal.GetView()
+	view := l.terminal.focusTarget()
 	l.app.SetFocus(view)
 	l.lastFocus = view
 	l.editor.UpdateTabBar()

@@ -143,7 +143,7 @@ func NewEditor() *Editor {
 							e.tabManager.SwitchToTab(tabID)
 							e.switchToTabByID(tabID)
 							if e.app != nil {
-								e.app.SetFocus(e.container)
+								e.app.SetFocus(e.focusTarget())
 							}
 						}
 						return action, nil
@@ -212,10 +212,29 @@ func (e *Editor) switchToTabByID(id int) {
 	if found {
 		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
 		e.UpdateTabBar()
+		if e.app != nil && e.HasFocus(e.app.GetFocus()) {
+			e.app.SetFocus(e.focusTarget())
+		}
 		if e.onActiveFileChanged != nil && filePath != "" {
 			e.onActiveFileChanged(filePath)
 		}
 	}
+}
+
+func (e *Editor) focusTarget() tview.Primitive {
+	activeTab := e.tabManager.GetActiveTab()
+	if tab, ok := activeTab.(*EditorTab); ok {
+		if tab.searchVisible && tab.searchBar != nil {
+			return tab.searchBar
+		}
+		if tab.codeEditor != nil {
+			return tab.codeEditor
+		}
+	}
+	if e.noDocsView != nil {
+		return e.noDocsView
+	}
+	return e.container
 }
 
 func (e *Editor) switchToTabByIndex(index int) {
@@ -778,12 +797,12 @@ func (e *Editor) GetView() tview.Primitive {
 
 // HasFocus checks if the given primitive is part of the editor component.
 func (e *Editor) HasFocus(focused tview.Primitive) bool {
-	if focused == e.container {
+	if focused == e.container || focused == e.contentArea {
 		return true
 	}
 	e.tabsMu.RLock()
 	for _, tab := range e.tabs {
-		if focused == tab.codeEditor {
+		if focused == tab.codeEditor || focused == tab.container || focused == tab.searchBar {
 			e.tabsMu.RUnlock()
 			return true
 		}

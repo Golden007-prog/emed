@@ -19,6 +19,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
+github.com/laborin/tview v0.0.0-20260302132726-2a2df46fea4e h1:k6p09VE5NIoGQzy3LSxwE+RVqjhUB0slG0QGpiovVLM=
+github.com/laborin/tview v0.0.0-20260302132726-2a2df46fea4e/go.mod h1:cSfIYfhpSGCjp3r/ECJb+GKS7cGJnqV8vfjQPwoXyfY=
 github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8 h1:lKzHJ/NeyvKvval3IBQDz2kiq7JgNwgNo/7003eISXg=
 github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8/go.mod h1:P3TWJ88EQWA6Jevwvnm2Y+AWHHJWs0XhE4emWmJ8i7s=
 github.com/lucasb-eyer/go-colorful v1.2.0 h1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=
