@@ -2,22 +2,20 @@ module github.com/laborin/emed
 
 go 1.23.2
 
-replace github.com/rivo/tview => github.com/laborin/tview v0.0.0-20260302132726-2a2df46fea4e
-
 require (
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gdamore/tcell/v2 v2.8.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8
 	github.com/mattn/go-runewidth v0.0.16
-	github.com/rivo/tview v0.0.0-20250625164341-a4a78f1e05cb
+	github.com/rivo/tview v0.42.1-0.20260302150942-f39b95c73dbb
 )
 
 require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sys v0.29.0 // indirect
