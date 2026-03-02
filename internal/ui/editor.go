@@ -117,7 +117,7 @@ func NewEditor() *Editor {
 	splashScreen := components.NewSplashScreen()
 	e.noDocsView = splashScreen.CreateNoDocsView()
 
-	e.contentArea.AddPage("no-docs", e.noDocsView, true, false)
+	addPageSafely(e.contentArea, "no-docs", e.noDocsView, true, false, e.app)
 
 	e.container.
 		AddItem(e.contentArea, 0, 1, true).
@@ -184,7 +184,7 @@ func NewEditor() *Editor {
 		}
 		e.tabsMu.Unlock()
 
-		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", id))
+		removePageSafely(e.contentArea, fmt.Sprintf("editor-%d", id), e.app)
 		e.releaseTabResources(tab)
 		if e.onTabClosed != nil && path != "" {
 			e.onTabClosed(path)
@@ -196,7 +196,7 @@ func NewEditor() *Editor {
 }
 
 func (e *Editor) showNoDocsView() {
-	e.contentArea.SwitchToPage("no-docs")
+	switchToPageSafely(e.contentArea, "no-docs", e.app)
 	e.UpdateTabBar()
 }
 
@@ -210,7 +210,7 @@ func (e *Editor) switchToTabByID(id int) {
 	e.tabsMu.RUnlock()
 
 	if found {
-		e.contentArea.SwitchToPage(fmt.Sprintf("editor-%d", id))
+		switchToPageSafely(e.contentArea, fmt.Sprintf("editor-%d", id), e.app)
 		e.UpdateTabBar()
 		if e.app != nil && e.HasFocus(e.app.GetFocus()) {
 			e.app.SetFocus(e.focusTarget())
@@ -336,7 +336,7 @@ func (e *Editor) OpenFile(path string) {
 		e.tabsByPath[tab.path] = tab
 	}
 	e.tabsMu.Unlock()
-	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
+	addPageSafely(e.contentArea, fmt.Sprintf("editor-%d", tabID), container, true, false, e.app)
 
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
@@ -399,7 +399,7 @@ func (e *Editor) closePreviewTab() {
 	e.tabsMu.Unlock()
 
 	if previewTabID != -1 {
-		e.contentArea.RemovePage(fmt.Sprintf("editor-%d", previewTabID))
+		removePageSafely(e.contentArea, fmt.Sprintf("editor-%d", previewTabID), e.app)
 		e.releaseTabResources(previewTab)
 		e.tabManager.RemoveTabSilently(previewTabID)
 		if e.onTabClosed != nil && previewTabPath != "" {
@@ -504,7 +504,7 @@ func (e *Editor) OpenFilePreview(path string) bool {
 		e.tabsByPath[tab.path] = tab
 	}
 	e.tabsMu.Unlock()
-	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
+	addPageSafely(e.contentArea, fmt.Sprintf("editor-%d", tabID), container, true, false, e.app)
 
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)
@@ -581,7 +581,7 @@ func (e *Editor) NewDocument() {
 	e.tabs = append(e.tabs, tab)
 	e.tabsByID[tab.id] = tab
 	e.tabsMu.Unlock()
-	e.contentArea.AddPage(fmt.Sprintf("editor-%d", tabID), container, true, false)
+	addPageSafely(e.contentArea, fmt.Sprintf("editor-%d", tabID), container, true, false, e.app)
 
 	e.tabManager.AddTab(tab)
 	e.switchToTabByID(tabID)

@@ -85,7 +85,7 @@ func NewTerminal() *Terminal {
 		SetText("\n\n\nNo terminal open.\n\nPress Ctrl+T to create a new terminal.")
 	t.noTermsView.SetBackgroundColor(tcell.ColorBlack)
 
-	t.contentArea.AddPage("no-terms", t.noTermsView, true, false)
+	addPageSafely(t.contentArea, "no-terms", t.noTermsView, true, false, t.app)
 
 	t.container.
 		AddItem(t.contentArea, 0, 1, true).
@@ -136,7 +136,7 @@ func NewTerminal() *Terminal {
 			emulator.Stop()
 			delete(t.emulators, id)
 		}
-		t.contentArea.RemovePage(fmt.Sprintf("term-%d", id))
+		removePageSafely(t.contentArea, fmt.Sprintf("term-%d", id), t.app)
 		t.UpdateTabBar()
 	})
 
@@ -198,7 +198,7 @@ func (t *Terminal) NewTab(workingDir string) {
 		errorView := tview.NewTextView().
 			SetText(fmt.Sprintf("Failed to start terminal: %v", err)).
 			SetTextColor(tcell.ColorRed)
-		t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), errorView, true, false)
+		addPageSafely(t.contentArea, fmt.Sprintf("term-%d", tabID), errorView, true, false, t.app)
 		return
 	}
 
@@ -209,19 +209,19 @@ func (t *Terminal) NewTab(workingDir string) {
 		emulator: emulator,
 	}
 
-	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), emulator, true, false)
+	addPageSafely(t.contentArea, fmt.Sprintf("term-%d", tabID), emulator, true, false, t.app)
 
 	t.tabManager.AddTab(tab)
 	t.switchToTabByID(tabID)
 }
 
 func (t *Terminal) showNoTermsView() {
-	t.contentArea.SwitchToPage("no-terms")
+	switchToPageSafely(t.contentArea, "no-terms", t.app)
 	t.container.SetTitle(" Terminal ")
 }
 
 func (t *Terminal) switchToTabByID(id int) {
-	t.contentArea.SwitchToPage(fmt.Sprintf("term-%d", id))
+	switchToPageSafely(t.contentArea, fmt.Sprintf("term-%d", id), t.app)
 	t.UpdateTabBar()
 	if t.app != nil && t.HasFocus(t.app.GetFocus()) {
 		t.app.SetFocus(t.focusTarget())
@@ -420,7 +420,7 @@ func (t *Terminal) EnsureClaudeExecTerminal(workingDir string) {
 		errorView := tview.NewTextView().
 			SetText(fmt.Sprintf("Failed to start Claude exec terminal: %v", err)).
 			SetTextColor(tcell.ColorRed)
-		t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), errorView, true, false)
+		addPageSafely(t.contentArea, fmt.Sprintf("term-%d", tabID), errorView, true, false, t.app)
 		t.claudeExecTabID = 0
 		return
 	}
@@ -433,7 +433,7 @@ func (t *Terminal) EnsureClaudeExecTerminal(workingDir string) {
 		title:    "Claude Exec",
 	}
 
-	t.contentArea.AddPage(fmt.Sprintf("term-%d", tabID), emulator, true, false)
+	addPageSafely(t.contentArea, fmt.Sprintf("term-%d", tabID), emulator, true, false, t.app)
 
 	t.tabManager.AddTab(tab)
 	t.UpdateTabBar()
