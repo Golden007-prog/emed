@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -28,21 +29,26 @@ func main() {
 	}
 
 	var workingDir string
-	var launchClaude bool
 	var startupFile string
 	var singleFileMode bool
 
-	args := os.Args[1:]
-	var pathArg string
-
-	for _, arg := range args {
-		if arg == "-c" || arg == "--claude" {
-			launchClaude = true
-		} else if !strings.HasPrefix(arg, "-") {
-			pathArg = arg
-		}
+	opts, err := parseCLIArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+		printUsage(os.Stderr)
+		os.Exit(2)
 	}
 
+	if opts.showHelp {
+		printUsage(os.Stdout)
+		return
+	}
+	if opts.showVersion {
+		fmt.Printf("%s %s\n", config.AppName, config.Version)
+		return
+	}
+
+	pathArg := opts.pathArg
 	if pathArg != "" {
 		info, err := os.Stat(pathArg)
 		if err != nil {
@@ -95,9 +101,9 @@ func main() {
 		StartupFile:    startupFile,
 	})
 
-	if launchClaude && !singleFileMode {
+	if opts.launchClaude && !singleFileMode {
 		layout.SetLaunchClaudeOnStart(true)
-	} else if launchClaude && singleFileMode {
+	} else if opts.launchClaude && singleFileMode {
 		logging.Info("ignoring --claude in single file mode")
 	}
 
@@ -161,4 +167,59 @@ func parseBoolEnv(name string) (bool, bool) {
 	default:
 		return false, false
 	}
+}
+
+type cliOptions struct {
+	launchClaude bool
+	showHelp     bool
+	showVersion  bool
+	pathArg      string
+}
+
+func parseCLIArgs(args []string) (cliOptions, error) {
+	var opts cliOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "-c", "--claude":
+			opts.launchClaude = true
+		case "-h", "--help":
+			opts.showHelp = true
+		case "-v", "--version":
+			opts.showVersion = true
+		case "--":
+			remaining := args[i+1:]
+			if len(remaining) == 0 {
+				return opts, nil
+			}
+			if len(remaining) > 1 {
+				return opts, fmt.Errorf("expected at most one path argument, got %d", len(remaining))
+			}
+			if opts.pathArg != "" {
+				return opts, fmt.Errorf("expected a single path argument")
+			}
+			opts.pathArg = remaining[0]
+			return opts, nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return opts, fmt.Errorf("unknown option: %s", arg)
+			}
+			if opts.pathArg != "" {
+				return opts, fmt.Errorf("expected a single path argument")
+			}
+			opts.pathArg = arg
+		}
+	}
+
+	return opts, nil
+}
+
+func printUsage(w io.Writer) {
+	fmt.Fprintf(w, "%s %s\n", config.AppName, config.Version)
+	fmt.Fprintf(w, "Usage: emed [options] [path]\n\n")
+	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  -c, --claude   Launch Claude Code on startup")
+	fmt.Fprintln(w, "  -h, --help     Show this help message")
+	fmt.Fprintln(w, "  -v, --version  Show version")
 }

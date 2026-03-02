@@ -2,6 +2,84 @@ package main
 
 import "testing"
 
+func TestParseCLIArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    cliOptions
+		wantErr bool
+	}{
+		{
+			name: "no args",
+			args: nil,
+			want: cliOptions{},
+		},
+		{
+			name: "claude short",
+			args: []string{"-c"},
+			want: cliOptions{launchClaude: true},
+		},
+		{
+			name: "claude long with path",
+			args: []string{"--claude", "."},
+			want: cliOptions{launchClaude: true, pathArg: "."},
+		},
+		{
+			name: "help",
+			args: []string{"--help"},
+			want: cliOptions{showHelp: true},
+		},
+		{
+			name: "version",
+			args: []string{"-v"},
+			want: cliOptions{showVersion: true},
+		},
+		{
+			name: "path only",
+			args: []string{"/tmp"},
+			want: cliOptions{pathArg: "/tmp"},
+		},
+		{
+			name: "double dash path",
+			args: []string{"--", "-file.txt"},
+			want: cliOptions{pathArg: "-file.txt"},
+		},
+		{
+			name:    "unknown option",
+			args:    []string{"--nope"},
+			wantErr: true,
+		},
+		{
+			name:    "multiple paths",
+			args:    []string{"a", "b"},
+			wantErr: true,
+		},
+		{
+			name:    "multiple after double dash",
+			args:    []string{"--", "a", "b"},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseCLIArgs(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("unexpected result: got %+v want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseBoolEnv(t *testing.T) {
 	t.Setenv("EMED_TEST_BOOL", "")
 	if value, ok := parseBoolEnv("EMED_TEST_BOOL"); ok || value {
@@ -26,13 +104,10 @@ func TestParseBoolEnv(t *testing.T) {
 
 func TestShouldEnableTerminalPaste(t *testing.T) {
 	tests := []struct {
-		name          string
-		enablePaste   string
-		disablePaste  string
-		sshConnection string
-		sshTTY        string
-		termProgram   string
-		want          bool
+		name         string
+		enablePaste  string
+		disablePaste string
+		want         bool
 	}{
 		{
 			name: "default",
@@ -59,10 +134,9 @@ func TestShouldEnableTerminalPaste(t *testing.T) {
 			want:         true,
 		},
 		{
-			name:          "enable override with ssh env",
-			enablePaste:   "1",
-			sshConnection: "127.0.0.1 123 127.0.0.1 22",
-			want:          true,
+			name:        "enable override true with extra env values",
+			enablePaste: "1",
+			want:        true,
 		},
 	}
 
@@ -70,9 +144,9 @@ func TestShouldEnableTerminalPaste(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("EMED_ENABLE_PASTE", tc.enablePaste)
 			t.Setenv("EMED_DISABLE_PASTE", tc.disablePaste)
-			t.Setenv("SSH_CONNECTION", tc.sshConnection)
-			t.Setenv("SSH_TTY", tc.sshTTY)
-			t.Setenv("TERM_PROGRAM", tc.termProgram)
+			t.Setenv("SSH_CONNECTION", "127.0.0.1 123 127.0.0.1 22")
+			t.Setenv("SSH_TTY", "/dev/ttys000")
+			t.Setenv("TERM_PROGRAM", "iTerm.app")
 
 			got := shouldEnableTerminalPaste()
 			if got != tc.want {

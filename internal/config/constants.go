@@ -3,34 +3,12 @@ package config
 
 import "time"
 
-// UI Layout Constants
-const (
-	// Layout proportions
-	LayoutFileManagerProportion = 20
-	LayoutEditorProportion      = 50
-	LayoutTerminalProportion    = 30
-
-	// Tab display
-	MaxVisibleTabs = 4
-	TabBarHeight   = 1
-
-	// Modal dimensions
-	DefaultModalWidth  = 50
-	DefaultModalHeight = 10
-	InfoModalWidth     = 60
-	InfoModalHeight    = 20
-)
-
 // File Watcher Constants
 const (
 	// Watcher limits
 	MaxWatchDepth        = 3
 	MaxWatchedDirs       = 500
 	WatcherDebounceDelay = 100 * time.Millisecond
-
-	// Event processing
-	EventBatchSize    = 100
-	EventProcessDelay = 50 * time.Millisecond
 )
 
 // Logger Constants
@@ -49,23 +27,6 @@ const (
 	TerminalExitAltScreen = "\033[?1049l"
 	TerminalShowCursor    = "\033[?25h"
 	TerminalResetColors   = "\033[0m"
-
-	// Terminal buffer
-	DefaultScrollbackSize = 10000
-)
-
-// Editor Constants
-const (
-	// Tab settings
-	DefaultTabSize  = 4
-	DefaultUseTabs  = false
-	DefaultAutoSave = false
-
-	// Search
-	SearchHighlightColor = "[yellow::b]"
-
-	// Performance
-	RenderBatchSize = 1000
 )
 
 // CodeFileExtensions contains file extensions recognized as code/text files.
@@ -79,15 +40,3 @@ var CodeFileExtensions = []string{
 	".sql", ".graphql", ".proto", ".lua", ".vim", ".r",
 	".md", ".markdown", ".rst", ".txt", ".log",
 }
-
-// Git Commands
-const (
-	GitStatusCommand = "git status --porcelain 2>/dev/null"
-	GitBranchCommand = "git branch --show-current 2>/dev/null"
-)
-
-// Clipboard Commands (Darwin/macOS)
-const (
-	ClipboardCopyCommand  = "pbcopy"
-	ClipboardPasteCommand = "pbpaste"
-)

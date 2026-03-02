@@ -2,14 +2,9 @@ package ui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -29,13 +24,6 @@ type diffOp struct {
 	oldNum int
 	newNum int
 }
-
-var (
-	deltaCheckOnce  sync.Once
-	deltaBinary     string
-	ansiTagPattern  = regexp.MustCompile(`^\[(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?:(?:-|black|maroon|green|olive|navy|purple|teal|silver|gray|red|lime|yellow|blue|fuchsia|aqua|white|#[0-9A-Fa-f]{6})?(?::(?:-|[bdiulrs]+)?)?\]$`)
-	tagStripPattern = regexp.MustCompile(`\[[^\[\]]*\]`)
-)
 
 type DiffView struct {
 	*tview.TextView
@@ -133,19 +121,7 @@ func (d *DiffView) renderContent() (string, int) {
 	oldLines := splitDiffLines(d.oldContent)
 	newLines := splitDiffLines(d.newContent)
 	ops := computeDiffOps(oldLines, newLines)
-	unified := buildUnifiedPatch(d.filePath, oldLines, newLines, ops)
-	changeIdx, changeOldNum, changeNewNum, hasChanges := firstChangedOp(ops)
-
-	if rendered, ok := renderWithDelta(unified); ok {
-		scrollRow := -1
-		if hasChanges {
-			row := findDeltaChangeRow(rendered, changeOldNum, changeNewNum)
-			if row >= 0 {
-				scrollRow = 2 + row
-			}
-		}
-		return formatRenderedDiff("delta", rendered), scrollRow
-	}
+	changeIdx, _, _, hasChanges := firstChangedOp(ops)
 
 	body := renderFallbackDiff(d.filePath, oldLines, newLines, ops)
 	scrollRow := -1
@@ -262,112 +238,6 @@ func buildLCSMatrix(oldLines, newLines []string) [][]int {
 	return lcs
 }
 
-func buildUnifiedPatch(filePath string, oldLines, newLines []string, ops []diffOp) string {
-	oldStart := 1
-	newStart := 1
-	if len(oldLines) == 0 {
-		oldStart = 0
-	}
-	if len(newLines) == 0 {
-		newStart = 0
-	}
-
-	oldLabel := "a/" + filepath.ToSlash(filePath)
-	newLabel := "b/" + filepath.ToSlash(filePath)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "--- %s\n", oldLabel)
-	fmt.Fprintf(&b, "+++ %s\n", newLabel)
-	fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", oldStart, len(oldLines), newStart, len(newLines))
-
-	for _, op := range ops {
-		switch op.kind {
-		case diffAdded:
-			b.WriteString("+")
-		case diffRemoved:
-			b.WriteString("-")
-		default:
-			b.WriteString(" ")
-		}
-		b.WriteString(op.text)
-		b.WriteString("\n")
-	}
-
-	return b.String()
-}
-
-func detectDelta() (string, bool) {
-	deltaCheckOnce.Do(func() {
-		path, err := exec.LookPath("delta")
-		if err == nil {
-			deltaBinary = path
-		}
-	})
-	return deltaBinary, deltaBinary != ""
-}
-
-func renderWithDelta(unifiedPatch string) (string, bool) {
-	if isInternalRendererForced() {
-		return "", false
-	}
-
-	deltaPath, ok := detectDelta()
-	if !ok {
-		return "", false
-	}
-
-	cmd := exec.Command(deltaPath, "--paging=never", "--line-numbers")
-	cmd.Stdin = strings.NewReader(unifiedPatch)
-	output, err := cmd.CombinedOutput()
-	if err != nil || len(output) == 0 {
-		return "", false
-	}
-
-	translated := tview.TranslateANSI(string(output))
-	return escapeNonANSITags(translated), true
-}
-
-func isInternalRendererForced() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("EMED_DIFF_RENDERER"))) {
-	case "internal", "builtin", "built-in":
-		return true
-	default:
-		return false
-	}
-}
-
-func escapeNonANSITags(input string) string {
-	var b strings.Builder
-
-	for i := 0; i < len(input); {
-		if input[i] == '[' {
-			end := strings.IndexByte(input[i:], ']')
-			if end >= 0 {
-				candidate := input[i : i+end+1]
-				if ansiTagPattern.MatchString(candidate) {
-					b.WriteString(candidate)
-				} else {
-					b.WriteString(tview.Escape(candidate))
-				}
-				i += end + 1
-				continue
-			}
-			b.WriteByte('[')
-			i++
-			continue
-		}
-
-		r, size := utf8.DecodeRuneInString(input[i:])
-		if r == utf8.RuneError && size == 0 {
-			break
-		}
-		b.WriteRune(r)
-		i += size
-	}
-
-	return b.String()
-}
-
 func renderFallbackDiff(filePath string, oldLines, newLines []string, ops []diffOp) string {
 	oldStart := 1
 	newStart := 1
@@ -418,75 +288,4 @@ func renderFallbackDiff(filePath string, oldLines, newLines []string, ops []diff
 	}
 
 	return b.String()
-}
-
-func findDeltaChangeRow(rendered string, targetOldNum, targetNewNum int) int {
-	lines := strings.Split(rendered, "\n")
-	for i, line := range lines {
-		oldNum, newNum, ok := extractDeltaLineNumbers(line)
-		if !ok {
-			continue
-		}
-
-		if targetOldNum > 0 && oldNum == targetOldNum {
-			return i
-		}
-		if targetNewNum > 0 && newNum == targetNewNum {
-			return i
-		}
-	}
-	return -1
-}
-
-func extractDeltaLineNumbers(line string) (int, int, bool) {
-	separatorIdx := strings.IndexRune(line, '│')
-	if separatorIdx < 0 {
-		return 0, 0, false
-	}
-
-	prefix := line[:separatorIdx]
-	prefix = tagStripPattern.ReplaceAllString(prefix, "")
-
-	gutterParts := strings.SplitN(prefix, "⋮", 2)
-	if len(gutterParts) != 2 {
-		return 0, 0, false
-	}
-
-	oldNum := parseLeadingGutterNumber(gutterParts[0])
-	newNum := parseLeadingGutterNumber(gutterParts[1])
-	if oldNum == 0 && newNum == 0 {
-		return 0, 0, false
-	}
-
-	return oldNum, newNum, true
-}
-
-func parseLeadingGutterNumber(text string) int {
-	field := strings.TrimSpace(text)
-	if field == "" {
-		return 0
-	}
-
-	start := -1
-	end := -1
-	for i, r := range field {
-		if r >= '0' && r <= '9' {
-			if start < 0 {
-				start = i
-			}
-			end = i + 1
-		} else if start >= 0 {
-			break
-		}
-	}
-
-	if start < 0 || end <= start {
-		return 0
-	}
-
-	n, err := strconv.Atoi(field[start:end])
-	if err != nil {
-		return 0
-	}
-	return n
 }

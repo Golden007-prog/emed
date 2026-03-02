@@ -5,13 +5,22 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/laborin/emed/pkg/interfaces"
 	"github.com/rivo/tview"
 )
 
+// Tab represents the minimal contract needed by BaseTabManager.
+type Tab interface {
+	GetID() int
+	GetTitle() string
+	GetContent() tview.Primitive
+	SetModified(modified bool)
+	IsModified() bool
+	IsPreview() bool
+}
+
 // BaseTabManager manages tabs and provides tab switching functionality.
 type BaseTabManager struct {
-	tabs      []interfaces.Tab
+	tabs      []Tab
 	activeTab int
 	nextTabID int
 	mu        sync.RWMutex
@@ -26,7 +35,7 @@ type BaseTabManager struct {
 // NewBaseTabManager creates a new tab manager.
 func NewBaseTabManager() *BaseTabManager {
 	return &BaseTabManager{
-		tabs:      make([]interfaces.Tab, 0),
+		tabs:      make([]Tab, 0),
 		activeTab: -1,
 		nextTabID: 1,
 		tabBar:    tview.NewTextView(),
@@ -35,7 +44,7 @@ func NewBaseTabManager() *BaseTabManager {
 }
 
 // AddTab adds a new tab and makes it active.
-func (m *BaseTabManager) AddTab(tab interfaces.Tab) {
+func (m *BaseTabManager) AddTab(tab Tab) {
 	m.mu.Lock()
 	m.tabs = append(m.tabs, tab)
 	m.activeTab = len(m.tabs) - 1
@@ -132,7 +141,7 @@ func (m *BaseTabManager) GetActiveTabID() int {
 }
 
 // GetActiveTab returns the currently active tab.
-func (m *BaseTabManager) GetActiveTab() interfaces.Tab {
+func (m *BaseTabManager) GetActiveTab() Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -157,11 +166,11 @@ func (m *BaseTabManager) HasTabs() bool {
 }
 
 // GetTabs returns a copy of all tabs.
-func (m *BaseTabManager) GetTabs() []interfaces.Tab {
+func (m *BaseTabManager) GetTabs() []Tab {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := make([]interfaces.Tab, len(m.tabs))
+	result := make([]Tab, len(m.tabs))
 	copy(result, m.tabs)
 	return result
 }
