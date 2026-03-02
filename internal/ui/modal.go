@@ -303,6 +303,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 	modal.SetEscPassthrough(config.EscPassthrough)
 
 	wrapper := &modalWrapper{
+		Box:    tview.NewBox(),
 		modal:  modal,
 		config: config,
 	}
@@ -312,6 +313,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 
 // modalWrapper wraps an EmModal with configuration.
 type modalWrapper struct {
+	*tview.Box
 	modal  *EmModal
 	config EmModalConfig
 }
