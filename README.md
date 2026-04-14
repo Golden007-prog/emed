@@ -54,19 +54,22 @@ Running Claude Code in an emed terminal:
 ![OpenCode on emed](assets/screenshot6.png)
 
 A more recent version of Emed, with improved file manager and basic claude code integration showing a diff to approve/reject:
-![Claude Code on emed](assets/screenshot7.png)
+![Emed 0.2](assets/screenshot7.png)
 
 Beautiful Btop TUI running inside emed's terminal:
-![Claude Code on emed](assets/screenshot8.png)
+![Btop](assets/screenshot8.png)
 
 Inline Git blame:
-![Claude Code on emed](assets/screenshot9.png)
+![Inline git blame](assets/screenshot9.png)
 
 Full Git Blame modal (Ctrl+B):
-![Claude Code on emed](assets/screenshot10.png)
+![Git blame](assets/screenshot10.png)
 
 Lazygit modal shown right in Emed:
-![Claude Code on emed](assets/screenshot11.png)
+![Lazygit](assets/screenshot11.png)
+
+Mission accomplished, using Emed with my iPad (Blink):
+![Ipad](assets/screenshot12.png)
 
 ## Key bindings
 ### Global

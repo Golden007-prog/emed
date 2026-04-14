@@ -466,6 +466,9 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 	focusOrder := []tview.Primitive{closeButton, copyButton, showCommitButton}
 
 	setButtonFocus := func(index int) {
+		for _, button := range focusOrder {
+			button.Blur()
+		}
 		app.SetFocus(focusOrder[index])
 	}
 
@@ -518,5 +521,5 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 	content.AddItem(buttonFlex, 3, 0, true)
 
 	modal.Show()
-	app.SetFocus(closeButton)
+	setButtonFocus(0)
 }
