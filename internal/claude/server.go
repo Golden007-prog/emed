@@ -2,11 +2,14 @@ package claude
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,8 +23,27 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin:  func(r *http.Request) bool { return true },
+	CheckOrigin:  allowLoopbackOrNoOrigin,
 	Subprotocols: []string{"mcp"},
+}
+
+func allowLoopbackOrNoOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 type ToolHandler interface {
@@ -73,7 +95,7 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	logging.Error("Claude Code server started on port %d", s.port)
+	logging.Info("Claude Code server started on port %d", s.port)
 	return nil
 }
 
@@ -125,10 +147,12 @@ func (s *Server) findAvailablePort() (int, net.Listener, error) {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	logging.Error("Claude: HTTP request received: %s %s", r.Method, r.URL.Path)
-	logging.Error("Claude: Headers: %v", r.Header)
+	if !s.authorizeRequest(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		logging.Warn("Claude connection rejected: invalid auth token")
+		return
+	}
 
-	// Accept connection - auth may happen via message or Claude may not require it
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logging.Error("WebSocket upgrade failed: %v", err)
@@ -142,7 +166,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.conn = conn
 	s.connMu.Unlock()
 
-	logging.Error("Claude Code connected")
+	logging.Info("Claude Code connected")
 
 	if s.onConnect != nil {
 		s.onConnect()
@@ -162,18 +186,17 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 			s.conn = nil
 		}
 		s.connMu.Unlock()
-		logging.Error("Claude Code disconnected")
+		logging.Info("Claude Code disconnected")
 	}()
 
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			logging.Error("WebSocket read error: %v", err)
+			logging.Debug("WebSocket read error: %v", err)
 			return
 		}
 
-		raw := string(message)
-		logging.Error("Claude recv (%d bytes): %s", len(message), truncateLogPayload(raw, 1024))
+		logging.Debug("Claude recv (%d bytes)", len(message))
 
 		var req JSONRPCRequest
 		if err := json.Unmarshal(message, &req); err != nil {
@@ -182,16 +205,9 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 			continue
 		}
 
-		logging.Error("Claude method: %s, id: %v", req.Method, req.ID)
+		logging.Debug("Claude method: %s, id: %v", req.Method, req.ID)
 		go s.handleRequest(conn, &req)
 	}
-}
-
-func truncateLogPayload(payload string, limit int) string {
-	if limit <= 0 || len(payload) <= limit {
-		return payload
-	}
-	return payload[:limit] + fmt.Sprintf("...<truncated %d bytes>", len(payload)-limit)
 }
 
 func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
@@ -207,7 +223,7 @@ func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
 	isNotification := req.ID == nil
 
 	if s.handler == nil {
-		logging.Error("Claude: no handler for method %s", req.Method)
+		logging.Debug("Claude: no handler for method %s", req.Method)
 		if !isNotification {
 			s.sendError(conn, req.ID, -32601, "Method not found", nil)
 		}
@@ -216,17 +232,84 @@ func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
 
 	result, err := s.handler.HandleTool(req.Method, req.Params)
 	if err != nil {
-		logging.Error("Claude tool error: %s: %v", req.Method, err)
+		logging.Debug("Claude tool error: %s: %v", req.Method, err)
 		if !isNotification {
 			s.sendError(conn, req.ID, -32603, err.Error(), nil)
 		}
 		return
 	}
 
-	logging.Error("Claude tool success: %s", req.Method)
+	logging.Debug("Claude tool success: %s", req.Method)
 	if !isNotification {
 		s.sendResult(conn, req.ID, result)
 	}
+}
+
+func (s *Server) authorizeRequest(r *http.Request) bool {
+	if s.token == "" {
+		return false
+	}
+
+	token := extractRequestToken(r)
+	if token == "" {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
+}
+
+func extractRequestToken(r *http.Request) string {
+	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
+		return token
+	}
+
+	for _, name := range []string{
+		"X-Claude-Code-Ide-Authorization",
+		"X-Auth-Token",
+		"X-Claude-Code-Token",
+		"X-EMED-Token",
+	} {
+		if token := strings.TrimSpace(r.Header.Get(name)); token != "" {
+			return token
+		}
+	}
+
+	query := r.URL.Query()
+	for _, name := range []string{"authToken", "auth_token", "token"} {
+		if token := strings.TrimSpace(query.Get(name)); token != "" {
+			return token
+		}
+	}
+
+	for _, protocol := range websocket.Subprotocols(r) {
+		p := strings.TrimSpace(protocol)
+		if p == "" || strings.EqualFold(p, "mcp") {
+			continue
+		}
+		if strings.HasPrefix(p, "authToken=") {
+			return strings.TrimSpace(strings.TrimPrefix(p, "authToken="))
+		}
+		if strings.HasPrefix(p, "auth_token=") {
+			return strings.TrimSpace(strings.TrimPrefix(p, "auth_token="))
+		}
+		if strings.HasPrefix(p, "token=") {
+			return strings.TrimSpace(strings.TrimPrefix(p, "token="))
+		}
+		return p
+	}
+
+	return ""
+}
+
+func bearerToken(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) != 2 {
+		return ""
+	}
+	if !strings.EqualFold(fields[0], "bearer") {
+		return ""
+	}
+	return strings.TrimSpace(fields[1])
 }
 
 func (s *Server) sendResult(conn *websocket.Conn, id interface{}, result interface{}) {
@@ -291,5 +374,7 @@ func (s *Server) SendNotification(method string, params interface{}) {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
 
-	conn.WriteJSON(notification)
+	if err := conn.WriteJSON(notification); err != nil {
+		logging.Debug("WebSocket notification write error: %v", err)
+	}
 }

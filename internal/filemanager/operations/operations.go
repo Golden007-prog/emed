@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/laborin/emed/internal/core/pathutil"
 )
 
 // FileOperations provides safe file and directory operations.
@@ -82,7 +84,7 @@ func (f *FileOperations) DeletePath(path string) error {
 		return fmt.Errorf("failed to get working directory: %v", err)
 	}
 
-	if !strings.HasPrefix(absPath, workDir) {
+	if !pathutil.IsWithin(workDir, absPath) {
 		return fmt.Errorf("cannot delete files outside working directory")
 	}
 
@@ -90,7 +92,7 @@ func (f *FileOperations) DeletePath(path string) error {
 		return fmt.Errorf("cannot delete working directory")
 	}
 
-	return os.RemoveAll(path)
+	return os.RemoveAll(absPath)
 }
 
 // RenamePath renames a file or directory to a new name.
@@ -139,11 +141,19 @@ func (f *FileOperations) MovePath(src, dst string) error {
 		return fmt.Errorf("failed to get working directory: %v", err)
 	}
 
-	if !strings.HasPrefix(absPath, workDir) {
+	if !pathutil.IsWithin(workDir, absPath) {
 		return fmt.Errorf("cannot move files outside working directory")
 	}
 
-	return os.Rename(src, dst)
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return fmt.Errorf("failed to get destination absolute path: %v", err)
+	}
+	if !pathutil.IsWithin(workDir, absDst) {
+		return fmt.Errorf("cannot move files outside working directory")
+	}
+
+	return os.Rename(absPath, absDst)
 }
 
 func (f *FileOperations) copyFile(src, dst string) error {
@@ -218,7 +228,7 @@ func (f *FileOperations) ValidatePath(path string) error {
 		return fmt.Errorf("failed to get working directory: %v", err)
 	}
 
-	if !strings.HasPrefix(absPath, workDir) {
+	if !pathutil.IsWithin(workDir, absPath) {
 		return fmt.Errorf("path is outside working directory")
 	}
 

@@ -62,7 +62,7 @@ func (ci *ClaudeIntegration) Start() error {
 
 	ci.terminal.SetClaudePort(ci.server.Port())
 
-	logging.Error("Claude Code integration started on port %d", ci.server.Port())
+	logging.Info("Claude Code integration started on port %d", ci.server.Port())
 	return nil
 }
 

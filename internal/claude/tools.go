@@ -132,12 +132,12 @@ func (h *ToolsHandler) handleInitialize(params json.RawMessage) (interface{}, er
 			"resources": map[string]interface{}{"subscribe": true, "listChanged": true},
 			"tools":     map[string]interface{}{"listChanged": true},
 		},
-			"serverInfo": map[string]interface{}{
-				"name":         "emed",
-				"version":      "0.2.0",
-				"instructions": instructions,
-			},
-		}, nil
+		"serverInfo": map[string]interface{}{
+			"name":         "emed",
+			"version":      "0.2.0",
+			"instructions": instructions,
+		},
+	}, nil
 }
 
 func (h *ToolsHandler) handlePromptsList() (interface{}, error) {
@@ -260,7 +260,7 @@ func (h *ToolsHandler) handleToolsList() (interface{}, error) {
 }
 
 func (h *ToolsHandler) handleResourcesList() (interface{}, error) {
-	logging.Error("Claude: resources/list called")
+	logging.Debug("Claude: resources/list called")
 
 	// Get current open editors to include in resource list
 	var openEditorsDesc string
@@ -302,7 +302,7 @@ func (h *ToolsHandler) handleResourcesList() (interface{}, error) {
 
 	result := map[string]interface{}{"resources": resources}
 	resultJSON, _ := json.Marshal(result)
-	logging.Error("Claude: resources/list response: %s", string(resultJSON))
+	logging.Debug("Claude: resources/list response: %s", string(resultJSON))
 	return result, nil
 }
 
@@ -316,7 +316,7 @@ func (h *ToolsHandler) handleResourcesRead(params json.RawMessage) (interface{},
 		return nil, fmt.Errorf("invalid resources/read params: %w", err)
 	}
 
-	logging.Error("Claude: resources/read called for URI: %s", p.URI)
+	logging.Debug("Claude: resources/read called for URI: %s", p.URI)
 
 	var content string
 	var mimeType string
@@ -448,7 +448,7 @@ func (h *ToolsHandler) handleOpenDiff(params json.RawMessage) (interface{}, erro
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	logging.Error("openDiff parsed: oldPath=%s, newPath=%s, newLen=%d, tabName=%s",
+	logging.Debug("openDiff parsed: oldPath=%s, newPath=%s, newLen=%d, tabName=%s",
 		p.OldFilePath, p.NewFilePath, len(p.NewFileContent), p.TabName)
 
 	if h.Diff == nil {

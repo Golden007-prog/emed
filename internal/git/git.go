@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/laborin/emed/internal/core/pathutil"
 )
 
 // BlameInfo contains parsed git blame information for a line.
@@ -263,7 +265,7 @@ func FindRepoForPath(filePath string, repos []Repository) *Repository {
 	bestLen := 0
 
 	for i := range repos {
-		if strings.HasPrefix(absPath, repos[i].Path) {
+		if pathutil.IsWithin(repos[i].Path, absPath) {
 			if len(repos[i].Path) > bestLen {
 				bestLen = len(repos[i].Path)
 				bestMatch = &repos[i]

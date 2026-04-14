@@ -10,6 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/laborin/emed/internal/config"
+	"github.com/laborin/emed/internal/core/pathutil"
 )
 
 // FileChangeType represents the type of file system change.
@@ -228,7 +229,7 @@ func (fw *FileWatcher) addShallowDirectories(dir string, currentDepth int) {
 }
 
 func (fw *FileWatcher) ensureDirectoryWatched(dir string) {
-	if !strings.HasPrefix(dir, fw.rootPath) {
+	if !pathutil.IsWithin(fw.rootPath, dir) {
 		return
 	}
 
@@ -244,7 +245,7 @@ func (fw *FileWatcher) ensureDirectoryWatched(dir string) {
 		fw.watcher.Add(dir)
 
 		parent := filepath.Dir(dir)
-		if parent != dir && parent != "." && strings.HasPrefix(parent, fw.rootPath) {
+		if parent != dir && parent != "." && pathutil.IsWithin(fw.rootPath, parent) {
 			fw.ensureDirectoryWatched(parent)
 		}
 	}

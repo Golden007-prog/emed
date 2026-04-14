@@ -10,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
 	coreclipboard "github.com/laborin/emed/internal/core/clipboard"
+	"github.com/laborin/emed/internal/core/pathutil"
 	"github.com/laborin/emed/internal/filemanager/clipboard"
 	"github.com/laborin/emed/internal/filemanager/operations"
 	"github.com/laborin/emed/internal/logging"
@@ -971,7 +972,7 @@ func copyToSystemClipboard(text string) error {
 
 // RevealFile expands directories and selects the file in the tree.
 func (fm *FileManager) RevealFile(path string) {
-	if path == "" || !strings.HasPrefix(path, fm.rootPath) {
+	if !pathutil.IsWithin(fm.rootPath, path) {
 		return
 	}
 
