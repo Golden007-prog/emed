@@ -79,7 +79,8 @@ type OpenDiffParams struct {
 }
 
 type CloseTabParams struct {
-	FilePath string `json:"filePath"`
+	FilePath string `json:"filePath,omitempty"`
+	TabName  string `json:"tab_name,omitempty"`
 }
 
 type SaveDocumentParams struct {

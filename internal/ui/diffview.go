@@ -25,6 +25,11 @@ type diffOp struct {
 	newNum int
 }
 
+const (
+	maxLCSCells        int64 = 4_000_000
+	maxRenderedDiffOps       = 5000
+)
+
 type DiffView struct {
 	*tview.TextView
 
@@ -165,6 +170,10 @@ func firstChangedOp(ops []diffOp) (int, int, int, bool) {
 }
 
 func computeDiffOps(oldLines, newLines []string) []diffOp {
+	if shouldUseLinearDiff(oldLines, newLines) {
+		return computeLinearDiffOps(oldLines, newLines, maxRenderedDiffOps)
+	}
+
 	lcs := buildLCSMatrix(oldLines, newLines)
 
 	i, j := 0, 0
@@ -208,6 +217,87 @@ func computeDiffOps(oldLines, newLines []string) []diffOp {
 			i++
 			oldNum++
 		}
+	}
+
+	return ops
+}
+
+func shouldUseLinearDiff(oldLines, newLines []string) bool {
+	rows := int64(len(oldLines) + 1)
+	cols := int64(len(newLines) + 1)
+	return rows*cols > maxLCSCells
+}
+
+func computeLinearDiffOps(oldLines, newLines []string, limit int) []diffOp {
+	if limit <= 0 {
+		limit = maxRenderedDiffOps
+	}
+
+	i, j := 0, 0
+	oldNum, newNum := 1, 1
+	ops := make([]diffOp, 0, min(len(oldLines)+len(newLines), limit+1))
+	truncated := false
+
+	appendOp := func(op diffOp) bool {
+		if len(ops) >= limit {
+			truncated = true
+			return false
+		}
+		ops = append(ops, op)
+		return true
+	}
+
+	for i < len(oldLines) || j < len(newLines) {
+		if i < len(oldLines) && j < len(newLines) && oldLines[i] == newLines[j] {
+			if !appendOp(diffOp{kind: diffContext, text: oldLines[i], oldNum: oldNum, newNum: newNum}) {
+				break
+			}
+			i++
+			j++
+			oldNum++
+			newNum++
+			continue
+		}
+
+		if i < len(oldLines) && (j == len(newLines) || (i+1 < len(oldLines) && oldLines[i+1] == newLines[j])) {
+			if !appendOp(diffOp{kind: diffRemoved, text: oldLines[i], oldNum: oldNum}) {
+				break
+			}
+			i++
+			oldNum++
+			continue
+		}
+
+		if j < len(newLines) && (i == len(oldLines) || (j+1 < len(newLines) && oldLines[i] == newLines[j+1])) {
+			if !appendOp(diffOp{kind: diffAdded, text: newLines[j], newNum: newNum}) {
+				break
+			}
+			j++
+			newNum++
+			continue
+		}
+
+		if i < len(oldLines) {
+			if !appendOp(diffOp{kind: diffRemoved, text: oldLines[i], oldNum: oldNum}) {
+				break
+			}
+			i++
+			oldNum++
+		}
+		if j < len(newLines) {
+			if !appendOp(diffOp{kind: diffAdded, text: newLines[j], newNum: newNum}) {
+				break
+			}
+			j++
+			newNum++
+		}
+	}
+
+	if truncated {
+		ops = append(ops, diffOp{
+			kind: diffContext,
+			text: "diff preview truncated for large file; press Enter to accept or Esc to reject",
+		})
 	}
 
 	return ops

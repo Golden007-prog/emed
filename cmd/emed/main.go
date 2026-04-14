@@ -113,19 +113,14 @@ func main() {
 	go func() {
 		<-sigChan
 		layout.Stop()
-		fmt.Print(config.TerminalExitAltScreen)
-		fmt.Print(config.TerminalShowCursor)
-		fmt.Print(config.TerminalResetColors)
-		app.Stop()
+		restoreTerminalState(app)
 		os.Exit(0)
 	}()
 
 	defer func() {
 		if r := recover(); r != nil {
 			layout.Stop()
-			fmt.Print(config.TerminalExitAltScreen)
-			fmt.Print(config.TerminalShowCursor)
-			fmt.Print(config.TerminalResetColors)
+			restoreTerminalState(app)
 			fmt.Printf("Application error: %v\n", r)
 			buf := make([]byte, 4096)
 			n := runtime.Stack(buf, false)
@@ -137,12 +132,23 @@ func main() {
 	logging.Info("terminal paste capture enabled: %t", enablePaste)
 
 	if err := app.SetRoot(layout.GetRoot(), true).EnableMouse(true).EnablePaste(enablePaste).Run(); err != nil {
-		fmt.Print(config.TerminalExitAltScreen)
-		fmt.Print(config.TerminalShowCursor)
+		layout.Stop()
+		restoreTerminalState(app)
 		panic(err)
 	}
 
 	layout.Stop()
+	restoreTerminalState(app)
+}
+
+func restoreTerminalState(app *tview.Application) {
+	if app != nil {
+		app.Stop()
+	}
+	fmt.Print(config.TerminalDisableMouse)
+	fmt.Print(config.TerminalExitAltScreen)
+	fmt.Print(config.TerminalShowCursor)
+	fmt.Print(config.TerminalResetColors)
 }
 
 func shouldEnableTerminalPaste() bool {

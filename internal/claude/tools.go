@@ -22,6 +22,7 @@ type EditorProvider interface {
 type DiffProvider interface {
 	OpenDiff(filePath, oldContent, newContent, tabName string) (result string, finalContent string, err error)
 	CloseAllDiffTabs()
+	CloseDiffTabByName(tabName string) bool
 }
 
 type TerminalProvider interface {
@@ -61,6 +62,8 @@ func (h *ToolsHandler) HandleTool(method string, params json.RawMessage) (interf
 		return h.handlePromptsGet(params)
 	case "resources/list":
 		return h.handleResourcesList()
+	case "resources/templates/list":
+		return h.handleResourcesTemplatesList()
 	case "resources/read":
 		return h.handleResourcesRead(params)
 	case ToolOpenFile:
@@ -90,6 +93,12 @@ func (h *ToolsHandler) HandleTool(method string, params json.RawMessage) (interf
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}
+}
+
+func (h *ToolsHandler) handleResourcesTemplatesList() (interface{}, error) {
+	return map[string]interface{}{
+		"resourceTemplates": []map[string]interface{}{},
+	}, nil
 }
 
 func (h *ToolsHandler) handleInitialize(params json.RawMessage) (interface{}, error) {
@@ -123,12 +132,12 @@ func (h *ToolsHandler) handleInitialize(params json.RawMessage) (interface{}, er
 			"resources": map[string]interface{}{"subscribe": true, "listChanged": true},
 			"tools":     map[string]interface{}{"listChanged": true},
 		},
-		"serverInfo": map[string]interface{}{
-			"name":         "emed",
-			"version":      "1.0.0",
-			"instructions": instructions,
-		},
-	}, nil
+			"serverInfo": map[string]interface{}{
+				"name":         "emed",
+				"version":      "0.2.0",
+				"instructions": instructions,
+			},
+		}, nil
 }
 
 func (h *ToolsHandler) handlePromptsList() (interface{}, error) {
@@ -434,8 +443,6 @@ func (h *ToolsHandler) handleOpenFile(params json.RawMessage) (interface{}, erro
 }
 
 func (h *ToolsHandler) handleOpenDiff(params json.RawMessage) (interface{}, error) {
-	logging.Error("openDiff raw params: %s", string(params))
-
 	var p OpenDiffParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -473,6 +480,20 @@ func (h *ToolsHandler) handleCloseTab(params json.RawMessage) (interface{}, erro
 	var p CloseTabParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+
+	if p.TabName != "" {
+		if h.Diff == nil {
+			return nil, fmt.Errorf("diff view not available")
+		}
+		if h.Diff.CloseDiffTabByName(p.TabName) {
+			return NewMCPTextResponse("Tab closed"), nil
+		}
+		return NewMCPTextResponse("Tab not found"), nil
+	}
+
+	if p.FilePath == "" {
+		return nil, fmt.Errorf("missing filePath or tab_name")
 	}
 
 	if h.Editor == nil {

@@ -20,7 +20,7 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:  func(r *http.Request) bool { return true },
 	Subprotocols: []string{"mcp"},
 }
 
@@ -172,7 +172,8 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 			return
 		}
 
-		logging.Error("Claude recv: %s", string(message))
+		raw := string(message)
+		logging.Error("Claude recv (%d bytes): %s", len(message), truncateLogPayload(raw, 1024))
 
 		var req JSONRPCRequest
 		if err := json.Unmarshal(message, &req); err != nil {
@@ -184,6 +185,13 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 		logging.Error("Claude method: %s, id: %v", req.Method, req.ID)
 		go s.handleRequest(conn, &req)
 	}
+}
+
+func truncateLogPayload(payload string, limit int) string {
+	if limit <= 0 || len(payload) <= limit {
+		return payload
+	}
+	return payload[:limit] + fmt.Sprintf("...<truncated %d bytes>", len(payload)-limit)
 }
 
 func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {

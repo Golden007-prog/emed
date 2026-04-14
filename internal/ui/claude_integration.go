@@ -329,6 +329,23 @@ func (ci *ClaudeIntegration) CloseAllDiffTabs() {
 	}
 }
 
+func (ci *ClaudeIntegration) CloseDiffTabByName(tabName string) bool {
+	ci.diffTabsMu.Lock()
+	tabs := make([]*DiffView, 0, len(ci.diffTabs))
+	for _, tab := range ci.diffTabs {
+		tabs = append(tabs, tab)
+	}
+	ci.diffTabsMu.Unlock()
+
+	for _, tab := range tabs {
+		if tab.GetTabName() == tabName {
+			tab.Reject()
+			return true
+		}
+	}
+	return false
+}
+
 func (ci *ClaudeIntegration) ExecuteCode(code string, language string) error {
 	ci.app.QueueUpdateDraw(func() {
 		ci.terminal.EnsureClaudeExecTerminal(ci.workingDir)

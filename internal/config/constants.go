@@ -27,6 +27,7 @@ const (
 	TerminalExitAltScreen = "\033[?1049l"
 	TerminalShowCursor    = "\033[?25h"
 	TerminalResetColors   = "\033[0m"
+	TerminalDisableMouse  = "\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l"
 )
 
 // CodeFileExtensions contains file extensions recognized as code/text files.
