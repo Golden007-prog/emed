@@ -549,207 +549,261 @@ func (l *Layout) setupKeybindings() {
 		return
 	}
 
-	l.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if IsModalOpen() {
-			return event
-		}
+	l.app.SetInputCapture(l.captureMainModeInput)
+}
 
-		currentFocus := l.app.GetFocus()
-		if l.fileManager.HasFocus(currentFocus) {
-			l.focusedPanel = 0
-		} else if l.editor.HasFocus(currentFocus) {
-			l.focusedPanel = 1
-		} else if l.terminal.HasFocus(currentFocus) {
-			l.focusedPanel = 2
-		}
-
-		if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
-			return event
-		}
-
-		switch event.Key() {
-		case tcell.KeyF1:
-			l.showHelp()
-			return nil
-		case tcell.KeyF2:
-			hasEditor := l.editor.HasTabs()
-			hasTerminal := l.terminal.HasTabs()
-
-			if !hasEditor && !hasTerminal {
-				l.focusFileManager()
-			} else if !hasEditor {
-				if l.focusedPanel == 0 {
-					l.focusTerminal()
-				} else {
-					l.focusFileManager()
-				}
-			} else if !hasTerminal {
-				if l.focusedPanel == 0 {
-					l.focusEditor()
-				} else {
-					l.focusFileManager()
-				}
-			} else {
-				nextPanel := (l.focusedPanel + 1) % 3
-				switch nextPanel {
-				case 0:
-					l.focusFileManager()
-				case 1:
-					l.focusEditor()
-				case 2:
-					l.focusTerminal()
-				}
-			}
-			return nil
-		case tcell.KeyF3:
-			if l.focusedPanel == 1 {
-				l.editor.PreviousTab()
-			} else if l.focusedPanel == 2 {
-				l.terminal.PreviousTab()
-			}
-			return nil
-		case tcell.KeyF4:
-			if l.focusedPanel == 1 {
-				l.editor.NextTab()
-			} else if l.focusedPanel == 2 {
-				l.terminal.NextTab()
-			}
-			return nil
-		case tcell.KeyF5:
-			if l.focusedPanel == 0 {
-				l.fileManager.RefreshCurrentDirectory()
-			}
-			return nil
-		case tcell.KeyF6:
-			if l.terminal.HasTabs() {
-				l.togglePosition()
-			}
-			return nil
-		case tcell.KeyF7:
-			if l.terminal.HasTabs() {
-				l.cycleProportion()
-			}
-			return nil
-		case tcell.KeyF8:
-			ShowMemStatsModal(l.app, l.getWatcherStatsProvider())
-			return nil
-		case tcell.KeyF9:
-			l.LaunchClaude()
-			return nil
-		}
-
-		if event.Key() == tcell.KeyLeft || event.Key() == tcell.KeyRight {
-			if event.Modifiers()&tcell.ModCtrl != 0 &&
-				event.Modifiers()&(tcell.ModShift|tcell.ModAlt|tcell.ModMeta) != 0 {
-				if event.Key() == tcell.KeyLeft {
-					if l.focusedPanel == 1 {
-						l.editor.PreviousTab()
-					} else if l.focusedPanel == 2 {
-						l.terminal.PreviousTab()
-					}
-					return nil
-				}
-				if l.focusedPanel == 1 {
-					l.editor.NextTab()
-				} else if l.focusedPanel == 2 {
-					l.terminal.NextTab()
-				}
-				return nil
-			}
-		}
-
-		if event.Modifiers() == tcell.ModCtrl {
-			switch event.Key() {
-			case tcell.KeyCtrlA:
-				l.focusFileManager()
-				return nil
-			case tcell.KeyCtrlE:
-				if l.editor.HasTabs() {
-					l.focusEditor()
-				}
-				return nil
-			case tcell.KeyCtrlT:
-				if l.terminal.HasFocus(l.app.GetFocus()) {
-					l.terminal.NewTab(l.getTerminalWorkingDir())
-				} else {
-					if !l.terminal.HasTabs() {
-						l.terminal.NewTab(l.getTerminalWorkingDir())
-						l.rebuildLayout()
-					}
-					l.focusTerminal()
-				}
-				return nil
-			case tcell.KeyCtrlS:
-				if l.focusedPanel == 1 {
-					l.editor.SaveCurrentFile()
-				}
-				return nil
-			case tcell.KeyCtrlF:
-				if l.focusedPanel == 0 {
-					l.showProjectSearch()
-				} else if l.focusedPanel == 1 {
-					l.editor.ShowSearch()
-				}
-				return nil
-			case tcell.KeyCtrlB:
-				if l.focusedPanel == 1 {
-					l.showBlameModal()
-				}
-				return nil
-			case tcell.KeyCtrlW:
-				if l.focusedPanel == 1 {
-					l.editor.CloseCurrentTab()
-				} else if l.focusedPanel == 2 {
-					l.terminal.CloseCurrentTab()
-				}
-				return nil
-			case tcell.KeyCtrlN:
-				if l.focusedPanel == 0 {
-					return event
-				}
-				return nil
-			case tcell.KeyCtrlX, tcell.KeyCtrlV, tcell.KeyCtrlD, tcell.KeyCtrlR:
-				if l.focusedPanel == 0 && event.Modifiers() == tcell.ModCtrl {
-					return event
-				}
-				if l.focusedPanel == 1 && (event.Key() == tcell.KeyCtrlX || event.Key() == tcell.KeyCtrlV) {
-					return event
-				}
-				return nil
-			case tcell.KeyCtrlZ, tcell.KeyCtrlY:
-				return event
-			case tcell.KeyCtrlL:
-				if l.terminal.HasTabs() {
-					l.cycleProportion()
-				}
-				return nil
-			case tcell.KeyCtrlP:
-				if l.terminal.HasTabs() {
-					l.togglePosition()
-				}
-				return nil
-			case tcell.KeyCtrlG:
-				l.showLazygit()
-				return nil
-			case tcell.KeyCtrlQ:
-				l.tryQuit()
-				return nil
-			case tcell.KeyCtrlC:
-				// tview quits on KeyCtrlC by default, prevent that
-				currentFocus := l.app.GetFocus()
-				if l.focusedPanel == 0 {
-					return tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModCtrl)
-				} else if l.editor.HasFocus(currentFocus) {
-					return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModCtrl)
-				} else if l.terminal.HasFocus(currentFocus) {
-					return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModNone)
-				}
-				return nil
-			}
-		}
-
+func (l *Layout) captureMainModeInput(event *tcell.EventKey) *tcell.EventKey {
+	if IsModalOpen() {
 		return event
-	})
+	}
+
+	l.syncFocusedPanelWithAppFocus()
+
+	if l.focusedPanel == 2 && l.terminal.IsInPassthroughMode() {
+		return event
+	}
+
+	if result, handled := l.handleMainModeFunctionKeys(event); handled {
+		return result
+	}
+
+	if result, handled := l.handleMainModeTabNavigationShortcut(event); handled {
+		return result
+	}
+
+	if result, handled := l.handleMainModeCtrlShortcuts(event); handled {
+		return result
+	}
+
+	return event
+}
+
+func (l *Layout) syncFocusedPanelWithAppFocus() {
+	currentFocus := l.app.GetFocus()
+	if l.fileManager.HasFocus(currentFocus) {
+		l.focusedPanel = 0
+	} else if l.editor.HasFocus(currentFocus) {
+		l.focusedPanel = 1
+	} else if l.terminal.HasFocus(currentFocus) {
+		l.focusedPanel = 2
+	}
+}
+
+func (l *Layout) handleMainModeFunctionKeys(event *tcell.EventKey) (*tcell.EventKey, bool) {
+	switch event.Key() {
+	case tcell.KeyF1:
+		l.showHelp()
+		return nil, true
+	case tcell.KeyF2:
+		l.cyclePanelFocus()
+		return nil, true
+	case tcell.KeyF3:
+		if l.focusedPanel == 1 {
+			l.editor.PreviousTab()
+		} else if l.focusedPanel == 2 {
+			l.terminal.PreviousTab()
+		}
+		return nil, true
+	case tcell.KeyF4:
+		if l.focusedPanel == 1 {
+			l.editor.NextTab()
+		} else if l.focusedPanel == 2 {
+			l.terminal.NextTab()
+		}
+		return nil, true
+	case tcell.KeyF5:
+		if l.focusedPanel == 0 {
+			l.fileManager.RefreshCurrentDirectory()
+		}
+		return nil, true
+	case tcell.KeyF6:
+		if l.terminal.HasTabs() {
+			l.togglePosition()
+		}
+		return nil, true
+	case tcell.KeyF7:
+		if l.terminal.HasTabs() {
+			l.cycleProportion()
+		}
+		return nil, true
+	case tcell.KeyF8:
+		ShowMemStatsModal(l.app, l.getWatcherStatsProvider())
+		return nil, true
+	case tcell.KeyF9:
+		l.LaunchClaude()
+		return nil, true
+	default:
+		return event, false
+	}
+}
+
+func (l *Layout) cyclePanelFocus() {
+	hasEditor := l.editor.HasTabs()
+	hasTerminal := l.terminal.HasTabs()
+
+	if !hasEditor && !hasTerminal {
+		l.focusFileManager()
+		return
+	}
+
+	if !hasEditor {
+		if l.focusedPanel == 0 {
+			l.focusTerminal()
+		} else {
+			l.focusFileManager()
+		}
+		return
+	}
+
+	if !hasTerminal {
+		if l.focusedPanel == 0 {
+			l.focusEditor()
+		} else {
+			l.focusFileManager()
+		}
+		return
+	}
+
+	nextPanel := (l.focusedPanel + 1) % 3
+	switch nextPanel {
+	case 0:
+		l.focusFileManager()
+	case 1:
+		l.focusEditor()
+	case 2:
+		l.focusTerminal()
+	}
+}
+
+func (l *Layout) handleMainModeTabNavigationShortcut(event *tcell.EventKey) (*tcell.EventKey, bool) {
+	if event.Key() != tcell.KeyLeft && event.Key() != tcell.KeyRight {
+		return event, false
+	}
+
+	if event.Modifiers()&tcell.ModCtrl == 0 {
+		return event, false
+	}
+
+	if event.Modifiers()&(tcell.ModShift|tcell.ModAlt|tcell.ModMeta) == 0 {
+		return event, false
+	}
+
+	if event.Key() == tcell.KeyLeft {
+		if l.focusedPanel == 1 {
+			l.editor.PreviousTab()
+		} else if l.focusedPanel == 2 {
+			l.terminal.PreviousTab()
+		}
+		return nil, true
+	}
+
+	if l.focusedPanel == 1 {
+		l.editor.NextTab()
+	} else if l.focusedPanel == 2 {
+		l.terminal.NextTab()
+	}
+	return nil, true
+}
+
+func (l *Layout) handleMainModeCtrlShortcuts(event *tcell.EventKey) (*tcell.EventKey, bool) {
+	if event.Modifiers() != tcell.ModCtrl {
+		return event, false
+	}
+
+	switch event.Key() {
+	case tcell.KeyCtrlA:
+		l.focusFileManager()
+		return nil, true
+	case tcell.KeyCtrlE:
+		if l.editor.HasTabs() {
+			l.focusEditor()
+		}
+		return nil, true
+	case tcell.KeyCtrlT:
+		if l.terminal.HasFocus(l.app.GetFocus()) {
+			l.terminal.NewTab(l.getTerminalWorkingDir())
+		} else {
+			if !l.terminal.HasTabs() {
+				l.terminal.NewTab(l.getTerminalWorkingDir())
+				l.rebuildLayout()
+			}
+			l.focusTerminal()
+		}
+		return nil, true
+	case tcell.KeyCtrlS:
+		if l.focusedPanel == 1 {
+			l.editor.SaveCurrentFile()
+		}
+		return nil, true
+	case tcell.KeyCtrlF:
+		if l.focusedPanel == 0 {
+			l.showProjectSearch()
+		} else if l.focusedPanel == 1 {
+			l.editor.ShowSearch()
+		}
+		return nil, true
+	case tcell.KeyCtrlB:
+		if l.focusedPanel == 1 {
+			l.showBlameModal()
+		}
+		return nil, true
+	case tcell.KeyCtrlW:
+		if l.focusedPanel == 1 {
+			l.editor.CloseCurrentTab()
+		} else if l.focusedPanel == 2 {
+			l.terminal.CloseCurrentTab()
+		}
+		return nil, true
+	case tcell.KeyCtrlN:
+		if l.focusedPanel == 0 {
+			return event, true
+		}
+		return nil, true
+	case tcell.KeyCtrlX, tcell.KeyCtrlV, tcell.KeyCtrlD, tcell.KeyCtrlR:
+		if l.focusedPanel == 0 {
+			return event, true
+		}
+		if l.focusedPanel == 1 && (event.Key() == tcell.KeyCtrlX || event.Key() == tcell.KeyCtrlV) {
+			return event, true
+		}
+		return nil, true
+	case tcell.KeyCtrlZ, tcell.KeyCtrlY:
+		return event, true
+	case tcell.KeyCtrlL:
+		if l.terminal.HasTabs() {
+			l.cycleProportion()
+		}
+		return nil, true
+	case tcell.KeyCtrlP:
+		if l.terminal.HasTabs() {
+			l.togglePosition()
+		}
+		return nil, true
+	case tcell.KeyCtrlG:
+		l.showLazygit()
+		return nil, true
+	case tcell.KeyCtrlQ:
+		l.tryQuit()
+		return nil, true
+	case tcell.KeyCtrlC:
+		return l.translateCtrlC(), true
+	default:
+		return event, false
+	}
+}
+
+func (l *Layout) translateCtrlC() *tcell.EventKey {
+	currentFocus := l.app.GetFocus()
+	if l.focusedPanel == 0 {
+		return tcell.NewEventKey(tcell.KeyRune, 'c', tcell.ModCtrl)
+	}
+	if l.editor.HasFocus(currentFocus) {
+		return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModCtrl)
+	}
+	if l.terminal.HasFocus(currentFocus) {
+		return tcell.NewEventKey(tcell.KeyRune, 3, tcell.ModNone)
+	}
+	return nil
 }
 
 func (l *Layout) setupSingleFileKeybindings() {
