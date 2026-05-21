@@ -50,6 +50,15 @@ type wordOccurrence struct {
 	endCol   int
 }
 
+type wrappedLineSegment struct {
+	row            int
+	startVisualCol int
+	endVisualCol   int
+	continuation   bool
+}
+
+const defaultLineWrapEnabled = true
+
 // bracketPairs maps opening brackets to closing brackets.
 var bracketPairs = map[rune]rune{
 	'(': ')',
@@ -80,10 +89,14 @@ type CodeEditor struct {
 	cursorRow int
 	cursorCol int
 
-	offsetRow      int
-	offsetCol      int
-	viewportHeight int
-	viewportWidth  int
+	offsetRow       int
+	offsetCol       int
+	viewportHeight  int
+	viewportWidth   int
+	lineWrapEnabled bool
+	wrapDirty       bool
+	wrapWidth       int
+	wrapSegments    []wrappedLineSegment
 
 	filePath string
 	readOnly bool
@@ -156,6 +169,8 @@ func NewCodeEditor() *CodeEditor {
 		lastHighlightRow: -1,
 		lastHighlightCol: -1,
 		highlightsDirty:  true,
+		lineWrapEnabled:  defaultLineWrapEnabled,
+		wrapDirty:        true,
 	}
 	e.Box.Primitive = e
 	return e
@@ -173,6 +188,7 @@ func (e *CodeEditor) LoadFile(path string) error {
 	e.offsetRow = 0
 	e.offsetCol = 0
 	e.selection.Clear()
+	e.invalidateWrapLayout()
 
 	if e.highlighter != nil {
 		e.highlighter.Close()
@@ -199,6 +215,7 @@ func (e *CodeEditor) SetContent(content string) {
 	e.offsetRow = 0
 	e.offsetCol = 0
 	e.selection.Clear()
+	e.invalidateWrapLayout()
 	e.highlightsDirty = true
 	e.updateHighlighter()
 
@@ -255,6 +272,23 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 
 	e.viewportHeight = height
 	e.viewportWidth = width - lineNumWidth - 1
+	if e.viewportWidth < 1 {
+		e.viewportWidth = 1
+	}
+
+	wrapWidthChanged := e.wrapActive() && len(e.wrapSegments) > 0 && e.wrapWidth != e.viewportWidth
+	cursorWasVisible := false
+	if wrapWidthChanged {
+		displayRow := e.displayRowForPosition(e.cursorRow, e.cursorCol)
+		cursorWasVisible = displayRow >= e.offsetRow && displayRow < e.offsetRow+height
+	}
+
+	e.ensureWrapLayout()
+	if wrapWidthChanged && cursorWasVisible {
+		e.ensureCursorVisible()
+	} else {
+		e.clampOffsetRow()
+	}
 
 	if e.pendingCenterCursor {
 		e.pendingCenterCursor = false
@@ -262,7 +296,8 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	}
 
 	if e.highlighter != nil {
-		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+height-1)
+		startLine, endLine := e.visibleLogicalRange()
+		e.highlighter.UpdateViewport(startLine, endLine)
 	}
 
 	if e.highlightsDirty || e.cursorRow != e.lastHighlightRow || e.cursorCol != e.lastHighlightCol {
@@ -274,22 +309,51 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 		e.highlightsDirty = false
 	}
 
-	lines := e.buffer.GetLines()
-	for row := 0; row < height && row+e.offsetRow < len(lines); row++ {
-		e.drawLineNumber(screen, row+e.offsetRow+1, x, y+row, lineNumWidth-1)
+	if e.wrapActive() {
+		for row := 0; row < height && row+e.offsetRow < len(e.wrapSegments); row++ {
+			segment := e.wrapSegments[row+e.offsetRow]
+			if segment.continuation {
+				e.drawBlankLineNumber(screen, x, y+row, lineNumWidth-1)
+			} else {
+				e.drawLineNumber(screen, segment.row+1, x, y+row, lineNumWidth-1)
+			}
 
-		e.drawLine(screen, row+e.offsetRow, x+lineNumWidth, y+row, width-lineNumWidth-1)
+			e.drawLine(screen, segment.row, x+lineNumWidth, y+row, width-lineNumWidth-1, segment.startVisualCol)
+		}
+	} else {
+		lines := e.buffer.GetLines()
+		for row := 0; row < height && row+e.offsetRow < len(lines); row++ {
+			e.drawLineNumber(screen, row+e.offsetRow+1, x, y+row, lineNumWidth-1)
+
+			e.drawLine(screen, row+e.offsetRow, x+lineNumWidth, y+row, width-lineNumWidth-1, e.offsetCol)
+		}
 	}
 
 	e.drawScrollbar(screen, x+width-1, y, height)
 
 	if e.hasFocus {
-		if e.cursorRow >= e.offsetRow && e.cursorRow < e.offsetRow+height {
-			cursorX := x + lineNumWidth + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
-			cursorY := y + e.cursorRow - e.offsetRow
+		if e.wrapActive() {
+			displayRow := e.displayRowForPosition(e.cursorRow, e.cursorCol)
+			if displayRow >= e.offsetRow && displayRow < e.offsetRow+height {
+				segment := e.wrapSegments[displayRow]
+				cursorX := x + lineNumWidth + e.getVisualColumn(e.cursorRow, e.cursorCol) - segment.startVisualCol
+				cursorY := y + displayRow - e.offsetRow
+				if cursorX >= x+width-1 {
+					cursorX = x + width - 2
+				}
 
-			if cursorX >= x+lineNumWidth && cursorX < x+width-1 {
-				screen.ShowCursor(cursorX, cursorY)
+				if cursorX >= x+lineNumWidth && cursorX < x+width-1 {
+					screen.ShowCursor(cursorX, cursorY)
+				}
+			}
+		} else {
+			if e.cursorRow >= e.offsetRow && e.cursorRow < e.offsetRow+height {
+				cursorX := x + lineNumWidth + e.getVisualColumn(e.cursorRow, e.cursorCol) - e.offsetCol
+				cursorY := y + e.cursorRow - e.offsetRow
+
+				if cursorX >= x+lineNumWidth && cursorX < x+width-1 {
+					screen.ShowCursor(cursorX, cursorY)
+				}
 			}
 		}
 	} else {
@@ -297,7 +361,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	}
 }
 
-func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int) {
+func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int, visualOffset int) {
 	line := e.buffer.GetLine(lineNum)
 
 	defaultStyle := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
@@ -356,7 +420,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 			spacesToAdd := nextTabStop - visualCol
 
 			for i := 0; i < spacesToAdd; i++ {
-				if visualCol >= e.offsetCol && screenX < x+maxWidth {
+				if visualCol >= visualOffset && screenX < x+maxWidth {
 					displayChar := ' '
 					displayStyle := style
 					if i == spacesToAdd-1 {
@@ -392,7 +456,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 				charWidth = 1
 			}
 
-			if visualCol >= e.offsetCol && screenX < x+maxWidth {
+			if visualCol >= visualOffset && screenX < x+maxWidth {
 				if ch == ' ' && e.shouldShowIndentGuide(lineNum) && visualCol == e.indentGuideCol {
 					guideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60))
 					screen.SetContent(screenX, y, '│', nil, guideStyle)
@@ -421,7 +485,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 					visualCol++
 				}
 			}
-			startX = x + targetVisualCol - e.offsetCol
+			startX = x + targetVisualCol - visualOffset
 			if startX < screenX {
 				startX = screenX
 			}
@@ -445,7 +509,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 
 	indentGuideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60)).Background(tcell.NewRGBColor(0, 0, 0))
 	for screenX < x+maxWidth {
-		currentVisualCol := screenX - x + e.offsetCol
+		currentVisualCol := screenX - x + visualOffset
 		if e.shouldShowIndentGuide(lineNum) && currentVisualCol == e.indentGuideCol {
 			screen.SetContent(screenX, y, '│', nil, indentGuideStyle)
 		} else {
@@ -456,12 +520,12 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 }
 
 func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
-	totalLines := e.buffer.GetLineCount()
-	if totalLines == 0 {
-		totalLines = 1
+	totalRows := e.displayRowCount()
+	if totalRows == 0 {
+		totalRows = 1
 	}
 
-	visibleRatio := float64(height) / float64(totalLines)
+	visibleRatio := float64(height) / float64(totalRows)
 	if visibleRatio >= 1.0 {
 		for i := 0; i < height; i++ {
 			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
@@ -474,7 +538,7 @@ func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
 		thumbHeight = 1
 	}
 
-	scrollPosition := float64(e.offsetRow) / float64(totalLines-height)
+	scrollPosition := float64(e.offsetRow) / float64(totalRows-height)
 	if scrollPosition < 0 {
 		scrollPosition = 0
 	}
@@ -491,6 +555,238 @@ func (e *CodeEditor) drawScrollbar(screen tcell.Screen, x, y, height int) {
 			screen.SetContent(x, y+i, '│', nil, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
 		}
 	}
+}
+
+func (e *CodeEditor) wrapActive() bool {
+	return e.lineWrapEnabled && e.viewportWidth > 0
+}
+
+func (e *CodeEditor) invalidateWrapLayout() {
+	e.wrapDirty = true
+}
+
+func (e *CodeEditor) ensureWrapLayout() {
+	if !e.wrapActive() {
+		e.wrapSegments = nil
+		e.wrapWidth = 0
+		return
+	}
+
+	if !e.wrapDirty && e.wrapWidth == e.viewportWidth {
+		return
+	}
+
+	e.wrapSegments = e.buildWrapSegments(e.viewportWidth)
+	e.wrapWidth = e.viewportWidth
+	e.wrapDirty = false
+	e.offsetCol = 0
+}
+
+func (e *CodeEditor) buildWrapSegments(width int) []wrappedLineSegment {
+	if width < 1 {
+		width = 1
+	}
+
+	lines := e.buffer.GetLines()
+	segments := make([]wrappedLineSegment, 0, len(lines))
+
+	for row, line := range lines {
+		if len(line) == 0 {
+			segments = append(segments, wrappedLineSegment{row: row})
+			continue
+		}
+
+		startVisualCol := 0
+		currentVisualCol := 0
+		continuation := false
+
+		for col := 0; col < len(line); col++ {
+			if isVariationSelector(line[col]) {
+				continue
+			}
+
+			charWidth := e.runeWidthAt(line, col, currentVisualCol)
+			if currentVisualCol > startVisualCol && currentVisualCol+charWidth-startVisualCol > width {
+				segments = append(segments, wrappedLineSegment{
+					row:            row,
+					startVisualCol: startVisualCol,
+					endVisualCol:   currentVisualCol,
+					continuation:   continuation,
+				})
+				startVisualCol = currentVisualCol
+				continuation = true
+			}
+
+			currentVisualCol += charWidth
+		}
+
+		segments = append(segments, wrappedLineSegment{
+			row:            row,
+			startVisualCol: startVisualCol,
+			endVisualCol:   currentVisualCol,
+			continuation:   continuation,
+		})
+	}
+
+	if len(segments) == 0 {
+		return []wrappedLineSegment{{row: 0}}
+	}
+	return segments
+}
+
+func (e *CodeEditor) runeWidthAt(runes []rune, index, visualCol int) int {
+	ch := runes[index]
+	if ch == '\t' {
+		tabSize := e.buffer.GetTabSize()
+		nextTabStop := ((visualCol / tabSize) + 1) * tabSize
+		return nextTabStop - visualCol
+	}
+
+	charWidth := runewidth.RuneWidth(ch)
+	if index+1 < len(runes) && isVariationSelector(runes[index+1]) && runes[index+1] == 0xFE0F {
+		charWidth = 2
+	}
+	if charWidth < 1 {
+		charWidth = 1
+	}
+	return charWidth
+}
+
+func (e *CodeEditor) displayRowCount() int {
+	if e.wrapActive() {
+		return len(e.wrapSegments)
+	}
+	return e.buffer.GetLineCount()
+}
+
+func (e *CodeEditor) clampOffsetRow() {
+	totalRows := e.displayRowCount()
+	if totalRows < 1 {
+		totalRows = 1
+	}
+
+	maxOffset := totalRows - e.viewportHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	if e.offsetRow > maxOffset {
+		e.offsetRow = maxOffset
+	}
+	if e.offsetRow < 0 {
+		e.offsetRow = 0
+	}
+}
+
+func (e *CodeEditor) visibleLogicalRange() (int, int) {
+	if !e.wrapActive() {
+		startLine := e.offsetRow
+		endLine := e.offsetRow + e.viewportHeight - 1
+		lineCount := e.buffer.GetLineCount()
+		if endLine >= lineCount {
+			endLine = lineCount - 1
+		}
+		if startLine < 0 {
+			startLine = 0
+		}
+		if endLine < startLine {
+			endLine = startLine
+		}
+		return startLine, endLine
+	}
+
+	if len(e.wrapSegments) == 0 {
+		return 0, 0
+	}
+
+	startRow := e.offsetRow
+	endRow := e.offsetRow + e.viewportHeight - 1
+	if startRow < 0 {
+		startRow = 0
+	}
+	if startRow >= len(e.wrapSegments) {
+		startRow = len(e.wrapSegments) - 1
+	}
+	if endRow >= len(e.wrapSegments) {
+		endRow = len(e.wrapSegments) - 1
+	}
+	if endRow < startRow {
+		endRow = startRow
+	}
+
+	return e.wrapSegments[startRow].row, e.wrapSegments[endRow].row
+}
+
+func (e *CodeEditor) displayRowForPosition(row, col int) int {
+	if !e.wrapActive() {
+		return row
+	}
+
+	if len(e.wrapSegments) == 0 {
+		return 0
+	}
+
+	visualCol := e.getVisualColumn(row, col)
+	lastForRow := -1
+
+	for i, segment := range e.wrapSegments {
+		if segment.row != row {
+			continue
+		}
+		lastForRow = i
+		if visualCol < segment.endVisualCol {
+			return i
+		}
+		if visualCol == segment.endVisualCol {
+			if i+1 < len(e.wrapSegments) && e.wrapSegments[i+1].row == row && e.wrapSegments[i+1].startVisualCol == visualCol {
+				return i + 1
+			}
+			return i
+		}
+	}
+
+	if lastForRow >= 0 {
+		return lastForRow
+	}
+	return len(e.wrapSegments) - 1
+}
+
+func (e *CodeEditor) positionFromDisplayRow(displayRow, visualX int) (int, int) {
+	if !e.wrapActive() {
+		row := e.offsetRow + displayRow
+		if row < 0 {
+			row = 0
+		}
+		if row >= e.buffer.GetLineCount() {
+			row = e.buffer.GetLineCount() - 1
+		}
+		if visualX < 0 {
+			visualX = 0
+		}
+		return row, e.getRealColumn(row, e.offsetCol+visualX)
+	}
+
+	if len(e.wrapSegments) == 0 {
+		return 0, 0
+	}
+
+	targetDisplayRow := e.offsetRow + displayRow
+	if targetDisplayRow < 0 {
+		targetDisplayRow = 0
+	}
+	if targetDisplayRow >= len(e.wrapSegments) {
+		targetDisplayRow = len(e.wrapSegments) - 1
+	}
+
+	segment := e.wrapSegments[targetDisplayRow]
+	if visualX < 0 {
+		visualX = 0
+	}
+	targetVisualCol := segment.startVisualCol + visualX
+	if targetVisualCol > segment.endVisualCol {
+		targetVisualCol = segment.endVisualCol
+	}
+	return segment.row, e.getRealColumn(segment.row, targetVisualCol)
 }
 
 // InputHandler returns the input handler for keyboard events.
@@ -633,6 +929,7 @@ func (e *CodeEditor) PasteHandler() func(pastedText string, setFocus func(p tvie
 		e.cursorCol = newCol
 
 		e.setModified(true)
+		e.invalidateWrapLayout()
 		e.ensureCursorVisible()
 	}
 }
@@ -717,6 +1014,7 @@ func (e *CodeEditor) insertNewline() {
 	e.cursorCol = newCol
 
 	e.setModified(true)
+	e.ensureCursorVisible()
 }
 
 func (e *CodeEditor) deleteCharBackward() {
@@ -757,6 +1055,19 @@ func (e *CodeEditor) deleteCharForward() {
 }
 
 func (e *CodeEditor) handleNavigation(key tcell.Key) {
+	if e.wrapActive() && (key == tcell.KeyUp || key == tcell.KeyDown) {
+		if key == tcell.KeyUp {
+			e.moveCursorByDisplayRows(-1)
+		} else {
+			e.moveCursorByDisplayRows(1)
+		}
+		if e.onCursorMove != nil {
+			e.onCursorMove(e.cursorRow, e.cursorCol)
+		}
+		e.scheduleBlameUpdate()
+		return
+	}
+
 	switch key {
 	case tcell.KeyUp:
 		if e.cursorRow > 0 {
@@ -803,6 +1114,19 @@ func (e *CodeEditor) adjustCursorColumn() {
 }
 
 func (e *CodeEditor) ensureCursorVisible() {
+	if e.wrapActive() {
+		e.ensureWrapLayout()
+		displayRow := e.displayRowForPosition(e.cursorRow, e.cursorCol)
+		if displayRow < e.offsetRow {
+			e.offsetRow = displayRow
+		} else if displayRow >= e.offsetRow+e.viewportHeight {
+			e.offsetRow = displayRow - e.viewportHeight + 1
+		}
+		e.offsetCol = 0
+		e.clampOffsetRow()
+		return
+	}
+
 	if e.cursorRow < e.offsetRow {
 		e.offsetRow = e.cursorRow
 	} else if e.cursorRow >= e.offsetRow+e.viewportHeight {
@@ -819,29 +1143,27 @@ func (e *CodeEditor) ensureCursorVisible() {
 
 func (e *CodeEditor) scrollUp(lines int) {
 	e.offsetRow -= lines
-	if e.offsetRow < 0 {
-		e.offsetRow = 0
-	}
+	e.clampOffsetRow()
 	if e.highlighter != nil && e.viewportHeight > 0 {
-		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
+		startLine, endLine := e.visibleLogicalRange()
+		e.highlighter.UpdateViewport(startLine, endLine)
 	}
 }
 
 func (e *CodeEditor) scrollDown(lines int) {
 	e.offsetRow += lines
-	maxOffset := e.buffer.GetLineCount() - e.viewportHeight
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if e.offsetRow > maxOffset {
-		e.offsetRow = maxOffset
-	}
+	e.clampOffsetRow()
 	if e.highlighter != nil && e.viewportHeight > 0 {
-		e.highlighter.UpdateViewport(e.offsetRow, e.offsetRow+e.viewportHeight-1)
+		startLine, endLine := e.visibleLogicalRange()
+		e.highlighter.UpdateViewport(startLine, endLine)
 	}
 }
 
 func (e *CodeEditor) scrollLeft(cols int) {
+	if e.wrapActive() {
+		e.offsetCol = 0
+		return
+	}
 	e.offsetCol -= cols
 	if e.offsetCol < 0 {
 		e.offsetCol = 0
@@ -849,6 +1171,10 @@ func (e *CodeEditor) scrollLeft(cols int) {
 }
 
 func (e *CodeEditor) scrollRight(cols int) {
+	if e.wrapActive() {
+		e.offsetCol = 0
+		return
+	}
 	e.offsetCol += cols
 	maxVisualLength := 0
 	lines := e.buffer.GetLines()
@@ -938,6 +1264,7 @@ func (e *CodeEditor) setModified(modified bool) {
 		e.onModified(modified)
 	}
 	if modified {
+		e.invalidateWrapLayout()
 		e.clearBlame()
 		e.scheduleHighlighterUpdate()
 		e.highlightsDirty = true
@@ -982,6 +1309,12 @@ func (e *CodeEditor) moveCursorToLineEnd() {
 }
 
 func (e *CodeEditor) pageUp() {
+	if e.wrapActive() {
+		e.moveCursorByDisplayRows(-e.viewportHeight)
+		e.scheduleBlameUpdate()
+		return
+	}
+
 	e.cursorRow -= e.viewportHeight
 	if e.cursorRow < 0 {
 		e.cursorRow = 0
@@ -991,12 +1324,51 @@ func (e *CodeEditor) pageUp() {
 }
 
 func (e *CodeEditor) pageDown() {
+	if e.wrapActive() {
+		e.moveCursorByDisplayRows(e.viewportHeight)
+		e.scheduleBlameUpdate()
+		return
+	}
+
 	e.cursorRow += e.viewportHeight
 	if e.cursorRow >= e.buffer.GetLineCount() {
 		e.cursorRow = e.buffer.GetLineCount() - 1
 	}
 	e.adjustCursorColumn()
 	e.scheduleBlameUpdate()
+}
+
+func (e *CodeEditor) moveCursorByDisplayRows(delta int) {
+	e.ensureWrapLayout()
+	if !e.wrapActive() || len(e.wrapSegments) == 0 {
+		return
+	}
+
+	currentDisplayRow := e.displayRowForPosition(e.cursorRow, e.cursorCol)
+	currentSegment := e.wrapSegments[currentDisplayRow]
+	desiredVisualX := e.getVisualColumn(e.cursorRow, e.cursorCol) - currentSegment.startVisualCol
+	if desiredVisualX < 0 {
+		desiredVisualX = 0
+	}
+
+	targetDisplayRow := currentDisplayRow + delta
+	if targetDisplayRow < 0 {
+		targetDisplayRow = 0
+	}
+	if targetDisplayRow >= len(e.wrapSegments) {
+		targetDisplayRow = len(e.wrapSegments) - 1
+	}
+
+	targetSegment := e.wrapSegments[targetDisplayRow]
+	targetVisualCol := targetSegment.startVisualCol + desiredVisualX
+	if targetVisualCol > targetSegment.endVisualCol {
+		targetVisualCol = targetSegment.endVisualCol
+	}
+
+	e.cursorRow = targetSegment.row
+	e.cursorCol = e.getRealColumn(targetSegment.row, targetVisualCol)
+	e.adjustCursorColumn()
+	e.ensureCursorVisible()
 }
 
 func (e *CodeEditor) ctrlLeft() {
@@ -1118,6 +1490,7 @@ func (e *CodeEditor) pasteText() {
 	e.cursorCol = newCol
 
 	e.setModified(true)
+	e.ensureCursorVisible()
 }
 
 // isWordChar returns true if the character is considered part of a word.
@@ -1276,18 +1649,12 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				if buttons&tcell.Button1 != 0 {
 					relativeY := y - rectY
 					if relativeY >= 0 && relativeY < height {
-						totalLines := e.buffer.GetLineCount()
-						if totalLines > height {
-							targetRow := (relativeY * totalLines) / height
+						totalRows := e.displayRowCount()
+						if totalRows > height {
+							targetRow := (relativeY * totalRows) / height
 							e.offsetRow = targetRow
 
-							maxOffset := totalLines - height
-							if e.offsetRow > maxOffset {
-								e.offsetRow = maxOffset
-							}
-							if e.offsetRow < 0 {
-								e.offsetRow = 0
-							}
+							e.clampOffsetRow()
 						}
 					}
 				}
@@ -1336,15 +1703,7 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 				clickX := x - rectX - lineNumWidth
 				clickY := y - rectY
 
-				// Calculate click position first
-				clickRow := e.offsetRow + clickY
-				if clickRow >= e.buffer.GetLineCount() {
-					clickRow = e.buffer.GetLineCount() - 1
-				}
-				if clickRow < 0 {
-					clickRow = 0
-				}
-				clickCol := e.getRealColumn(clickRow, e.offsetCol+clickX)
+				clickRow, clickCol := e.positionFromDisplayRow(clickY, clickX)
 
 				// Multi-click detection
 				now := time.Now()
@@ -1400,15 +1759,12 @@ func (e *CodeEditor) MouseHandler() func(action tview.MouseAction, event *tcell.
 					clickY := mouseY - rectY
 
 					if clickX >= 0 && clickY >= 0 {
-						row := e.offsetRow + clickY
-						if row < e.buffer.GetLineCount() {
-							col := e.getRealColumn(row, e.offsetCol+clickX)
-							e.cursorRow = row
-							e.cursorCol = col
-							e.adjustCursorColumn()
+						row, col := e.positionFromDisplayRow(clickY, clickX)
+						e.cursorRow = row
+						e.cursorCol = col
+						e.adjustCursorColumn()
 
-							e.selection.ExtendMouse(e.cursorRow, e.cursorCol)
-						}
+						e.selection.ExtendMouse(e.cursorRow, e.cursorCol)
 					}
 					return true, nil // Only consume if we're actually dragging
 				}
@@ -1445,7 +1801,23 @@ func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, widt
 	}
 }
 
+func (e *CodeEditor) drawBlankLineNumber(screen tcell.Screen, x, y, width int) {
+	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(102, 102, 102)).Background(tcell.NewRGBColor(40, 40, 40))
+	for i := 0; i < width; i++ {
+		screen.SetContent(x+i, y, ' ', nil, style)
+	}
+}
+
 func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
+	if e.wrapActive() {
+		e.cursorRow, e.cursorCol = e.positionFromDisplayRow(relativeY, relativeX)
+		if e.onCursorMove != nil {
+			e.onCursorMove(e.cursorRow, e.cursorCol)
+		}
+		e.scheduleBlameUpdate()
+		return
+	}
+
 	targetRow := e.offsetRow + relativeY
 	if targetRow < 0 {
 		targetRow = 0
@@ -1488,6 +1860,32 @@ func (e *CodeEditor) GetFilePath() string {
 func (e *CodeEditor) SetReadOnly(readOnly bool) *CodeEditor {
 	e.readOnly = readOnly
 	return e
+}
+
+// SetLineWrapEnabled sets soft line wrapping for the editor.
+func (e *CodeEditor) SetLineWrapEnabled(enabled bool) *CodeEditor {
+	if e.lineWrapEnabled == enabled {
+		return e
+	}
+
+	e.lineWrapEnabled = enabled
+	e.offsetRow = e.cursorRow
+	e.offsetCol = 0
+	e.invalidateWrapLayout()
+	e.ensureWrapLayout()
+	e.ensureCursorVisible()
+	return e
+}
+
+// ToggleLineWrap toggles soft line wrapping and returns the new state.
+func (e *CodeEditor) ToggleLineWrap() bool {
+	e.SetLineWrapEnabled(!e.lineWrapEnabled)
+	return e.lineWrapEnabled
+}
+
+// LineWrapEnabled returns whether soft line wrapping is enabled.
+func (e *CodeEditor) LineWrapEnabled() bool {
+	return e.lineWrapEnabled
 }
 
 // SetApp sets the application reference for the code editor.
@@ -1546,6 +1944,7 @@ func (e *CodeEditor) Undo() {
 		e.cursorCol = cursorX
 		e.cursorRow = cursorY
 		e.selection.Clear()
+		e.invalidateWrapLayout()
 		e.ensureCursorVisible()
 
 		e.setModified(e.buffer.IsModified())
@@ -1564,6 +1963,7 @@ func (e *CodeEditor) Redo() {
 		e.cursorCol = cursorX
 		e.cursorRow = cursorY
 		e.selection.Clear()
+		e.invalidateWrapLayout()
 		e.ensureCursorVisible()
 
 		e.setModified(e.buffer.IsModified())
@@ -1827,6 +2227,19 @@ func (e *CodeEditor) CenterCursor() {
 		}
 	}
 
+	if e.wrapActive() {
+		e.ensureWrapLayout()
+		targetOffset := e.displayRowForPosition(e.cursorRow, e.cursorCol) - (e.viewportHeight / 2)
+		if targetOffset < 0 {
+			e.offsetRow = 0
+		} else {
+			e.offsetRow = targetOffset
+			e.clampOffsetRow()
+		}
+		e.offsetCol = 0
+		return
+	}
+
 	targetOffset := e.cursorRow - (e.viewportHeight / 2)
 
 	if targetOffset < 0 {
@@ -2024,13 +2437,12 @@ func (e *CodeEditor) updateWordOccurrences() {
 	e.currentWord = word
 	lines := e.buffer.GetLines()
 
-	startLine := e.offsetRow
-	endLine := e.offsetRow + e.viewportHeight
-	if endLine > len(lines) {
-		endLine = len(lines)
+	startLine, endLine := e.visibleLogicalRange()
+	if endLine >= len(lines) {
+		endLine = len(lines) - 1
 	}
 
-	for row := startLine; row < endLine; row++ {
+	for row := startLine; row <= endLine; row++ {
 		line := lines[row]
 		runes := []rune(line)
 		wordRunes := []rune(word)
@@ -2386,6 +2798,19 @@ func (c *CodeEditor) CenterViewOnCursor() {
 	_, _, _, height := c.GetInnerRect()
 	if height <= 0 {
 		height = 24
+	}
+
+	if c.wrapActive() {
+		c.viewportHeight = height
+		c.ensureWrapLayout()
+		targetOffset := c.displayRowForPosition(c.cursorRow, c.cursorCol) - height/2
+		if targetOffset < 0 {
+			targetOffset = 0
+		}
+		c.offsetRow = targetOffset
+		c.offsetCol = 0
+		c.clampOffsetRow()
+		return
 	}
 
 	lines := c.buffer.GetLines()

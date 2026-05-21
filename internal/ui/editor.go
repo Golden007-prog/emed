@@ -97,6 +97,7 @@ type Editor struct {
 	dialogManager       *EditorDialogManager
 	tabClickInfo        []components.TabClickInfo
 	singleFileMode      bool
+	lineWrapEnabled     bool
 }
 
 // NewEditor creates a new Editor component with no open files.
@@ -110,6 +111,7 @@ func NewEditor() *Editor {
 		tabsByPath:        make(map[string]*EditorTab),
 		fileChangeHandler: components.NewFileChangeHandler(),
 		dialogManager:     nil,
+		lineWrapEnabled:   defaultLineWrapEnabled,
 	}
 
 	e.contentArea.SetBackgroundColor(tcell.NewRGBColor(0, 0, 0))
@@ -271,6 +273,7 @@ func (e *Editor) OpenFile(path string) {
 	}
 
 	codeEditor := NewCodeEditor()
+	codeEditor.SetLineWrapEnabled(e.lineWrapEnabled)
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
 	}
@@ -435,6 +438,7 @@ func (e *Editor) OpenFilePreview(path string) bool {
 	e.closePreviewTab()
 
 	codeEditor := NewCodeEditor()
+	codeEditor.SetLineWrapEnabled(e.lineWrapEnabled)
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
 	}
@@ -530,6 +534,7 @@ func (e *Editor) NewDocument() {
 	}
 
 	codeEditor := NewCodeEditor()
+	codeEditor.SetLineWrapEnabled(e.lineWrapEnabled)
 	if e.app != nil {
 		codeEditor.SetApp(e.app)
 	}
@@ -661,6 +666,26 @@ func (e *Editor) PreviousTab() {
 	if tabID != -1 {
 		e.switchToTabByID(tabID)
 	}
+}
+
+// ToggleLineWrap toggles soft line wrapping for all editor tabs.
+func (e *Editor) ToggleLineWrap() bool {
+	e.lineWrapEnabled = !e.lineWrapEnabled
+
+	e.tabsMu.RLock()
+	for _, tab := range e.tabs {
+		if tab.codeEditor != nil {
+			tab.codeEditor.SetLineWrapEnabled(e.lineWrapEnabled)
+		}
+	}
+	e.tabsMu.RUnlock()
+
+	return e.lineWrapEnabled
+}
+
+// LineWrapEnabled returns whether new editor tabs use soft line wrapping.
+func (e *Editor) LineWrapEnabled() bool {
+	return e.lineWrapEnabled
 }
 
 // CloseCurrentTab closes the currently active editor tab.
@@ -1155,7 +1180,8 @@ func (e *Editor) findPrevious(tab *EditorTab) {
 func (e *Editor) replaceCurrentMatch(tab *EditorTab, replaceText string) {
 	if tab.codeEditor.buffer.ReplaceCurrentMatch(replaceText) {
 		tab.searchBar.UpdateMatches(tab.codeEditor.buffer.GetCurrentMatch())
-		tab.SetModified(true)
+		tab.codeEditor.setModified(true)
+		tab.codeEditor.updateHighlighter()
 		e.UpdateTabBar()
 	}
 }
@@ -1166,7 +1192,8 @@ func (e *Editor) replaceAllMatches(tab *EditorTab, replaceText string) {
 	if count > 0 {
 		tab.codeEditor.ClearSearchHighlights()
 		tab.searchBar.UpdateMatches(0, 0)
-		tab.SetModified(true)
+		tab.codeEditor.setModified(true)
+		tab.codeEditor.updateHighlighter()
 		e.UpdateTabBar()
 	}
 }

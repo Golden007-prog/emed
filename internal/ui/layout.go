@@ -445,6 +445,7 @@ func (l *Layout) getHelpText() string {
   Ctrl+C         Copy Selection
   Ctrl+X         Cut Selection
   Ctrl+V         Paste
+  F10            Toggle Line Wrap
   Arrow Keys     Navigate
   Shift+Arrows   Select Text
 
@@ -475,6 +476,7 @@ func (l *Layout) getHelpText() string {
   Ctrl+F         Find/Replace in Document
   Ctrl+Z         Undo
   Ctrl+Y         Redo
+  F10            Toggle Line Wrap
   
 [blue]NAVIGATION:[-]
   Ctrl+A         Focus File Manager
@@ -632,6 +634,12 @@ func (l *Layout) handleMainModeFunctionKeys(event *tcell.EventKey) (*tcell.Event
 	case tcell.KeyF9:
 		l.LaunchClaude()
 		return nil, true
+	case tcell.KeyF10:
+		if l.focusedPanel == 1 {
+			l.editor.ToggleLineWrap()
+			return nil, true
+		}
+		return event, false
 	default:
 		return event, false
 	}
@@ -818,6 +826,9 @@ func (l *Layout) setupSingleFileKeybindings() {
 			return nil
 		case tcell.KeyF8:
 			ShowMemStatsModal(l.app, l.getWatcherStatsProvider())
+			return nil
+		case tcell.KeyF10:
+			l.editor.ToggleLineWrap()
 			return nil
 		}
 
