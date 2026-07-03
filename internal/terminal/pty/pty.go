@@ -212,7 +212,7 @@ func (p *PTYManager) SetExtraEnv(env []string) {
 }
 
 func (p *PTYManager) readLoop() {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 32*1024)
 
 	for {
 		p.mu.RLock()
