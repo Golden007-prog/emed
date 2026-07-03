@@ -8,12 +8,13 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/laborin/vt10x v0.0.0-20251217225139-c161de512dd8
-	github.com/mattn/go-runewidth v0.0.16
+	github.com/laborin/vt10x v0.0.0-20260703175906-60f62f33a998
+	github.com/mattn/go-runewidth v0.0.24
 	github.com/rivo/tview v0.42.1-0.20260302150942-f39b95c73dbb
 )
 
 require (
+	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
