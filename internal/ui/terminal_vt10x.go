@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -56,10 +57,10 @@ type VT10XTerminal struct {
 	hasFocus bool
 	app      *tview.Application
 
-	mouseReporting     bool
-	mouseSGRMode       bool
-	alternateScreen    bool
-	bracketedPasteMode bool
+	// Terminal mode flags mirrored from the emulator after each write,
+	// stored atomically because the UI goroutine reads them while the
+	// write processor updates them.
+	modeCache atomic.Uint32
 
 	onModeChange  func(mode TerminalMode)
 	onExit        func()
@@ -278,8 +279,10 @@ func (t *VT10XTerminal) writeProcessor() {
 		case data := <-t.writeChan:
 			t.vtMutex.Lock()
 			t.vt.Write(data)
+			mode := t.vt.Mode()
 			t.vtMutex.Unlock()
 
+			t.updateModeCache(mode)
 			t.pollTitle()
 			t.markNeedsRedraw()
 		}
@@ -287,8 +290,6 @@ func (t *VT10XTerminal) writeProcessor() {
 }
 
 func (t *VT10XTerminal) onPTYData(data []byte) {
-
-	t.scanForControlSequences(data)
 
 	if t.bells.Scan(data) > 0 {
 		if handler := t.onBell; handler != nil {
@@ -299,9 +300,12 @@ func (t *VT10XTerminal) onPTYData(data []byte) {
 	dataCopy := make([]byte, len(data))
 	copy(dataCopy, data)
 
+	// Blocking send: dropping PTY output corrupts the emulator state, so
+	// we prefer backpressure on the PTY reader. The done case avoids a
+	// stuck reader when the terminal stops while the channel is full.
 	select {
 	case t.writeChan <- dataCopy:
-	default:
+	case <-t.done:
 	}
 }
 
@@ -345,67 +349,33 @@ func (t *VT10XTerminal) refreshLoop() {
 	}
 }
 
-func (t *VT10XTerminal) scanForControlSequences(data []byte) {
-	str := string(data)
-
-	// Mouse reporting modes - use full escape sequences
-	mouseEnablePatterns := []string{
-		"\x1b[?1000h", "\x1b[?1001h", "\x1b[?1002h", "\x1b[?1003h", "\x1b[?1005h", "\x1b[?1015h",
-	}
-	mouseDisablePatterns := []string{
-		"\x1b[?1000l", "\x1b[?1001l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1005l", "\x1b[?1015l",
-	}
-
-	lastEnablePos := -1
-	lastDisablePos := -1
-
-	for _, pattern := range mouseEnablePatterns {
-		if pos := strings.LastIndex(str, pattern); pos > lastEnablePos {
-			lastEnablePos = pos
-		}
-	}
-	for _, pattern := range mouseDisablePatterns {
-		if pos := strings.LastIndex(str, pattern); pos > lastDisablePos {
-			lastDisablePos = pos
-		}
-	}
-
-	if lastEnablePos > lastDisablePos && lastEnablePos >= 0 {
-		t.mouseReporting = true
-	} else if lastDisablePos > lastEnablePos && lastDisablePos >= 0 {
-		t.mouseReporting = false
-	}
-
-	// SGR mouse mode
-	lastSGREnablePos := strings.LastIndex(str, "\x1b[?1006h")
-	lastSGRDisablePos := strings.LastIndex(str, "\x1b[?1006l")
-
-	if lastSGREnablePos > lastSGRDisablePos && lastSGREnablePos >= 0 {
-		t.mouseSGRMode = true
-	} else if lastSGRDisablePos > lastSGREnablePos && lastSGRDisablePos >= 0 {
-		t.mouseSGRMode = false
-	}
-
-	// Alternate screen buffer
-	if strings.Contains(str, "\x1b[?1049h") || strings.Contains(str, "\x1b[?47h") ||
-		strings.Contains(str, "\x1b[?1047h") {
-		t.alternateScreen = true
+// updateModeCache mirrors the emulator mode flags for lock-free reads
+// from the UI goroutine. Entering the alt screen resets local scroll.
+func (t *VT10XTerminal) updateModeCache(mode vt10x.ModeFlag) {
+	prev := vt10x.ModeFlag(t.modeCache.Swap(uint32(mode)))
+	if mode&vt10x.ModeAltScreen != 0 && prev&vt10x.ModeAltScreen == 0 {
 		t.scrollbuf.ResetScroll()
 	}
-	if strings.Contains(str, "\x1b[?1049l") || strings.Contains(str, "\x1b[?47l") ||
-		strings.Contains(str, "\x1b[?1047l") {
-		t.alternateScreen = false
-	}
+}
 
-	// Bracketed paste mode
-	lastBracketEnablePos := strings.LastIndex(str, "\x1b[?2004h")
-	lastBracketDisablePos := strings.LastIndex(str, "\x1b[?2004l")
+func (t *VT10XTerminal) modeFlags() vt10x.ModeFlag {
+	return vt10x.ModeFlag(t.modeCache.Load())
+}
 
-	if lastBracketEnablePos > lastBracketDisablePos && lastBracketEnablePos >= 0 {
-		t.bracketedPasteMode = true
-	} else if lastBracketDisablePos > lastBracketEnablePos && lastBracketDisablePos >= 0 {
-		t.bracketedPasteMode = false
-	}
+func (t *VT10XTerminal) mouseReportingActive() bool {
+	return t.modeFlags()&vt10x.ModeMouseMask != 0
+}
+
+func (t *VT10XTerminal) mouseSGRActive() bool {
+	return t.modeFlags()&vt10x.ModeMouseSgr != 0
+}
+
+func (t *VT10XTerminal) altScreenActive() bool {
+	return t.modeFlags()&vt10x.ModeAltScreen != 0
+}
+
+func (t *VT10XTerminal) bracketedPasteActive() bool {
+	return t.modeFlags()&vt10x.ModeBracketedPaste != 0
 }
 
 // Draw renders the terminal content to the screen.
@@ -417,9 +387,7 @@ func (t *VT10XTerminal) Draw(screen tcell.Screen) {
 		return
 	}
 
-	if !t.vtMutex.TryLock() {
-		return
-	}
+	t.vtMutex.Lock()
 
 	currentCols, currentRows := t.vt.Size()
 	needsResize := height != currentRows || width != currentCols
@@ -470,9 +438,7 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 		}
 	}()
 
-	if !t.vtMutex.TryLock() {
-		return
-	}
+	t.vtMutex.Lock()
 	defer t.vtMutex.Unlock()
 
 	vtCols, vtRows := t.vt.Size()
@@ -499,33 +465,17 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 			if i >= 0 {
 				if i < scrollbackSize {
 					line := t.vt.GetScrollbackLine(i)
-					for col := 0; col < width && col < len(line); col++ {
-						glyph := line[col]
-						style := t.vt10xToTcellStyle(glyph)
-						ch := glyph.Char
-						if ch == 0 || isControlChar(ch) {
-							ch = ' '
-						}
-						screen.SetContent(x+col, y+screenRow, ch, nil, style)
-					}
-					for col := len(line); col < width; col++ {
-						screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
-					}
+					t.drawGlyphRow(screen, x, y+screenRow, width, len(line), func(col int) vt10x.Glyph {
+						return line[col]
+					})
 				} else {
 					row := i - scrollbackSize
 					if row >= 0 && row < vtRows {
-						for col := 0; col < width && col < vtCols; col++ {
-							glyph := t.vt.Cell(col, row)
-							style := t.vt10xToTcellStyle(glyph)
-							ch := glyph.Char
-							if ch == 0 || isControlChar(ch) {
-								ch = ' '
-							}
-							screen.SetContent(x+col, y+screenRow, ch, nil, style)
-						}
-						for col := vtCols; col < width; col++ {
-							screen.SetContent(x+col, y+screenRow, ' ', nil, tcell.StyleDefault)
-						}
+						t.drawGlyphRow(screen, x, y+screenRow, width, vtCols, func(col int) vt10x.Glyph {
+							return t.vt.Cell(col, row)
+						})
+					} else {
+						t.drawGlyphRow(screen, x, y+screenRow, width, 0, nil)
 					}
 				}
 			}
@@ -621,6 +571,48 @@ func (t *VT10XTerminal) drawTerminalContent(screen tcell.Screen, x, y, width, he
 	}
 }
 
+// drawGlyphRow renders one row of glyphs handling wide chars and reverse
+// video, then pads the rest of the row with blanks. glyphAt is consulted
+// for columns [0, cells).
+func (t *VT10XTerminal) drawGlyphRow(screen tcell.Screen, x, y, width, cells int, glyphAt func(col int) vt10x.Glyph) {
+	col := 0
+	for col < cells && col < width {
+		glyph := glyphAt(col)
+		ch := glyph.Char
+		if ch == 0 || isControlChar(ch) {
+			ch = ' '
+		}
+
+		charWidth := runewidth.RuneWidth(ch)
+		if charWidth == 0 {
+			charWidth = 1
+		}
+
+		hasReverse := (glyph.Mode & (1 << 0)) != 0
+		isInverted := glyph.FG == vt10x.DefaultBG && glyph.BG == vt10x.DefaultFG
+
+		var style tcell.Style
+		if hasReverse || isInverted {
+			style = tcell.StyleDefault.
+				Background(tcell.ColorWhite).
+				Foreground(tcell.ColorBlack)
+		} else {
+			style = t.vt10xToTcellStyle(glyph)
+		}
+
+		screen.SetContent(x+col, y, ch, nil, style)
+
+		if charWidth == 2 && col+1 < width {
+			screen.SetContent(x+col+1, y, ' ', nil, style)
+		}
+
+		col += charWidth
+	}
+	for ; col < width; col++ {
+		screen.SetContent(x+col, y, ' ', nil, tcell.StyleDefault)
+	}
+}
+
 func (t *VT10XTerminal) getCursorPos() (int, int) {
 	cur := t.vt.Cursor()
 	return cur.X, cur.Y
@@ -684,7 +676,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 			}
 		}
 
-		if t.ptyMgr.IsRunning() && (t.mouseReporting || t.alternateScreen) {
+		if t.ptyMgr.IsRunning() && (t.mouseReportingActive() || t.altScreenActive()) {
 			mouseSeq := t.generateMouseSequence(action, event, termX+1, termY+1)
 			if mouseSeq != "" {
 				t.ptyMgr.Write([]byte(mouseSeq))
@@ -693,7 +685,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		}
 
 		// Text selection handling (only when app inside doesn't capture mouse)
-		if !t.mouseReporting && !t.alternateScreen {
+		if !t.mouseReportingActive() && !t.altScreenActive() {
 			switch action {
 			case tview.MouseLeftDown:
 				if inBounds {
@@ -727,7 +719,7 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 		if inBounds {
 			switch action {
 			case tview.MouseScrollUp:
-				if !t.alternateScreen {
+				if !t.altScreenActive() {
 					t.vtMutex.Lock()
 					scrollbackSize := t.vt.ScrollbackLines()
 					t.vtMutex.Unlock()
@@ -742,14 +734,14 @@ func (t *VT10XTerminal) MouseHandler() func(action tview.MouseAction, event *tce
 				}
 				return true, nil
 			case tview.MouseScrollDown:
-				if !t.alternateScreen {
+				if !t.altScreenActive() {
 					t.scrollbuf.ScrollDown(1)
 					t.ClearSelection()
 				}
 				return true, nil
 			case tview.MouseLeftClick, tview.MouseLeftDoubleClick,
 				tview.MouseRightClick, tview.MouseMiddleClick:
-				if !t.alternateScreen {
+				if !t.altScreenActive() {
 					t.scrollbuf.ResetScroll()
 				}
 				t.ClearSelection()
@@ -818,7 +810,7 @@ func (t *VT10XTerminal) generateMouseSequence(action tview.MouseAction, event *t
 		button += 16
 	}
 
-	useSGR := t.mouseSGRMode || t.alternateScreen || isScrollEvent
+	useSGR := t.mouseSGRActive() || t.altScreenActive() || isScrollEvent
 
 	if useSGR {
 		suffix := "M"
@@ -893,9 +885,7 @@ func (t *VT10XTerminal) getSelectedText() string {
 
 	startRow, startCol, endRow, endCol := t.normalizeSelection()
 
-	if !t.vtMutex.TryLock() {
-		return ""
-	}
+	t.vtMutex.Lock()
 	defer t.vtMutex.Unlock()
 
 	var result strings.Builder
@@ -960,7 +950,7 @@ func (t *VT10XTerminal) PasteHandler() func(text string, setFocus func(p tview.P
 		}
 
 		var data []byte
-		if t.bracketedPasteMode {
+		if t.bracketedPasteActive() {
 			data = make([]byte, 0, len(text)+12)
 			data = append(data, "\x1b[200~"...)
 			data = append(data, text...)
