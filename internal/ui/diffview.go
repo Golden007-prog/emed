@@ -30,41 +30,130 @@ const (
 	maxRenderedDiffOps       = 5000
 )
 
+// DiffMeta carries context info shown in the diff header, so the user
+// knows which file, project and Claude session produced the diff.
+type DiffMeta struct {
+	ProjectName    string
+	ProjectRoot    string
+	SessionOrdinal int
+	Sessions       int
+}
+
+// diffBodyHeaderRows is the count of rows (---/+++/@@) rendered in the
+// body before the first diff op.
+const diffBodyHeaderRows = 3
+
 type DiffView struct {
-	*tview.TextView
+	*tview.Flex
+
+	header *tview.TextView
+	body   *tview.TextView
+	footer *tview.TextView
 
 	filePath   string
 	tabName    string
 	oldContent string
 	newContent string
+	meta       DiffMeta
+
+	changeRows []int
+	totalRows  int
 
 	resultChan chan string
 	resolved   bool
 	mu         sync.Mutex
 }
 
-func NewDiffView(filePath, oldContent, newContent, tabName string) *DiffView {
-	view := tview.NewTextView().
-		SetDynamicColors(true).
-		SetWrap(false).
-		SetScrollable(true)
-
+func NewDiffView(filePath, oldContent, newContent, tabName string, meta DiffMeta) *DiffView {
 	d := &DiffView{
-		TextView:   view,
+		Flex:       tview.NewFlex().SetDirection(tview.FlexRow),
+		header:     tview.NewTextView().SetDynamicColors(true).SetWrap(false),
+		body:       tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetScrollable(true),
+		footer:     tview.NewTextView().SetDynamicColors(true).SetWrap(false),
 		filePath:   filePath,
 		tabName:    tabName,
 		oldContent: oldContent,
 		newContent: newContent,
+		meta:       meta,
 		resultChan: make(chan string, 1),
 	}
 
+	oldLines := splitDiffLines(oldContent)
+	newLines := splitDiffLines(newContent)
+	ops := computeDiffOps(oldLines, newLines)
+
+	added, removed := countDiffChanges(ops)
+	d.changeRows = changeStartRows(ops, diffBodyHeaderRows)
+	d.totalRows = diffBodyHeaderRows + len(ops)
+
+	d.header.SetText(d.renderHeader(added, removed))
+	d.body.SetText(renderFallbackDiff(filePath, oldLines, newLines, ops))
+	d.updateFooter()
+
 	d.SetBorder(false)
-	content, scrollRow := d.renderContent()
-	d.SetText(content)
-	d.scrollToChange(scrollRow)
-	d.SetInputCapture(d.captureInput)
+	for _, view := range []*tview.TextView{d.header, d.body, d.footer} {
+		view.SetBackgroundColor(tcell.ColorBlack)
+	}
+
+	d.Flex.
+		AddItem(d.header, 2, 0, false).
+		AddItem(d.body, 0, 1, true).
+		AddItem(d.footer, 1, 0, false)
+
+	if len(d.changeRows) > 0 {
+		d.scrollToChange(d.changeRows[0])
+	} else {
+		d.body.ScrollToBeginning()
+	}
+
+	d.body.SetInputCapture(d.captureInput)
 
 	return d
+}
+
+func (d *DiffView) renderHeader(added, removed int) string {
+	displayPath := d.filePath
+	if d.meta.ProjectRoot != "" {
+		if rel, err := filepath.Rel(d.meta.ProjectRoot, d.filePath); err == nil && !strings.HasPrefix(rel, "..") {
+			displayPath = rel
+		}
+	}
+
+	line1 := fmt.Sprintf(" [gray]file:[-] [white]%s[-]", tview.Escape(displayPath))
+
+	parts := []string{}
+	if d.meta.ProjectName != "" {
+		parts = append(parts, fmt.Sprintf("[gray]project:[-] [white]%s[-]", tview.Escape(d.meta.ProjectName)))
+	}
+	if d.meta.Sessions > 1 && d.meta.SessionOrdinal > 0 {
+		parts = append(parts, fmt.Sprintf("[gray]claude session:[-] [yellow]%d of %d[-]", d.meta.SessionOrdinal, d.meta.Sessions))
+	}
+	parts = append(parts, fmt.Sprintf("[green]+%d[-] [red]-%d[-]", added, removed))
+
+	line2 := " " + strings.Join(parts, "  [#666666]|[-]  ")
+	return line1 + "\n" + line2
+}
+
+func (d *DiffView) updateFooter() {
+	position := ""
+	if _, _, _, height := d.body.GetInnerRect(); height > 0 && d.totalRows > height {
+		row, _ := d.body.GetScrollOffset()
+		last := min(row+height, d.totalRows)
+		position = fmt.Sprintf("[gray]lines %d-%d of %d[-]", row+1, last, d.totalRows)
+	}
+
+	keys := " [black:white] Enter [-:-] accept  [black:white] Esc [-:-] reject"
+	if len(d.changeRows) > 1 {
+		keys += "  [black:white] n/p [-:-] next/prev change"
+	}
+
+	d.footer.SetText(keys + "   " + position)
+}
+
+// Draw refreshes the scroll position indicator before rendering.
+func (d *DiffView) Draw(screen tcell.Screen) {
+	d.updateFooter()
+	d.Flex.Draw(screen)
 }
 
 func (d *DiffView) captureInput(event *tcell.EventKey) *tcell.EventKey {
@@ -72,9 +161,49 @@ func (d *DiffView) captureInput(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyEnter, tcell.KeyCtrlS:
 		d.Accept()
 		return nil
+	case tcell.KeyEscape:
+		d.Reject()
+		return event
+	}
+
+	switch event.Rune() {
+	case 'n':
+		d.jumpToChange(1)
+		return nil
+	case 'p':
+		d.jumpToChange(-1)
+		return nil
 	}
 
 	return event
+}
+
+func (d *DiffView) jumpToChange(direction int) {
+	if len(d.changeRows) == 0 {
+		return
+	}
+
+	current, _ := d.body.GetScrollOffset()
+	currentTarget := current + diffScrollMargin
+
+	if direction > 0 {
+		for _, row := range d.changeRows {
+			if row > currentTarget {
+				d.scrollToChange(row)
+				return
+			}
+		}
+		d.scrollToChange(d.changeRows[0])
+		return
+	}
+
+	for i := len(d.changeRows) - 1; i >= 0; i-- {
+		if d.changeRows[i] < currentTarget {
+			d.scrollToChange(d.changeRows[i])
+			return
+		}
+	}
+	d.scrollToChange(d.changeRows[len(d.changeRows)-1])
 }
 
 func (d *DiffView) SetApp(app *tview.Application) {
@@ -122,35 +251,47 @@ func (d *DiffView) GetNewContent() string {
 	return d.newContent
 }
 
-func (d *DiffView) renderContent() (string, int) {
-	oldLines := splitDiffLines(d.oldContent)
-	newLines := splitDiffLines(d.newContent)
-	ops := computeDiffOps(oldLines, newLines)
-	changeIdx, _, _, hasChanges := firstChangedOp(ops)
+// diffScrollMargin is how many context rows are kept visible above the
+// change we scroll to.
+const diffScrollMargin = 2
 
-	body := renderFallbackDiff(d.filePath, oldLines, newLines, ops)
-	scrollRow := -1
-	if hasChanges {
-		scrollRow = 2 + 3 + changeIdx
+func (d *DiffView) scrollToChange(row int) {
+	target := row - diffScrollMargin
+	if target < 0 {
+		target = 0
 	}
-	return formatRenderedDiff("internal", body), scrollRow
+	d.body.ScrollTo(target, 0)
 }
 
-func (d *DiffView) scrollToChange(scrollRow int) {
-	if scrollRow < 0 {
-		d.ScrollToBeginning()
-		return
+// countDiffChanges returns how many lines were added and removed.
+func countDiffChanges(ops []diffOp) (added, removed int) {
+	for _, op := range ops {
+		switch op.kind {
+		case diffAdded:
+			added++
+		case diffRemoved:
+			removed++
+		}
 	}
-
-	row := scrollRow - 2
-	if row < 0 {
-		row = 0
-	}
-	d.ScrollTo(row, 0)
+	return added, removed
 }
 
-func formatRenderedDiff(renderer string, body string) string {
-	return fmt.Sprintf("[gray]Renderer: %s[-]   [gray]Enter: accept   Esc: reject   Scroll: arrows / PgUp / PgDn[-]\n\n%s", tview.Escape(renderer), body)
+// changeStartRows returns the body rows where each change block starts.
+// Consecutive changed lines count as one block.
+func changeStartRows(ops []diffOp, rowOffset int) []int {
+	rows := []int{}
+	inBlock := false
+	for i, op := range ops {
+		if op.kind == diffContext {
+			inBlock = false
+			continue
+		}
+		if !inBlock {
+			rows = append(rows, rowOffset+i)
+			inBlock = true
+		}
+	}
+	return rows
 }
 
 func splitDiffLines(content string) []string {
@@ -158,15 +299,6 @@ func splitDiffLines(content string) []string {
 		return []string{}
 	}
 	return strings.Split(content, "\n")
-}
-
-func firstChangedOp(ops []diffOp) (int, int, int, bool) {
-	for i, op := range ops {
-		if op.kind != diffContext {
-			return i, op.oldNum, op.newNum, true
-		}
-	}
-	return -1, 0, 0, false
 }
 
 func computeDiffOps(oldLines, newLines []string) []diffOp {

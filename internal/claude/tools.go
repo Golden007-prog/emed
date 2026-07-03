@@ -20,7 +20,7 @@ type EditorProvider interface {
 }
 
 type DiffProvider interface {
-	OpenDiff(filePath, oldContent, newContent, tabName string) (result string, finalContent string, err error)
+	OpenDiff(filePath, oldContent, newContent, tabName string, sessionID int) (result string, finalContent string, err error)
 	CloseAllDiffTabs()
 	CloseDiffTabByName(tabName string) bool
 }
@@ -44,7 +44,7 @@ func NewToolsHandler() *ToolsHandler {
 	return &ToolsHandler{}
 }
 
-func (h *ToolsHandler) HandleTool(method string, params json.RawMessage) (interface{}, error) {
+func (h *ToolsHandler) HandleTool(sessionID int, method string, params json.RawMessage) (interface{}, error) {
 	switch method {
 	case "initialize":
 		return h.handleInitialize(params)
@@ -55,7 +55,7 @@ func (h *ToolsHandler) HandleTool(method string, params json.RawMessage) (interf
 	case "tools/list":
 		return h.handleToolsList()
 	case "tools/call":
-		return h.handleToolsCall(params)
+		return h.handleToolsCall(sessionID, params)
 	case "prompts/list":
 		return h.handlePromptsList()
 	case "prompts/get":
@@ -69,7 +69,7 @@ func (h *ToolsHandler) HandleTool(method string, params json.RawMessage) (interf
 	case ToolOpenFile:
 		return h.handleOpenFile(params)
 	case ToolOpenDiff:
-		return h.handleOpenDiff(params)
+		return h.handleOpenDiff(sessionID, params)
 	case ToolCloseTab:
 		return h.handleCloseTab(params)
 	case ToolCloseAllDiffTabs:
@@ -388,7 +388,7 @@ type ToolsCallParams struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-func (h *ToolsHandler) handleToolsCall(params json.RawMessage) (interface{}, error) {
+func (h *ToolsHandler) handleToolsCall(sessionID int, params json.RawMessage) (interface{}, error) {
 	var p ToolsCallParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid tools/call params: %w", err)
@@ -399,7 +399,7 @@ func (h *ToolsHandler) handleToolsCall(params json.RawMessage) (interface{}, err
 	case ToolOpenFile:
 		return h.handleOpenFile(p.Arguments)
 	case ToolOpenDiff:
-		return h.handleOpenDiff(p.Arguments)
+		return h.handleOpenDiff(sessionID, p.Arguments)
 	case ToolCloseTab:
 		return h.handleCloseTab(p.Arguments)
 	case ToolCloseAllDiffTabs:
@@ -442,7 +442,7 @@ func (h *ToolsHandler) handleOpenFile(params json.RawMessage) (interface{}, erro
 	return NewMCPTextResponse("File opened"), nil
 }
 
-func (h *ToolsHandler) handleOpenDiff(params json.RawMessage) (interface{}, error) {
+func (h *ToolsHandler) handleOpenDiff(sessionID int, params json.RawMessage) (interface{}, error) {
 	var p OpenDiffParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -465,7 +465,7 @@ func (h *ToolsHandler) handleOpenDiff(params json.RawMessage) (interface{}, erro
 		targetPath = p.OldFilePath
 	}
 
-	result, finalContent, err := h.Diff.OpenDiff(targetPath, oldContent, p.NewFileContent, p.TabName)
+	result, finalContent, err := h.Diff.OpenDiff(targetPath, oldContent, p.NewFileContent, p.TabName, sessionID)
 	if err != nil {
 		return nil, err
 	}

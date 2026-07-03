@@ -274,13 +274,21 @@ type diffResult struct {
 	content string
 }
 
-func (ci *ClaudeIntegration) OpenDiff(filePath, oldContent, newContent, tabName string) (string, string, error) {
+func (ci *ClaudeIntegration) OpenDiff(filePath, oldContent, newContent, tabName string, sessionID int) (string, string, error) {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		absPath = filePath
 	}
 
-	diffView := NewDiffView(absPath, oldContent, newContent, tabName)
+	meta := DiffMeta{
+		ProjectName: filepath.Base(ci.workingDir),
+		ProjectRoot: ci.workingDir,
+	}
+	if ci.server != nil {
+		meta.SessionOrdinal, meta.Sessions = ci.server.SessionInfo(sessionID)
+	}
+
+	diffView := NewDiffView(absPath, oldContent, newContent, tabName, meta)
 	diffView.SetApp(ci.app)
 
 	ci.diffTabsMu.Lock()

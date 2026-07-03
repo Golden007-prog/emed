@@ -12,7 +12,7 @@ import (
 
 type stubHandler struct{}
 
-func (stubHandler) HandleTool(method string, params json.RawMessage) (interface{}, error) {
+func (stubHandler) HandleTool(sessionID int, method string, params json.RawMessage) (interface{}, error) {
 	return map[string]string{"method": method}, nil
 }
 

@@ -43,7 +43,7 @@ type testDiffProvider struct {
 	closedAll      bool
 }
 
-func (p *testDiffProvider) OpenDiff(filePath, oldContent, newContent, tabName string) (string, string, error) {
+func (p *testDiffProvider) OpenDiff(filePath, oldContent, newContent, tabName string, sessionID int) (string, string, error) {
 	return DiffResultRejected, "", nil
 }
 
@@ -59,7 +59,7 @@ func (p *testDiffProvider) CloseDiffTabByName(tabName string) bool {
 func TestHandleResourcesTemplatesList(t *testing.T) {
 	h := NewToolsHandler()
 
-	result, err := h.HandleTool("resources/templates/list", nil)
+	result, err := h.HandleTool(1, "resources/templates/list", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestHandleCloseTabWithTabName(t *testing.T) {
 	h.Diff = diff
 
 	params := json.RawMessage(`{"name":"close_tab","arguments":{"tab_name":"tab-1"}}`)
-	result, err := h.HandleTool("tools/call", params)
+	result, err := h.HandleTool(1, "tools/call", params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

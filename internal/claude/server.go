@@ -47,12 +47,13 @@ func allowLoopbackOrNoOrigin(r *http.Request) bool {
 }
 
 type ToolHandler interface {
-	HandleTool(method string, params json.RawMessage) (interface{}, error)
+	HandleTool(sessionID int, method string, params json.RawMessage) (interface{}, error)
 }
 
 // clientConn wraps a websocket connection with a write mutex, since
 // gorilla/websocket does not allow concurrent writes on the same conn.
 type clientConn struct {
+	id      int
 	ws      *websocket.Conn
 	writeMu sync.Mutex
 }
@@ -71,6 +72,7 @@ type Server struct {
 	server      *http.Server
 	conns       map[*clientConn]struct{}
 	connsMu     sync.Mutex
+	nextConnID  int
 	workFolders []string
 	onConnect   func()
 }
@@ -143,6 +145,36 @@ func (s *Server) IsConnected() bool {
 	return len(s.conns) > 0
 }
 
+// SessionCount returns how many Claude sessions are connected right now.
+func (s *Server) SessionCount() int {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	return len(s.conns)
+}
+
+// SessionInfo returns the 1-based position of the given session between
+// the active ones (ordered by connection age) and the total count. The
+// ordinal is 0 when the session is not connected anymore.
+func (s *Server) SessionInfo(sessionID int) (ordinal, total int) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+
+	total = len(s.conns)
+	pos := 1
+	found := false
+	for client := range s.conns {
+		if client.id == sessionID {
+			found = true
+		} else if client.id < sessionID {
+			pos++
+		}
+	}
+	if !found {
+		return 0, total
+	}
+	return pos, total
+}
+
 func (s *Server) SetOnConnect(handler func()) {
 	s.onConnect = handler
 }
@@ -174,9 +206,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &clientConn{ws: conn}
-
 	s.connsMu.Lock()
+	s.nextConnID++
+	client := &clientConn{id: s.nextConnID, ws: conn}
 	s.conns[client] = struct{}{}
 	count := len(s.conns)
 	s.connsMu.Unlock()
@@ -244,7 +276,7 @@ func (s *Server) handleRequest(client *clientConn, req *JSONRPCRequest) {
 		return
 	}
 
-	result, err := s.handler.HandleTool(req.Method, req.Params)
+	result, err := s.handler.HandleTool(client.id, req.Method, req.Params)
 	if err != nil {
 		logging.Debug("Claude tool error: %s: %v", req.Method, err)
 		if !isNotification {
