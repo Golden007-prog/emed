@@ -50,14 +50,27 @@ type ToolHandler interface {
 	HandleTool(method string, params json.RawMessage) (interface{}, error)
 }
 
+// clientConn wraps a websocket connection with a write mutex, since
+// gorilla/websocket does not allow concurrent writes on the same conn.
+type clientConn struct {
+	ws      *websocket.Conn
+	writeMu sync.Mutex
+}
+
+func (c *clientConn) writeJSON(v interface{}) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.ws.WriteJSON(v)
+}
+
 type Server struct {
 	port        int
 	token       string
 	lockMgr     *LockFileManager
 	handler     ToolHandler
 	server      *http.Server
-	conn        *websocket.Conn
-	connMu      sync.Mutex
+	conns       map[*clientConn]struct{}
+	connsMu     sync.Mutex
 	workFolders []string
 	onConnect   func()
 }
@@ -66,10 +79,13 @@ func NewServer(workspaceFolders []string, handler ToolHandler) *Server {
 	return &Server{
 		workFolders: workspaceFolders,
 		handler:     handler,
+		conns:       make(map[*clientConn]struct{}),
 	}
 }
 
 func (s *Server) Start() error {
+	CleanStaleLocks()
+
 	port, listener, err := s.findAvailablePort()
 	if err != nil {
 		return fmt.Errorf("failed to find available port: %w", err)
@@ -100,12 +116,11 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Stop() {
-	if s.connMu.TryLock() {
-		if s.conn != nil {
-			s.conn.Close()
-		}
-		s.connMu.Unlock()
+	s.connsMu.Lock()
+	for client := range s.conns {
+		client.ws.Close()
 	}
+	s.connsMu.Unlock()
 
 	if s.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -123,9 +138,9 @@ func (s *Server) Port() int {
 }
 
 func (s *Server) IsConnected() bool {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-	return s.conn != nil
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	return len(s.conns) > 0
 }
 
 func (s *Server) SetOnConnect(handler func()) {
@@ -159,38 +174,37 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.connMu.Lock()
-	if s.conn != nil {
-		s.conn.Close()
-	}
-	s.conn = conn
-	s.connMu.Unlock()
+	client := &clientConn{ws: conn}
 
-	logging.Info("Claude Code connected")
+	s.connsMu.Lock()
+	s.conns[client] = struct{}{}
+	count := len(s.conns)
+	s.connsMu.Unlock()
+
+	logging.Info("Claude Code connected (%d active sessions)", count)
 
 	if s.onConnect != nil {
 		s.onConnect()
 	}
 
-	s.readLoop(conn)
+	s.readLoop(client)
 }
 
-func (s *Server) readLoop(conn *websocket.Conn) {
+func (s *Server) readLoop(client *clientConn) {
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Error("Claude readLoop panic: %v", r)
 		}
-		conn.Close()
-		s.connMu.Lock()
-		if s.conn == conn {
-			s.conn = nil
-		}
-		s.connMu.Unlock()
-		logging.Info("Claude Code disconnected")
+		client.ws.Close()
+		s.connsMu.Lock()
+		delete(s.conns, client)
+		count := len(s.conns)
+		s.connsMu.Unlock()
+		logging.Info("Claude Code disconnected (%d active sessions)", count)
 	}()
 
 	for {
-		_, message, err := conn.ReadMessage()
+		_, message, err := client.ws.ReadMessage()
 		if err != nil {
 			logging.Debug("WebSocket read error: %v", err)
 			return
@@ -201,21 +215,21 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 		var req JSONRPCRequest
 		if err := json.Unmarshal(message, &req); err != nil {
 			logging.Error("Claude parse error: %v", err)
-			s.sendError(conn, nil, -32700, "Parse error", nil)
+			s.sendError(client, nil, -32700, "Parse error", nil)
 			continue
 		}
 
 		logging.Debug("Claude method: %s, id: %v", req.Method, req.ID)
-		go s.handleRequest(conn, &req)
+		go s.handleRequest(client, &req)
 	}
 }
 
-func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
+func (s *Server) handleRequest(client *clientConn, req *JSONRPCRequest) {
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Error("Claude handleRequest panic: %v", r)
 			if req.ID != nil {
-				s.sendError(conn, req.ID, -32603, fmt.Sprintf("Internal error: %v", r), nil)
+				s.sendError(client, req.ID, -32603, fmt.Sprintf("Internal error: %v", r), nil)
 			}
 		}
 	}()
@@ -225,7 +239,7 @@ func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
 	if s.handler == nil {
 		logging.Debug("Claude: no handler for method %s", req.Method)
 		if !isNotification {
-			s.sendError(conn, req.ID, -32601, "Method not found", nil)
+			s.sendError(client, req.ID, -32601, "Method not found", nil)
 		}
 		return
 	}
@@ -234,14 +248,14 @@ func (s *Server) handleRequest(conn *websocket.Conn, req *JSONRPCRequest) {
 	if err != nil {
 		logging.Debug("Claude tool error: %s: %v", req.Method, err)
 		if !isNotification {
-			s.sendError(conn, req.ID, -32603, err.Error(), nil)
+			s.sendError(client, req.ID, -32603, err.Error(), nil)
 		}
 		return
 	}
 
 	logging.Debug("Claude tool success: %s", req.Method)
 	if !isNotification {
-		s.sendResult(conn, req.ID, result)
+		s.sendResult(client, req.ID, result)
 	}
 }
 
@@ -312,10 +326,10 @@ func bearerToken(value string) string {
 	return strings.TrimSpace(fields[1])
 }
 
-func (s *Server) sendResult(conn *websocket.Conn, id interface{}, result interface{}) {
+func (s *Server) sendResult(client *clientConn, id interface{}, result interface{}) {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, id, -32603, "Failed to marshal result", nil)
+		s.sendError(client, id, -32603, "Failed to marshal result", nil)
 		return
 	}
 
@@ -325,10 +339,12 @@ func (s *Server) sendResult(conn *websocket.Conn, id interface{}, result interfa
 		Result:  resultJSON,
 	}
 
-	s.writeJSON(conn, resp)
+	if err := client.writeJSON(resp); err != nil {
+		logging.Error("WebSocket write error: %v", err)
+	}
 }
 
-func (s *Server) sendError(conn *websocket.Conn, id interface{}, code int, message string, data interface{}) {
+func (s *Server) sendError(client *clientConn, id interface{}, code int, message string, data interface{}) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -339,24 +355,21 @@ func (s *Server) sendError(conn *websocket.Conn, id interface{}, code int, messa
 		},
 	}
 
-	s.writeJSON(conn, resp)
-}
-
-func (s *Server) writeJSON(conn *websocket.Conn, v interface{}) {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-
-	if err := conn.WriteJSON(v); err != nil {
+	if err := client.writeJSON(resp); err != nil {
 		logging.Error("WebSocket write error: %v", err)
 	}
 }
 
+// SendNotification broadcasts a notification to all connected Claude sessions.
 func (s *Server) SendNotification(method string, params interface{}) {
-	s.connMu.Lock()
-	conn := s.conn
-	s.connMu.Unlock()
+	s.connsMu.Lock()
+	clients := make([]*clientConn, 0, len(s.conns))
+	for client := range s.conns {
+		clients = append(clients, client)
+	}
+	s.connsMu.Unlock()
 
-	if conn == nil {
+	if len(clients) == 0 {
 		return
 	}
 
@@ -371,10 +384,9 @@ func (s *Server) SendNotification(method string, params interface{}) {
 		Params:  paramsJSON,
 	}
 
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-
-	if err := conn.WriteJSON(notification); err != nil {
-		logging.Debug("WebSocket notification write error: %v", err)
+	for _, client := range clients {
+		if err := client.writeJSON(notification); err != nil {
+			logging.Debug("WebSocket notification write error: %v", err)
+		}
 	}
 }

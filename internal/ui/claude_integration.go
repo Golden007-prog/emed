@@ -21,7 +21,7 @@ type ClaudeIntegration struct {
 	app        *tview.Application
 	workingDir string
 
-	diffTabs   map[string]*DiffView
+	diffTabs   map[*DiffView]struct{}
 	diffTabsMu sync.RWMutex
 
 	latestSelection   *claude.Selection
@@ -37,7 +37,7 @@ func NewClaudeIntegration(layout *Layout, editor *Editor, terminal *Terminal, ap
 		layout:     layout,
 		app:        app,
 		workingDir: workingDir,
-		diffTabs:   make(map[string]*DiffView),
+		diffTabs:   make(map[*DiffView]struct{}),
 	}
 
 	ci.toolsHandler = claude.NewToolsHandler()
@@ -284,7 +284,7 @@ func (ci *ClaudeIntegration) OpenDiff(filePath, oldContent, newContent, tabName 
 	diffView.SetApp(ci.app)
 
 	ci.diffTabsMu.Lock()
-	ci.diffTabs[absPath] = diffView
+	ci.diffTabs[diffView] = struct{}{}
 	ci.diffTabsMu.Unlock()
 
 	resultChan := make(chan diffResult, 1)
@@ -306,7 +306,7 @@ func (ci *ClaudeIntegration) OpenDiff(filePath, oldContent, newContent, tabName 
 		})
 
 		ci.diffTabsMu.Lock()
-		delete(ci.diffTabs, absPath)
+		delete(ci.diffTabs, diffView)
 		ci.diffTabsMu.Unlock()
 
 		resultChan <- diffResult{result: result, content: content}
@@ -319,7 +319,7 @@ func (ci *ClaudeIntegration) OpenDiff(filePath, oldContent, newContent, tabName 
 func (ci *ClaudeIntegration) CloseAllDiffTabs() {
 	ci.diffTabsMu.Lock()
 	tabs := make([]*DiffView, 0, len(ci.diffTabs))
-	for _, tab := range ci.diffTabs {
+	for tab := range ci.diffTabs {
 		tabs = append(tabs, tab)
 	}
 	ci.diffTabsMu.Unlock()
@@ -332,7 +332,7 @@ func (ci *ClaudeIntegration) CloseAllDiffTabs() {
 func (ci *ClaudeIntegration) CloseDiffTabByName(tabName string) bool {
 	ci.diffTabsMu.Lock()
 	tabs := make([]*DiffView, 0, len(ci.diffTabs))
-	for _, tab := range ci.diffTabs {
+	for tab := range ci.diffTabs {
 		tabs = append(tabs, tab)
 	}
 	ci.diffTabsMu.Unlock()
