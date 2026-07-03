@@ -319,9 +319,15 @@ func (l *Layout) GetRoot() tview.Primitive {
 	return l.root
 }
 
+const maxFileManagerWidth = 45
+
 func (l *Layout) calculateFileManagerWidth(terminalWidth int) int {
 	if terminalWidth > 150 {
-		return terminalWidth / 5
+		width := terminalWidth / 5
+		if width > maxFileManagerWidth {
+			return maxFileManagerWidth
+		}
+		return width
 	}
 	return 30
 }
