@@ -4,6 +4,7 @@ package components
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/rivo/tview"
 )
@@ -16,6 +17,23 @@ type Tab interface {
 	SetModified(modified bool)
 	IsModified() bool
 	IsPreview() bool
+}
+
+// Alerter is an optional interface for tabs that want user attention,
+// like a terminal tab that received a bell while unfocused. Alerting tabs
+// blink in the tab bar.
+type Alerter interface {
+	IsAlerting() bool
+}
+
+// TabAlertBlinkInterval is the toggle period for the alert blink effect.
+// Callers that animate the blink should redraw the tab bar at this rate.
+const TabAlertBlinkInterval = 400 * time.Millisecond
+
+// alertBlinkPhaseOn reports if the blink cycle is currently in its "on"
+// phase. It is a variable so tests can override it.
+var alertBlinkPhaseOn = func() bool {
+	return time.Now().UnixMilli()/TabAlertBlinkInterval.Milliseconds()%2 == 0
 }
 
 // BaseTabManager manages tabs and provides tab switching functionality.
@@ -291,14 +309,20 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		modified  bool
 		isActive  bool
 		isPreview bool
+		alerting  bool
 	}
 	tabDataList := make([]tabData, len(m.tabs))
 	for i, tab := range m.tabs {
+		alerting := false
+		if alerter, ok := tab.(Alerter); ok {
+			alerting = alerter.IsAlerting()
+		}
 		tabDataList[i] = tabData{
 			title:     tab.GetTitle(),
 			modified:  tab.IsModified(),
 			isActive:  i == m.activeTab,
 			isPreview: tab.IsPreview(),
+			alerting:  alerting,
 		}
 	}
 	m.mu.RUnlock()
@@ -314,6 +338,8 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 	var allTabs []tabInfo
 	totalWidth := 0
 
+	blinkOn := alertBlinkPhaseOn()
+
 	for i, data := range tabDataList {
 		title := data.title
 
@@ -324,25 +350,28 @@ func (m *BaseTabManager) GenerateTabBarTextWithPositions(maxWidth int, hasFocus 
 		var tabStr string
 		var displayWidth int
 		if data.isActive {
+			color := "white"
 			if hasFocus {
-				if data.isPreview {
-					tabStr = fmt.Sprintf("[blue::i][ %s ][-::-]", title)
-				} else {
-					tabStr = fmt.Sprintf("[blue][ %s ][-]", title)
-				}
+				color = "blue"
+			}
+			if data.alerting && blinkOn {
+				color = "yellow"
+			}
+			if data.isPreview {
+				tabStr = fmt.Sprintf("[%s::i][ %s ][-::-]", color, title)
 			} else {
-				if data.isPreview {
-					tabStr = fmt.Sprintf("[white::i][ %s ][-::-]", title)
-				} else {
-					tabStr = fmt.Sprintf("[white][ %s ][-]", title)
-				}
+				tabStr = fmt.Sprintf("[%s][ %s ][-]", color, title)
 			}
 			displayWidth = len(title) + 4 // "[ " + title + " ]"
 		} else {
+			color := "#666666"
+			if data.alerting && blinkOn {
+				color = "yellow"
+			}
 			if data.isPreview {
-				tabStr = fmt.Sprintf("[#666666::i]%s[-::-]", title)
+				tabStr = fmt.Sprintf("[%s::i]%s[-::-]", color, title)
 			} else {
-				tabStr = fmt.Sprintf("[#666666]%s[-]", title)
+				tabStr = fmt.Sprintf("[%s]%s[-]", color, title)
 			}
 			displayWidth = len(title)
 		}

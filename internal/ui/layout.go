@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -80,6 +81,10 @@ type Layout struct {
 	// Dynamic sizing
 	lastTerminalWidth int
 	fileManagerWidth  int
+
+	// Host terminal screen, captured on draw to forward bell sounds
+	hostScreen   tcell.Screen
+	hostScreenMu sync.Mutex
 
 	// Git repositories
 	gitRepos []git.Repository
@@ -166,6 +171,10 @@ func (l *Layout) initialize() {
 		}
 	})
 
+	l.terminal.SetOnHostBell(func() {
+		l.beepHostTerminal()
+	})
+
 	l.fileManager.SetFilePreviewHandler(func(path string) {
 		l.OpenFilePreview(path)
 	})
@@ -211,6 +220,7 @@ func (l *Layout) initialize() {
 	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
 	l.mainArea.SetBackgroundColor(tcell.ColorBlack)
 	l.mainArea.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		l.captureHostScreen(screen)
 		l.checkAndUpdateWidth()
 		return x, y, width, height
 	})
@@ -320,6 +330,22 @@ func (l *Layout) GetRoot() tview.Primitive {
 }
 
 const maxFileManagerWidth = 45
+
+func (l *Layout) captureHostScreen(screen tcell.Screen) {
+	l.hostScreenMu.Lock()
+	l.hostScreen = screen
+	l.hostScreenMu.Unlock()
+}
+
+func (l *Layout) beepHostTerminal() {
+	l.hostScreenMu.Lock()
+	screen := l.hostScreen
+	l.hostScreenMu.Unlock()
+
+	if screen != nil {
+		screen.Beep()
+	}
+}
 
 func (l *Layout) calculateFileManagerWidth(terminalWidth int) int {
 	if terminalWidth > 150 {

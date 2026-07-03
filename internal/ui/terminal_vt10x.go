@@ -64,6 +64,8 @@ type VT10XTerminal struct {
 	onModeChange  func(mode TerminalMode)
 	onExit        func()
 	onTitleChange func(title string)
+	onBell        func()
+	bells         bellScanner
 
 	rows int
 	cols int
@@ -243,6 +245,12 @@ func (t *VT10XTerminal) SetOnTitleChange(handler func(string)) {
 	t.onTitleChange = handler
 }
 
+// SetOnBell sets a callback fired when the terminal receives a BEL.
+// Must be set before Start to avoid data races.
+func (t *VT10XTerminal) SetOnBell(handler func()) {
+	t.onBell = handler
+}
+
 func (t *VT10XTerminal) pollTitle() {
 	t.vtMutex.Lock()
 	title := t.vt.Title()
@@ -281,6 +289,12 @@ func (t *VT10XTerminal) writeProcessor() {
 func (t *VT10XTerminal) onPTYData(data []byte) {
 
 	t.scanForControlSequences(data)
+
+	if t.bells.Scan(data) > 0 {
+		if handler := t.onBell; handler != nil {
+			go handler()
+		}
+	}
 
 	dataCopy := make([]byte, len(data))
 	copy(dataCopy, data)

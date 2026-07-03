@@ -3,8 +3,12 @@ package ui
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/ui/components"
 	"github.com/rivo/tview"
 )
@@ -15,6 +19,18 @@ type TerminalTab struct {
 	emulator *VT10XTerminal
 	modified bool
 	title    string
+	alerting atomic.Bool
+}
+
+// IsAlerting reports if this tab received a bell while unfocused and still
+// wants user attention.
+func (t *TerminalTab) IsAlerting() bool {
+	return t.alerting.Load()
+}
+
+// SetAlerting sets the bell attention state for this tab.
+func (t *TerminalTab) SetAlerting(alerting bool) {
+	t.alerting.Store(alerting)
 }
 
 // GetID returns the unique identifier for this terminal tab.
@@ -67,6 +83,9 @@ type Terminal struct {
 	claudePort      int
 	claudeExecTabID int
 	claudeTabID     int
+	onHostBell      func()
+	blinkMu         sync.Mutex
+	blinkRunning    bool
 }
 
 // NewTerminal creates a new Terminal component with no tabs.
@@ -194,6 +213,10 @@ func (t *Terminal) NewTab(workingDir string) {
 		}
 	})
 
+	emulator.SetOnBell(func() {
+		t.handleBell(tabID)
+	})
+
 	if err := emulator.Start(); err != nil {
 		errorView := tview.NewTextView().
 			SetText(fmt.Sprintf("Failed to start terminal: %v", err)).
@@ -246,8 +269,108 @@ func (t *Terminal) switchToTabByIndex(index int) {
 	}
 }
 
+// SetOnHostBell sets a callback used to forward a terminal bell to the
+// host terminal where emed is running.
+func (t *Terminal) SetOnHostBell(handler func()) {
+	t.onHostBell = handler
+}
+
+func (t *Terminal) handleBell(tabID int) {
+	if t.onHostBell != nil {
+		t.onHostBell()
+	}
+
+	if t.app == nil {
+		return
+	}
+
+	t.app.QueueUpdateDraw(func() {
+		var termTab *TerminalTab
+		for _, tab := range t.tabManager.GetTabs() {
+			if tab.GetID() == tabID {
+				termTab, _ = tab.(*TerminalTab)
+				break
+			}
+		}
+		if termTab == nil {
+			return
+		}
+
+		if t.isTabFocused(termTab) {
+			return
+		}
+
+		termTab.SetAlerting(true)
+		t.UpdateTabBar()
+		t.ensureBlinkLoop()
+	})
+}
+
+func (t *Terminal) isTabFocused(tab *TerminalTab) bool {
+	if t.app == nil || !t.HasFocus(t.app.GetFocus()) {
+		return false
+	}
+	active := t.tabManager.GetActiveTab()
+	return active != nil && active.GetID() == tab.GetID()
+}
+
+func (t *Terminal) clearAlertOnFocusedTab() {
+	if t.app == nil || !t.HasFocus(t.app.GetFocus()) {
+		return
+	}
+	if termTab, ok := t.tabManager.GetActiveTab().(*TerminalTab); ok {
+		termTab.SetAlerting(false)
+	}
+}
+
+func (t *Terminal) hasAlertingTabs() bool {
+	for _, tab := range t.tabManager.GetTabs() {
+		if termTab, ok := tab.(*TerminalTab); ok && termTab.IsAlerting() {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *Terminal) ensureBlinkLoop() {
+	t.blinkMu.Lock()
+	defer t.blinkMu.Unlock()
+	if t.blinkRunning {
+		return
+	}
+	t.blinkRunning = true
+	go t.blinkLoop()
+}
+
+func (t *Terminal) blinkLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("blinkLoop panic: %v", r)
+		}
+	}()
+
+	ticker := time.NewTicker(components.TabAlertBlinkInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		alerting := false
+		t.app.QueueUpdateDraw(func() {
+			t.UpdateTabBar()
+			alerting = t.hasAlertingTabs()
+		})
+		if !alerting {
+			t.blinkMu.Lock()
+			t.blinkRunning = false
+			t.blinkMu.Unlock()
+			return
+		}
+	}
+}
+
 // UpdateTabBar refreshes the tab bar display with current tabs.
 func (t *Terminal) UpdateTabBar() {
+	t.clearAlertOnFocusedTab()
+
 	if !t.tabManager.HasTabs() {
 		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
 		return
@@ -414,6 +537,10 @@ func (t *Terminal) EnsureClaudeExecTerminal(workingDir string) {
 				}
 			})
 		}
+	})
+
+	emulator.SetOnBell(func() {
+		t.handleBell(tabID)
 	})
 
 	if err := emulator.Start(); err != nil {
