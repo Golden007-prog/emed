@@ -19,7 +19,7 @@ Emed is built on top of the tview framework, which handles all the heavy lifting
 
 The code editor is a custom tview primitive that handles text editing operations. Syntax highlighting is implemented using Chroma, with support for most languages. An early attempt was made with tree-sitter but it was too complex for such a tiny project like this. Before tree-sitter, the original, failed attempt was with Chroma, so the current implementation is the third attempt.
 
-The terminal emulator has probably been the most fun and the hardest part to implement so far. I glued together creack/pty for pseudo-terminal handling and my fork of vt10x for VT100 emulation and escape sequence parsing. The tricky part was translating between vt10x's terminal state and tview's rendering system - especialy for colors, where I wrote a translation layer that handles ANSI colors (16 colors), 256 colors palette, RGB colors and even default FG and BG colors. Mouse events were another headache - I had to intercept and translate between tcell mouse events and terminal escape sequences. The scrollback buffer implementation was fun too, since I had to track when apps switch to alternate screen and vt10x was not very helpful to track lines that go out of screen, I added some helper code on my own fork to solve this. Its far from perfect and some TUI apps that uses specific escape sequences still render weird, but it's functional enough to run htop, btop, nano, and even emed itself.
+The terminal emulator has probably been the most fun and the hardest part to implement so far. I glued together creack/pty for pseudo-terminal handling and my fork of vt10x for VT100 emulation and escape sequence parsing. The tricky part was translating between vt10x's terminal state and tview's rendering system - especialy for colors, where I wrote a translation layer that handles ANSI colors (16 colors), 256 colors palette, RGB colors and even default FG and BG colors. Mouse events were another headache - I had to intercept and translate between tcell mouse events and terminal escape sequences. The scrollback buffer implementation was fun too, since I had to track when apps switch to alternate screen and vt10x was not very helpful to track lines that go out of screen, I added some helper code on my own fork to solve this. After a recent overhaul it got much more solid: no more lost bytes when multibyte characters land on chunk boundaries, wide characters (CJK, emoji) take their two columns like they should, terminal modes are read directly from the emulator state, the scrollback history no longer gets polluted by TUI redraws, and there is even system bell support with blinking tab titles. Complex TUIs like btop, htop, lazygit, Claude Code and emed itself render correctly now, even on big terminal windows.
 
 ## The Plan
 - [x] Simple 3-pane layout with easy keyboard navigation.
@@ -32,6 +32,9 @@ The terminal emulator has probably been the most fun and the hardest part to imp
 - [x] Implement project-wide and within-file search with regex support and advanced options.
 - [x] Add some kind of integration with agentic AI tools.
 - [x] Add support for LazyGit.
+- [x] Soft line wrapping in the editor.
+- [x] Deeper Claude Code integration: diff approval modal, multiple sessions at the same time, session info on each diff.
+- [x] Terminal emulation hardening: wide chars (CJK/emoji), utf8 edge cases, clean scrollback history, system bell with blinking tab titles.
 - [ ] ???
 
 ## Screenshots
@@ -71,26 +74,55 @@ Lazygit modal shown right in Emed:
 Mission accomplished, using Emed with my iPad (Blink):
 ![Ipad](assets/screenshot12.png)
 
+## Usage
+Run `emed` inside your project directory, or pass a path:
+
+- `emed` - opens the current directory as the project.
+- `emed /path/to/project` - opens that directory as the project.
+- `emed file.txt` - single file mode: a reduced, editor-only layout for quick edits.
+- `emed -c` (or `--claude`) - opens the project and launches Claude Code in a terminal tab.
+- `emed -v` / `emed -h` - show version / help.
+
+## Claude Code integration
+Emed speaks the same IDE protocol that Claude Code uses with VS Code and JetBrains. There is nothing to configure: when you run `claude` inside an emed terminal tab, it detects the editor and connects automatically.
+
+What you get:
+- Claude sees your open files and your current selection as context.
+- When Claude wants to edit a file, emed shows a diff modal so you can approve or reject the change before it is applied. The header shows the file, the project and which Claude session sent it.
+- Several Claude sessions can run at the same time in different terminal tabs, all connected to the same emed instance.
+- F9 launches Claude Code (or jumps to its tab if already running).
+
 ## Key bindings
 ### Global
 - Ctrl+A: Focus file manager.
 - Ctrl+E: Focus code editor.
 - Ctrl+T: Focus terminal, creates a new terminal tab if none exists.
+- F1: Shows the help screen.
 - F2: Cycles focus through file manager / editor / terminal.
-- Ctrl+L: Cycles through pre-defined editor/terminal size proportions.
-- Ctrl+P: Toggles terminal placement, bottom or right.
+- F3 / F4: Previous / next tab on the focused panel (editor or terminal).
+- Ctrl+L or F7: Cycles through pre-defined editor/terminal size proportions.
+- Ctrl+P or F6: Toggles terminal placement, bottom or right.
+- F8: Shows memory and file watcher stats.
+- F9: Launches Claude Code (or jumps to its tab if already running).
+- Ctrl+Q: Exit emed.
 
 ### File Manager
-- Ctrl+Q: Exit emed.
-- Ctrl+I: Shows file information panel.
 - Arrow keys: browse project file tree.
 - Enter: Opens the highlighted file on an editor tab.
+- Ctrl+F: Project-wide search, with regex and replace support.
+- Ctrl+N: Creates a new file. Ctrl+Alt+N creates a new directory.
+- Ctrl+R: Renames the highlighted file or directory.
+- Ctrl+D: Deletes the highlighted file or directory.
+- F5: Refreshes the file tree.
+- Ctrl+I: Shows file information panel.
 - Ctrl+C: Copy reference of highlighted file to internal clipboard.
 - Ctrl+X: "Cuts" highlighted file to internal clipboard (for moving).
 - Ctrl+V: Pastes (copies or moves) the file in internal clipboard to the highlighted position.
 
 ### Editor
 - Ctrl+S: Save file.
+- Ctrl+F: Search within the file, with regex and replace support.
+- Ctrl+Z / Ctrl+Y: Undo / redo.
 - Ctrl+C: Copy highlighted text to system clipboard.
 - Ctrl+X: Cuts highlighted text to system clipboard.
 - Ctrl+V: Pastes from system clipboard to cursor position.
@@ -98,17 +130,19 @@ Mission accomplished, using Emed with my iPad (Blink):
 - Ctrl+W: Closes current tab.
 - Ctrl+B: Git Blame.
 - Ctrl+G: Lazygit.
+- F10: Toggles soft line wrapping.
 - Word-by-word, line and pgup-pgdown navigation implemented but still erratic or inconsistent between platforms.
 
 ### Terminal
 - Ctrl+W: Closes current tab.
 - Ctrl+T: Opens a new terminal tab.
 - Ctrl+Shift+Left/Right: Browses through open tabs.
+- Mouse wheel: Scrolls through the terminal history. Any click returns to the live view.
 - Alt+T: Toggles passthrough mode, where all keys and key combinations (except Alt+T) are sent to the terminal.
 
 ## Known limitations
 - Still experimental. You can hit crashes in some edge cases.
-- Embedded terminal emulation is much better now, but some TUI apps can still render wrong.
+- Embedded terminal emulation handles complex TUIs correctly now, but apps using exotic escape sequences could still find a corner case.
 - Key handling can behave different depending on terminal emulator and OS.
 - Claude Code integration works, but it is still evolving and may break between versions.
 

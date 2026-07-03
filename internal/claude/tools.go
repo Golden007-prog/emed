@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/logging"
 )
 
@@ -134,7 +135,7 @@ func (h *ToolsHandler) handleInitialize(params json.RawMessage) (interface{}, er
 		},
 		"serverInfo": map[string]interface{}{
 			"name":         "emed",
-			"version":      "0.3.0",
+			"version":      config.Version,
 			"instructions": instructions,
 		},
 	}, nil
