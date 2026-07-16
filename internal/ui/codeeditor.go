@@ -17,6 +17,7 @@ import (
 	"github.com/laborin/emed/internal/core/selection"
 	"github.com/laborin/emed/internal/core/syntax"
 	"github.com/laborin/emed/internal/git"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -158,8 +159,8 @@ func NewCodeEditor() *CodeEditor {
 		selection:        selection.New(),
 		clipboard:        clipboard.New(),
 		readOnly:         false,
-		ghostTextStyle:   tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(tcell.NewRGBColor(0, 0, 0)),
-		tabStyle:         tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(tcell.NewRGBColor(0, 0, 0)),
+		ghostTextStyle:   tcell.StyleDefault.Foreground(tcell.NewRGBColor(100, 100, 100)).Background(theme.Current.AppBg),
+		tabStyle:         tcell.StyleDefault.Foreground(tcell.NewRGBColor(50, 50, 50)).Background(theme.Current.AppBg),
 		blameEnabled:     true,
 		blameRow:         -1,
 		bracketOpenRow:   -1,
@@ -261,7 +262,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 	e.Box.DrawForSubclass(screen, e)
 	x, y, width, height := e.GetInnerRect()
 
-	style := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0))
+	style := tcell.StyleDefault.Background(theme.Current.AppBg)
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			screen.SetContent(x+col, y+row, ' ', nil, style)
@@ -364,7 +365,7 @@ func (e *CodeEditor) Draw(screen tcell.Screen) {
 func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth int, visualOffset int) {
 	line := e.buffer.GetLine(lineNum)
 
-	defaultStyle := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
+	defaultStyle := tcell.StyleDefault.Background(theme.Current.AppBg).Foreground(tcell.ColorWhite)
 
 	var tokens []syntax.TokenStyle
 	if e.highlighter != nil {
@@ -507,7 +508,7 @@ func (e *CodeEditor) drawLine(screen tcell.Screen, lineNum int, x, y, maxWidth i
 		screenX = startX
 	}
 
-	indentGuideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60)).Background(tcell.NewRGBColor(0, 0, 0))
+	indentGuideStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(60, 60, 60)).Background(theme.Current.AppBg)
 	for screenX < x+maxWidth {
 		currentVisualCol := screenX - x + visualOffset
 		if e.shouldShowIndentGuide(lineNum) && currentVisualCol == e.indentGuideCol {
@@ -1793,19 +1794,32 @@ func (e *CodeEditor) getLineNumberWidth() int {
 func (e *CodeEditor) drawLineNumber(screen tcell.Screen, lineNum int, x, y, width int) {
 	numStr := fmt.Sprintf("%*d", width, lineNum)
 
-	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(102, 102, 102)).Background(tcell.NewRGBColor(40, 40, 40))
+	style := tcell.StyleDefault.Foreground(theme.Current.GutterText).Background(theme.Current.AppBg)
 	for i, ch := range numStr {
 		if i < width {
 			screen.SetContent(x+i, y, ch, nil, style)
 		}
 	}
+	e.drawGutterSeparator(screen, x+width, y)
 }
 
 func (e *CodeEditor) drawBlankLineNumber(screen tcell.Screen, x, y, width int) {
-	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(102, 102, 102)).Background(tcell.NewRGBColor(40, 40, 40))
+	style := tcell.StyleDefault.Foreground(theme.Current.GutterText).Background(theme.Current.AppBg)
 	for i := 0; i < width; i++ {
 		screen.SetContent(x+i, y, ' ', nil, style)
 	}
+	e.drawGutterSeparator(screen, x+width, y)
+}
+
+// drawGutterSeparator paints a vertical line in the padding column that
+// already exists between the line numbers and the code, so it takes no
+// extra width. Disable it with theme.ShowGutterSeparator.
+func (e *CodeEditor) drawGutterSeparator(screen tcell.Screen, x, y int) {
+	if !theme.ShowGutterSeparator {
+		return
+	}
+	style := tcell.StyleDefault.Foreground(theme.Current.GutterSeparator).Background(theme.Current.AppBg)
+	screen.SetContent(x, y, '│', nil, style)
 }
 
 func (e *CodeEditor) setCursorFromClick(relativeX, relativeY int) {
