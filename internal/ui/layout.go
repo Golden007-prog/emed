@@ -664,6 +664,9 @@ func (l *Layout) handleMainModeFunctionKeys(event *tcell.EventKey) (*tcell.Event
 		return nil, true
 	case tcell.KeyF3:
 		if l.focusedPanel == 1 {
+			if l.editor.IsSearchBarActive() {
+				return event, false
+			}
 			l.editor.PreviousTab()
 		} else if l.focusedPanel == 2 {
 			l.terminal.PreviousTab()
@@ -671,6 +674,9 @@ func (l *Layout) handleMainModeFunctionKeys(event *tcell.EventKey) (*tcell.Event
 		return nil, true
 	case tcell.KeyF4:
 		if l.focusedPanel == 1 {
+			if l.editor.IsSearchBarActive() {
+				return event, false
+			}
 			l.editor.NextTab()
 		} else if l.focusedPanel == 2 {
 			l.terminal.NextTab()

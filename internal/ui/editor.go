@@ -829,7 +829,8 @@ func (e *Editor) HasFocus(focused tview.Primitive) bool {
 	}
 	e.tabsMu.RLock()
 	for _, tab := range e.tabs {
-		if focused == tab.codeEditor || focused == tab.container || focused == tab.searchBar {
+		if focused == tab.codeEditor || focused == tab.container ||
+			(tab.searchBar != nil && tab.searchBar.HasFocus()) {
 			e.tabsMu.RUnlock()
 			return true
 		}
@@ -1095,6 +1096,12 @@ func (e *Editor) setupSearchBar(tab *EditorTab) {
 	)
 }
 
+// IsSearchBarActive reports if the active tab has the search bar open.
+func (e *Editor) IsSearchBarActive() bool {
+	tab := e.getCurrentTab()
+	return tab != nil && tab.searchVisible
+}
+
 // ShowSearch shows the search bar for the current tab.
 func (e *Editor) ShowSearch() {
 	e.tabsMu.RLock()
@@ -1109,7 +1116,7 @@ func (e *Editor) ShowSearch() {
 		currentTab.searchVisible = true
 		currentTab.container.RemoveItem(currentTab.codeEditor)
 		currentTab.container.AddItem(currentTab.codeEditor, 0, 1, false)
-		currentTab.container.AddItem(currentTab.searchBar, 13, 0, true)
+		currentTab.container.AddItem(currentTab.searchBar, searchBarHeight, 0, true)
 
 		selectedText := currentTab.codeEditor.GetSelectedText()
 		if selectedText != "" {
