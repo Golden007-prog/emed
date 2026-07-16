@@ -15,11 +15,12 @@ import (
 
 // TerminalTab represents a single terminal tab within the Terminal component.
 type TerminalTab struct {
-	id       int
-	emulator *VT10XTerminal
-	modified bool
-	title    string
-	alerting atomic.Bool
+	id          int
+	emulator    *VT10XTerminal
+	modified    bool
+	title       string
+	titlePinned bool
+	alerting    atomic.Bool
 }
 
 // IsAlerting reports if this tab received a bell while unfocused and still
@@ -202,7 +203,7 @@ func (t *Terminal) NewTab(workingDir string) {
 				tabs := t.tabManager.GetTabs()
 				for _, tab := range tabs {
 					if tab.GetID() == tabID {
-						if termTab, ok := tab.(*TerminalTab); ok {
+						if termTab, ok := tab.(*TerminalTab); ok && !termTab.titlePinned {
 							termTab.title = title
 							t.UpdateTabBar()
 						}
@@ -604,6 +605,51 @@ func (t *Terminal) SwitchToClaudeTab() bool {
 
 	t.claudeTabID = 0
 	return false
+}
+
+// PinTabTitle sets a fixed title on a tab, ignoring future title
+// changes coming from the shell.
+func (t *Terminal) PinTabTitle(id int, title string) {
+	for _, tab := range t.tabManager.GetTabs() {
+		if tab.GetID() == id {
+			if termTab, ok := tab.(*TerminalTab); ok {
+				termTab.title = title
+				termTab.titlePinned = true
+				t.UpdateTabBar()
+			}
+			return
+		}
+	}
+}
+
+// HasTabWithID reports whether a terminal tab with the given ID exists.
+func (t *Terminal) HasTabWithID(id int) bool {
+	if id == 0 {
+		return false
+	}
+	for _, tab := range t.tabManager.GetTabs() {
+		if tab.GetID() == id {
+			return true
+		}
+	}
+	return false
+}
+
+// SwitchToTabByID switches to the tab with the given ID if it exists.
+func (t *Terminal) SwitchToTabByID(id int) bool {
+	if !t.HasTabWithID(id) {
+		return false
+	}
+	t.tabManager.SwitchToTab(id)
+	t.switchToTabByID(id)
+	return true
+}
+
+// WriteToTab writes data to a specific terminal tab.
+func (t *Terminal) WriteToTab(id int, data string) {
+	if emulator, ok := t.emulators[id]; ok {
+		emulator.Write([]byte(data))
+	}
 }
 
 // GetActiveTabID returns the ID of the currently active terminal tab.

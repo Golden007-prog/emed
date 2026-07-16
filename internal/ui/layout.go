@@ -12,6 +12,7 @@ import (
 	"github.com/laborin/emed/internal/claude"
 	"github.com/laborin/emed/internal/git"
 	"github.com/laborin/emed/internal/logging"
+	"github.com/laborin/emed/internal/project"
 	"github.com/rivo/tview"
 )
 
@@ -92,6 +93,10 @@ type Layout struct {
 	// Launch Claude on start
 	launchClaudeOnStart bool
 
+	// Project scoped config and state, nil in single file mode
+	projectStore *project.Store
+	starterTabs  map[string]int
+
 	// Single file mode
 	singleFileMode    bool
 	startupFile       string
@@ -123,6 +128,15 @@ func NewLayout(app *tview.Application, opts LayoutOptions) *Layout {
 		l.fileManager = NewFileManager()
 		l.terminal = NewTerminal()
 		l.statusBar = NewStatusBar()
+		if cwd, err := os.Getwd(); err == nil {
+			l.projectStore = project.NewStore(cwd)
+			l.projectStore.SetOnDirCreated(func() {
+				if l.fileManager != nil {
+					l.fileManager.RefreshDirectory(l.projectStore.Root())
+				}
+			})
+		}
+		l.starterTabs = make(map[string]int)
 	}
 
 	l.initialize()
@@ -539,6 +553,7 @@ func (l *Layout) getHelpText() string {
   F1             Show This Help
   F8             Show Performance Stats
   F9             Launch Claude Code
+  F12            Terminal Starters
   Ctrl+Q         Quit
 
 [blue]FILE MANAGEMENT:[-]
@@ -672,6 +687,9 @@ func (l *Layout) handleMainModeFunctionKeys(event *tcell.EventKey) (*tcell.Event
 			return nil, true
 		}
 		return event, false
+	case tcell.KeyF12:
+		l.showStarters()
+		return nil, true
 	default:
 		return event, false
 	}
@@ -1394,6 +1412,66 @@ func (l *Layout) LaunchClaude() {
 		time.Sleep(1500 * time.Millisecond)
 		l.app.QueueUpdateDraw(func() {
 			l.terminal.WriteToActive("claude -c || claude\n")
+		})
+	}()
+}
+
+func (l *Layout) showStarters() {
+	if l.projectStore == nil {
+		return
+	}
+
+	ShowStartersModal(startersModalDeps{
+		app:       l.app,
+		store:     l.projectStore,
+		isRunning: l.isStarterRunning,
+		onLaunch:  l.launchStarter,
+		onJump:    l.jumpToStarterTab,
+	})
+}
+
+func (l *Layout) isStarterRunning(s project.Starter) bool {
+	if !s.Unique {
+		return false
+	}
+	tabID, ok := l.starterTabs[s.Name]
+	return ok && l.terminal.HasTabWithID(tabID)
+}
+
+func (l *Layout) jumpToStarterTab(s project.Starter) {
+	if tabID, ok := l.starterTabs[s.Name]; ok && l.terminal.SwitchToTabByID(tabID) {
+		l.focusTerminal()
+	}
+}
+
+func (l *Layout) launchStarter(s project.Starter) {
+	hadNoTabs := !l.terminal.HasTabs()
+	previousTabID := l.terminal.GetLastCreatedTabID()
+
+	l.terminal.NewTab(l.projectStore.Root())
+
+	tabID := l.terminal.GetLastCreatedTabID()
+	if tabID == previousTabID {
+		return
+	}
+
+	if hadNoTabs {
+		l.rebuildLayout()
+	}
+
+	l.focusTerminal()
+
+	l.terminal.PinTabTitle(tabID, s.Name)
+
+	if s.Unique {
+		l.starterTabs[s.Name] = tabID
+	}
+
+	command := s.Command
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		l.app.QueueUpdateDraw(func() {
+			l.terminal.WriteToTab(tabID, command+"\n")
 		})
 	}()
 }

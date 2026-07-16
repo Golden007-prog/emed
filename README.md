@@ -92,6 +92,13 @@ What you get:
 - Several Claude sessions can run at the same time in different terminal tabs, all connected to the same emed instance.
 - F9 launches Claude Code (or jumps to its tab if already running).
 
+## Terminal starters
+Every project can define "starters": named terminal commands you run often, like a dev server or a test watcher. Press F12 to open the starters list, pick one, and emed opens a terminal tab at the project root running that command. The tab takes the starter name as title.
+
+- Starters marked as "unique" only run one instance: while its terminal is alive, the starter shows as "(running)" and selecting it jumps to its tab instead of launching another one.
+- From the same list you can add new starters (A) or delete them (D).
+- Config lives in `.emed/starters.json` at the project root, so you can commit it and share it with your team.
+
 ## Key bindings
 ### Global
 - Ctrl+A: Focus file manager.
@@ -104,6 +111,7 @@ What you get:
 - Ctrl+P or F6: Toggles terminal placement, bottom or right.
 - F8: Shows memory and file watcher stats.
 - F9: Launches Claude Code (or jumps to its tab if already running).
+- F12: Terminal starters for the project (not available in single file mode).
 - Ctrl+Q: Exit emed.
 
 ### File Manager
