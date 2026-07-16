@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 func TestCountDiffChanges(t *testing.T) {
@@ -80,5 +83,49 @@ func TestDiffFooterShowsKeys(t *testing.T) {
 	footer := dv.footer.GetText(false)
 	if !strings.Contains(footer, "Enter") || !strings.Contains(footer, "Esc") {
 		t.Fatalf("footer must always show accept/reject keys, got: %q", footer)
+	}
+}
+
+func TestDiffInputGracePeriod(t *testing.T) {
+	dv := NewDiffView("/proj/a.go", "x\n", "y\n", "diff", DiffMeta{})
+	dv.MarkShown()
+
+	enter := tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)
+
+	if res := dv.captureInput(enter); res != nil {
+		t.Fatalf("input during grace period should be swallowed")
+	}
+	select {
+	case <-dv.resultChan:
+		t.Fatalf("diff must not resolve during the grace period")
+	default:
+	}
+
+	dv.shownAt = time.Now().Add(-diffInputGracePeriod)
+	dv.captureInput(enter)
+
+	select {
+	case result := <-dv.resultChan:
+		if result != "FILE_SAVED" {
+			t.Fatalf("unexpected result: %q", result)
+		}
+	default:
+		t.Fatalf("expected accept after the grace period")
+	}
+}
+
+func TestDiffEscapeRejectsAfterGrace(t *testing.T) {
+	dv := NewDiffView("/proj/a.go", "x\n", "y\n", "diff", DiffMeta{})
+	dv.shownAt = time.Now().Add(-diffInputGracePeriod)
+
+	dv.captureInput(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	select {
+	case result := <-dv.resultChan:
+		if result != "DIFF_REJECTED" {
+			t.Fatalf("unexpected result: %q", result)
+		}
+	default:
+		t.Fatalf("expected reject")
 	}
 }

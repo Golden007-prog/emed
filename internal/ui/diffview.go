@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -58,11 +59,17 @@ type DiffView struct {
 
 	changeRows []int
 	totalRows  int
+	shownAt    time.Time
 
 	resultChan chan string
 	resolved   bool
 	mu         sync.Mutex
 }
+
+// diffInputGracePeriod is how long the diff ignores all key input after
+// getting visible. The modal appears abruptly, so this avoids accepting
+// or rejecting by accident while the user was typing somewhere else.
+const diffInputGracePeriod = 500 * time.Millisecond
 
 func NewDiffView(filePath, oldContent, newContent, tabName string, meta DiffMeta) *DiffView {
 	d := &DiffView{
@@ -75,6 +82,7 @@ func NewDiffView(filePath, oldContent, newContent, tabName string, meta DiffMeta
 		oldContent: oldContent,
 		newContent: newContent,
 		meta:       meta,
+		shownAt:    time.Now(),
 		resultChan: make(chan string, 1),
 	}
 
@@ -156,7 +164,24 @@ func (d *DiffView) Draw(screen tcell.Screen) {
 	d.Flex.Draw(screen)
 }
 
+// MarkShown records when the diff got visible. Input is ignored during
+// the grace period counted from this moment, not from creation, since a
+// queued diff can be created long before it is presented.
+func (d *DiffView) MarkShown() {
+	d.shownAt = time.Now()
+}
+
+// InputAllowed reports if the grace period already passed and the diff
+// accepts user input.
+func (d *DiffView) InputAllowed() bool {
+	return time.Since(d.shownAt) >= diffInputGracePeriod
+}
+
 func (d *DiffView) captureInput(event *tcell.EventKey) *tcell.EventKey {
+	if !d.InputAllowed() {
+		return nil
+	}
+
 	switch event.Key() {
 	case tcell.KeyEnter, tcell.KeyCtrlS:
 		d.Accept()

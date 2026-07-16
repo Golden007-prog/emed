@@ -10,7 +10,15 @@ var (
 	mainAppRoot   tview.Primitive
 	modalIsOpen   bool
 	previousFocus tview.Primitive
+	onModalClosed func()
 )
+
+// SetOnModalClosed registers a callback fired after any modal closes,
+// once the previous root and focus were restored. Used to present UI
+// that was waiting for the screen to be free, like queued Claude diffs.
+func SetOnModalClosed(handler func()) {
+	onModalClosed = handler
+}
 
 // EmModal represents a modal dialog that can overlay the application.
 // It embeds a Flex holding the content so tview's internal focus chain
@@ -24,6 +32,7 @@ type EmModal struct {
 	content        tview.Primitive
 	cancellable    bool
 	escPassthrough bool
+	cancelGuard    func() bool
 	onCancel       func()
 	onClose        func()
 	previousRoot   tview.Primitive
@@ -97,16 +106,32 @@ func (m *EmModal) Close() {
 	if m.savedFocus != nil {
 		m.app.SetFocus(m.savedFocus)
 	}
+
+	if onModalClosed != nil {
+		onModalClosed()
+	}
+}
+
+// SetCancelGuard sets a predicate consulted before cancelling. When it
+// returns false the cancel is ignored, useful to protect a modal that
+// just appeared from accidental input.
+func (m *EmModal) SetCancelGuard(guard func() bool) *EmModal {
+	m.cancelGuard = guard
+	return m
 }
 
 // Cancel cancels the modal dialog if it's cancellable.
 func (m *EmModal) Cancel() {
-	if m.cancellable {
-		if m.onCancel != nil {
-			m.onCancel()
-		}
-		m.Close()
+	if !m.cancellable {
+		return
 	}
+	if m.cancelGuard != nil && !m.cancelGuard() {
+		return
+	}
+	if m.onCancel != nil {
+		m.onCancel()
+	}
+	m.Close()
 }
 
 // Draw renders the modal to the screen.

@@ -79,6 +79,7 @@ type Layout struct {
 	claudeIntegration *ClaudeIntegration
 	activeDiffView    *DiffView
 	diffModalWrapper  *modalWrapper
+	pendingDiffs      []*DiffView
 
 	// Dynamic sizing
 	lastTerminalWidth int
@@ -147,6 +148,14 @@ func NewLayout(app *tview.Application, opts LayoutOptions) *Layout {
 
 func (l *Layout) initialize() {
 	l.editor.SetApp(l.app)
+	SetOnModalClosed(func() {
+		// Deferred to the next event loop tick: modal chains (like the
+		// repo selector that opens lazygit right after closing) must
+		// finish opening their next modal before we check the screen.
+		go l.app.QueueUpdateDraw(func() {
+			l.showNextPendingDiff()
+		})
+	})
 	if l.singleFileMode {
 		l.initializeSingleFileMode()
 		return
@@ -1351,8 +1360,19 @@ func (l *Layout) showLazygit() {
 	}, nil)
 }
 
-// ShowDiffView displays a diff view as a modal overlay.
+// ShowDiffView displays a diff view as a modal overlay. If another modal
+// is already open (help, confirmations, lazygit, another diff), the diff
+// is queued and presented when the screen gets free, so it never steals
+// the root from a live modal.
 func (l *Layout) ShowDiffView(dv *DiffView) {
+	if IsModalOpen() {
+		l.pendingDiffs = append(l.pendingDiffs, dv)
+		return
+	}
+	l.presentDiffView(dv)
+}
+
+func (l *Layout) presentDiffView(dv *DiffView) {
 	l.activeDiffView = dv
 
 	config := EmModalConfig{
@@ -1370,6 +1390,7 @@ func (l *Layout) ShowDiffView(dv *DiffView) {
 	wrapper.modal.SetOnCancel(func() {
 		dv.Reject()
 	})
+	wrapper.modal.SetCancelGuard(dv.InputAllowed)
 
 	dv.SetBackgroundColor(tcell.ColorBlack)
 	content.AddItem(dv, 0, 1, true)
@@ -1377,14 +1398,34 @@ func (l *Layout) ShowDiffView(dv *DiffView) {
 	l.diffModalWrapper = wrapper
 	wrapper.Show()
 	l.app.SetFocus(dv)
+	dv.MarkShown()
 }
 
-// CloseDiffView closes the active diff view modal.
+func (l *Layout) showNextPendingDiff() {
+	if IsModalOpen() || len(l.pendingDiffs) == 0 {
+		return
+	}
+	next := l.pendingDiffs[0]
+	l.pendingDiffs = l.pendingDiffs[1:]
+	l.presentDiffView(next)
+}
+
+// CloseDiffView closes the diff modal, or removes the diff from the
+// pending queue if it resolved before being shown.
 func (l *Layout) CloseDiffView(dv *DiffView) {
 	if l.diffModalWrapper != nil && l.activeDiffView == dv {
-		l.diffModalWrapper.Close()
+		wrapper := l.diffModalWrapper
 		l.diffModalWrapper = nil
 		l.activeDiffView = nil
+		wrapper.Close()
+		return
+	}
+
+	for i, pending := range l.pendingDiffs {
+		if pending == dv {
+			l.pendingDiffs = append(l.pendingDiffs[:i], l.pendingDiffs[i+1:]...)
+			return
+		}
 	}
 }
 
