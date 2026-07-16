@@ -101,6 +101,10 @@ type Layout struct {
 	starterTabs  map[string]int
 	restoring    bool
 
+	// Inodes of open files, used to pair external rename events with
+	// their new path (the inode survives the rename).
+	openFileInodes map[string]uint64
+
 	// Single file mode
 	singleFileMode    bool
 	startupFile       string
@@ -123,6 +127,7 @@ func NewLayout(app *tview.Application, opts LayoutOptions) *Layout {
 		fileManagerWidth: 30,
 		singleFileMode:   opts.SingleFileMode,
 		startupFile:      opts.StartupFile,
+		openFileInodes:   make(map[string]uint64),
 	}
 
 	l.editor = NewEditor()
@@ -179,6 +184,7 @@ func (l *Layout) initialize() {
 	})
 
 	l.editor.SetOnTabClosed(func(path string) {
+		delete(l.openFileInodes, path)
 		if l.fileWatcher != nil {
 			l.fileWatcher.RemoveOpenFile(path)
 			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
@@ -277,6 +283,7 @@ func (l *Layout) initialize() {
 	})
 
 	l.editor.SetOnFileSaved(func(path string) {
+		l.recordInode(path)
 		if l.claudeIntegration != nil {
 			l.claudeIntegration.NotifyFileSaved(path)
 		}
@@ -969,11 +976,25 @@ func (l *Layout) focusTerminal() {
 	l.terminal.UpdateTabBar()
 }
 
+// recordInode stores the inode of an open file so external renames can
+// be paired later. No-op when the file can not be stated.
+func (l *Layout) recordInode(path string) {
+	inode, ok := fileInode(path)
+	if !ok {
+		return
+	}
+	if l.openFileInodes == nil {
+		l.openFileInodes = make(map[string]uint64)
+	}
+	l.openFileInodes[path] = inode
+}
+
 // OpenFile opens a file in the editor and updates the layout if needed.
 func (l *Layout) OpenFile(path string) {
 	hadNoTabs := !l.editor.HasTabs()
 
 	l.editor.OpenFile(path)
+	l.recordInode(path)
 
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
@@ -993,6 +1014,7 @@ func (l *Layout) OpenFilePreview(path string) {
 	hadNoTabs := !l.editor.HasTabs()
 
 	convertedToRegular := l.editor.OpenFilePreview(path)
+	l.recordInode(path)
 
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
@@ -1016,6 +1038,7 @@ func (l *Layout) OpenFileAtLine(path string, line int, column int) {
 	hadNoTabs := !l.editor.HasTabs()
 
 	l.editor.OpenFileAtLine(path, line, column)
+	l.recordInode(path)
 
 	if l.fileWatcher != nil {
 		l.fileWatcher.AddOpenFile(path)
@@ -1117,6 +1140,9 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 
 	deletedFiles := make(map[string]bool)
 
+	var renamedPaths []string
+	var createdPaths []string
+
 	for _, change := range changes {
 		if strings.HasSuffix(change.Path, ".git/HEAD") {
 			gitHeadChanged = true
@@ -1128,11 +1154,16 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 
 		switch change.Type {
 		case FileModified, FileCreated:
+			if change.Type == FileCreated {
+				createdPaths = append(createdPaths, change.Path)
+			}
 			if !strings.HasSuffix(change.Path, "/") {
 				modifiedFiles[change.Path] = true
 			}
 		case FileDeleted:
 			deletedFiles[change.Path] = true
+		case FileRenamed:
+			renamedPaths = append(renamedPaths, change.Path)
 		}
 	}
 
@@ -1148,6 +1179,10 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 		}
 	}
 
+	for _, oldPath := range renamedPaths {
+		l.handleExternalRename(oldPath, createdPaths, modifiedFiles, deletedFiles)
+	}
+
 	for filePath := range modifiedFiles {
 		l.editor.HandleFileModified(filePath)
 	}
@@ -1159,6 +1194,96 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 			l.editor.HandleFileModified(filePath)
 		}
 	}
+}
+
+// handleExternalRename reacts to a rename event for open tabs. The
+// event only carries the old path, so the new one is found by pairing
+// inodes against the created paths of the same batch. When the old
+// path still exists it was a replace-style save, not a move. Unpaired
+// renames fall back to the deleted-file flow.
+func (l *Layout) handleExternalRename(oldPath string, createdPaths []string, modifiedFiles, deletedFiles map[string]bool) {
+	openPaths := l.editor.GetOpenFilePaths()
+	isOpen := func(path string) bool {
+		for _, p := range openPaths {
+			if p == path {
+				return true
+			}
+		}
+		return false
+	}
+
+	if isOpen(oldPath) {
+		if _, err := os.Stat(oldPath); err == nil {
+			modifiedFiles[oldPath] = true
+			l.recordInode(oldPath)
+			return
+		}
+
+		if inode, tracked := l.openFileInodes[oldPath]; tracked {
+			for _, created := range createdPaths {
+				if created == oldPath || isOpen(created) {
+					continue
+				}
+				if ino, ok := fileInode(created); ok && ino == inode {
+					l.remapOpenFile(oldPath, created)
+					return
+				}
+			}
+		}
+
+		deletedFiles[oldPath] = true
+		return
+	}
+
+	prefix := oldPath + string(filepath.Separator)
+	for _, openPath := range openPaths {
+		if !strings.HasPrefix(openPath, prefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(openPath, prefix)
+
+		remapped := false
+		for _, created := range createdPaths {
+			candidate := filepath.Join(created, suffix)
+			if inode, tracked := l.openFileInodes[openPath]; tracked {
+				if ino, ok := fileInode(candidate); ok && ino == inode {
+					l.remapOpenFile(openPath, candidate)
+					remapped = true
+					break
+				}
+			} else if _, err := os.Stat(candidate); err == nil {
+				l.remapOpenFile(openPath, candidate)
+				remapped = true
+				break
+			}
+		}
+
+		if !remapped {
+			deletedFiles[openPath] = true
+		}
+	}
+}
+
+// remapOpenFile points an open tab to the new path of a renamed file.
+func (l *Layout) remapOpenFile(oldPath, newPath string) {
+	l.editor.UpdateFilePath(oldPath, newPath)
+
+	delete(l.openFileInodes, oldPath)
+	l.recordInode(newPath)
+
+	if l.fileWatcher != nil {
+		l.fileWatcher.RemoveOpenFile(oldPath)
+		l.fileWatcher.AddOpenFile(newPath)
+		if l.statusBar != nil {
+			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+		}
+	}
+
+	if l.claudeIntegration != nil {
+		l.claudeIntegration.NotifyFileRenamed(oldPath, newPath)
+	}
+
+	l.saveSession()
 }
 
 func (l *Layout) tryQuit() {
@@ -1547,6 +1672,7 @@ func (l *Layout) restoreSession() {
 	for _, rel := range session.OpenFiles {
 		if abs, ok := resolveProjectPath(root, rel); ok {
 			l.editor.OpenFile(abs)
+			l.recordInode(abs)
 			if l.fileWatcher != nil {
 				l.fileWatcher.AddOpenFile(abs)
 			}
