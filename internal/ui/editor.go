@@ -1247,6 +1247,18 @@ func (e *Editor) GetActiveFilePath() string {
 	return path
 }
 
+// GetPersistedFilePaths returns open file paths worth persisting in the
+// session, excluding preview tabs, in tab order.
+func (e *Editor) GetPersistedFilePaths() []string {
+	paths := make([]string, 0, len(e.tabs))
+	for _, tab := range e.tabs {
+		if tab.path != "" && !tab.isPreview {
+			paths = append(paths, tab.path)
+		}
+	}
+	return paths
+}
+
 // GetActiveCursorLine returns the 1-based line number of the cursor in the active file.
 func (e *Editor) GetActiveCursorLine() int {
 	_, line := e.GetCurrentFileAndLine()

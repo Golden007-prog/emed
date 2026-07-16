@@ -10,6 +10,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/claude"
+	"github.com/laborin/emed/internal/core/pathutil"
 	"github.com/laborin/emed/internal/git"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/project"
@@ -96,6 +97,7 @@ type Layout struct {
 	// Project scoped config and state, nil in single file mode
 	projectStore *project.Store
 	starterTabs  map[string]int
+	restoring    bool
 
 	// Single file mode
 	singleFileMode    bool
@@ -174,6 +176,7 @@ func (l *Layout) initialize() {
 		if l.claudeIntegration != nil {
 			l.claudeIntegration.NotifyOpenEditorsChanged()
 		}
+		l.saveSession()
 	})
 
 	l.terminal.SetOnLastTabClosed(func() {
@@ -227,6 +230,7 @@ func (l *Layout) initialize() {
 		if l.claudeIntegration != nil {
 			l.claudeIntegration.NotifyOpenEditorsChanged()
 		}
+		l.saveSession()
 	})
 
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
@@ -289,6 +293,8 @@ func (l *Layout) initialize() {
 	l.scanGitRepositories()
 
 	l.setupFileWatcher()
+
+	l.restoreSession()
 
 	l.setupFocusDetection()
 
@@ -963,6 +969,7 @@ func (l *Layout) OpenFile(path string) {
 	}
 
 	l.focusEditor()
+	l.saveSession()
 }
 
 // OpenFilePreview opens a file in preview mode without moving focus from file manager.
@@ -982,6 +989,7 @@ func (l *Layout) OpenFilePreview(path string) {
 
 	if convertedToRegular {
 		l.focusEditor()
+		l.saveSession()
 	}
 
 	l.editor.UpdateTabBar()
@@ -1003,6 +1011,7 @@ func (l *Layout) OpenFileAtLine(path string, line int, column int) {
 	}
 
 	l.focusEditor()
+	l.saveSession()
 }
 
 func (l *Layout) setupFocusDetection() {
@@ -1416,6 +1425,100 @@ func (l *Layout) LaunchClaude() {
 	}()
 }
 
+// projectRelPath converts an absolute path inside the project root to a
+// slash separated relative path. Paths outside the root are rejected.
+func projectRelPath(root, path string) (string, bool) {
+	if !pathutil.IsWithin(root, path) {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// resolveProjectPath converts a stored relative path back to an absolute
+// path, rejecting entries that escape the root or no longer exist.
+func resolveProjectPath(root, rel string) (string, bool) {
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	if !pathutil.IsWithin(root, abs) {
+		return "", false
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return "", false
+	}
+	return abs, true
+}
+
+func (l *Layout) saveSession() {
+	if l.projectStore == nil || l.restoring {
+		return
+	}
+
+	root := l.projectStore.Root()
+	session := project.Session{OpenFiles: []string{}}
+	for _, path := range l.editor.GetPersistedFilePaths() {
+		if rel, ok := projectRelPath(root, path); ok {
+			session.OpenFiles = append(session.OpenFiles, rel)
+		}
+	}
+	if active := l.editor.GetActiveFilePath(); active != "" {
+		if rel, ok := projectRelPath(root, active); ok {
+			for _, open := range session.OpenFiles {
+				if open == rel {
+					session.ActiveFile = rel
+					break
+				}
+			}
+		}
+	}
+
+	if err := l.projectStore.SaveSession(session); err != nil {
+		logging.Error("Failed to save session: %v", err)
+	}
+}
+
+func (l *Layout) restoreSession() {
+	if l.projectStore == nil {
+		return
+	}
+
+	session, err := l.projectStore.LoadSession()
+	if err != nil {
+		logging.Error("Failed to load session: %v", err)
+		return
+	}
+	if len(session.OpenFiles) == 0 {
+		return
+	}
+
+	root := l.projectStore.Root()
+
+	l.restoring = true
+	for _, rel := range session.OpenFiles {
+		if abs, ok := resolveProjectPath(root, rel); ok {
+			l.editor.OpenFile(abs)
+			if l.fileWatcher != nil {
+				l.fileWatcher.AddOpenFile(abs)
+			}
+		}
+	}
+	if session.ActiveFile != "" {
+		if abs, ok := resolveProjectPath(root, session.ActiveFile); ok {
+			l.editor.OpenFile(abs)
+		}
+	}
+	l.restoring = false
+
+	if l.editor.HasTabs() {
+		l.rebuildLayout()
+		if l.statusBar != nil && l.fileWatcher != nil {
+			l.statusBar.SetWatchedDirs(l.fileWatcher.GetWatchedDirsCount())
+		}
+	}
+}
+
 func (l *Layout) showStarters() {
 	if l.projectStore == nil {
 		return
@@ -1478,6 +1581,7 @@ func (l *Layout) launchStarter(s project.Starter) {
 
 // Stop shuts down the layout and cleans up resources.
 func (l *Layout) Stop() {
+	l.saveSession()
 	if l.claudeIntegration != nil {
 		l.claudeIntegration.Stop()
 	}

@@ -35,6 +35,7 @@ The terminal emulator has probably been the most fun and the hardest part to imp
 - [x] Soft line wrapping in the editor.
 - [x] Deeper Claude Code integration: diff approval modal, multiple sessions at the same time, session info on each diff.
 - [x] Terminal emulation hardening: wide chars (CJK/emoji), utf8 edge cases, clean scrollback history, system bell with blinking tab titles.
+- [x] Per project terminal starters (F12) and session restore of open editor tabs.
 - [ ] ???
 
 ## Screenshots
@@ -98,6 +99,11 @@ Every project can define "starters": named terminal commands you run often, like
 - Starters marked as "unique" only run one instance: while its terminal is alive, the starter shows as "(running)" and selecting it jumps to its tab instead of launching another one.
 - From the same list you can add new starters (A) or delete them (D).
 - Config lives in `.emed/starters.json` at the project root, so you can commit it and share it with your team.
+
+## Project state
+When you open a project again, emed reopens the files you had open in the editor, including which one was active. This state is saved in `.emed/session.json`. Files outside the project root are not remembered, paths are stored relative to the root so the state survives when the project is moved or synced between machines. You probably want `.emed/session.json` in your `.gitignore` (keep `starters.json` if you want to share it).
+
+Both features only exist in project mode, single file mode does not create any `.emed` directory.
 
 ## Key bindings
 ### Global
