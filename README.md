@@ -133,7 +133,7 @@ Both features only exist in project mode, single file mode does not create any `
 ### File Manager
 - Arrow keys: browse project file tree.
 - Enter: Opens the highlighted file on an editor tab.
-- Ctrl+F: Project-wide search, with regex and replace support.
+- Ctrl+F: Project-wide search, with regex and replace support. Alt+C / Alt+W / Alt+R toggle case, whole word and regex; results show a highlighted fragment of each match; Ctrl+Enter replaces all.
 - Ctrl+N: Creates a new file. Ctrl+Alt+N creates a new directory.
 - Ctrl+R: Renames the highlighted file or directory.
 - Ctrl+D: Deletes the highlighted file or directory.
@@ -145,7 +145,7 @@ Both features only exist in project mode, single file mode does not create any `
 
 ### Editor
 - Ctrl+S: Save file.
-- Ctrl+F: Search within the file, with regex and replace support.
+- Ctrl+F: Search within the file. Compact two-row bar: Enter next match, Shift+Enter previous, Enter in the Replace field replaces and advances, Alt+A replaces all, Alt+C / Alt+W / Alt+R toggle case, whole word and regex.
 - Ctrl+Z / Ctrl+Y: Undo / redo.
 - Ctrl+C: Copy highlighted text to system clipboard.
 - Ctrl+X: Cuts highlighted text to system clipboard.

@@ -14,9 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/theme"
+	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 )
 
@@ -34,7 +36,8 @@ type SearchResult struct {
 // ProjectSearchModal provides project-wide search and replace functionality
 type ProjectSearchModal struct {
 	app         *tview.Application
-	form        *tview.Form
+	form        *tview.Flex
+	toggles     *searchToggles
 	resultsList *tview.List
 	previewText *tview.TextView
 	container   *tview.Flex
@@ -59,7 +62,6 @@ type ProjectSearchModal struct {
 
 	searchField  *tview.InputField
 	replaceField *tview.InputField
-	statusText   string
 	updatingList bool
 }
 
@@ -76,52 +78,54 @@ func NewProjectSearchModal(app *tview.Application) *ProjectSearchModal {
 }
 
 func (m *ProjectSearchModal) setupUI() {
+	bg := theme.Current.ModalBg
 
-	m.form = tview.NewForm()
-	m.form.SetBorderPadding(0, 0, 1, 1)
-	m.form.SetFieldBackgroundColor(theme.Current.ModalBg)
-	m.form.SetItemPadding(0)
+	newInput := func(label string) *tview.InputField {
+		input := tview.NewInputField().
+			SetLabel(label).
+			SetLabelColor(theme.Current.TextMuted).
+			SetFieldBackgroundColor(tcell.NewRGBColor(45, 45, 45)).
+			SetFieldTextColor(tcell.ColorWhite)
+		return input
+	}
 
-	m.searchField = tview.NewInputField()
-	m.searchField.SetLabel("Search: ")
-	m.searchField.SetFieldWidth(50)
+	m.searchField = newInput("Search  ")
 	m.searchField.SetText(m.searchTerm)
 
-	m.form.AddFormItem(m.searchField)
-
-	m.replaceField = tview.NewInputField()
-	m.replaceField.SetLabel("Replace: ")
-	m.replaceField.SetFieldWidth(50)
+	m.replaceField = newInput("Replace ")
 	m.replaceField.SetText(m.replaceTerm)
 	m.replaceField.SetChangedFunc(func(text string) {
 		m.replaceTerm = text
 	})
-	m.form.AddFormItem(m.replaceField)
 
-	m.form.AddCheckbox("Case sensitive", m.caseSensitive, func(checked bool) {
-		m.caseSensitive = checked
+	m.toggles = newSearchToggles(bg)
+	m.toggles.SetStates(m.caseSensitive, m.wholeWord, m.useRegex)
+	m.toggles.SetOnChange(func() {
+		m.caseSensitive, m.wholeWord, m.useRegex = m.toggles.States()
 		m.debouncedSearch()
 	})
 
-	m.form.AddCheckbox("Whole word", m.wholeWord, func(checked bool) {
-		m.wholeWord = checked
-		m.debouncedSearch()
-	})
+	hint := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
+	hint.SetBackgroundColor(bg)
+	hint.SetText("[#666666]Ctrl+Enter replace all[-]")
 
-	m.form.AddCheckbox("Use regex", m.useRegex, func(checked bool) {
-		m.useRegex = checked
-		m.debouncedSearch()
-	})
+	searchRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(m.searchField, 0, 1, true).
+		AddItem(tview.NewBox().SetBackgroundColor(bg), 1, 0, false).
+		AddItem(m.toggles, searchTogglesWidth, 0, false)
+	searchRow.SetBackgroundColor(bg)
 
-	m.form.AddButton("Replace All", func() {
-		m.performReplaceAll()
-	})
+	replaceRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(m.replaceField, 0, 1, false).
+		AddItem(tview.NewBox().SetBackgroundColor(bg), 1, 0, false).
+		AddItem(hint, 24, 0, false)
+	replaceRow.SetBackgroundColor(bg)
 
-	m.form.AddButton("Cancel", func() {
-		if m.onClose != nil {
-			m.onClose()
-		}
-	})
+	m.form = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(searchRow, 1, 0, true).
+		AddItem(replaceRow, 1, 0, false)
+	m.form.SetBackgroundColor(bg)
+	m.form.SetBorderPadding(1, 0, 1, 1)
 
 	m.resultsList = tview.NewList()
 	m.resultsList.SetBorder(true)
@@ -130,13 +134,7 @@ func (m *ProjectSearchModal) setupUI() {
 	m.resultsList.SetHighlightFullLine(true)
 	m.resultsList.SetSelectedFunc(func(index int, main string, secondary string, shortcut rune) {
 		if index >= 0 && index < len(m.results) {
-			result := m.results[index]
-			if m.onFileOpen != nil {
-				m.onFileOpen(result.FilePath, result.Line, result.Column)
-				if m.onClose != nil {
-					m.onClose()
-				}
-			}
+			m.openResult(m.results[index])
 		}
 	})
 	m.resultsList.SetChangedFunc(func(index int, main string, secondary string, shortcut rune) {
@@ -151,15 +149,15 @@ func (m *ProjectSearchModal) setupUI() {
 	m.previewText.SetBorder(true)
 	m.previewText.SetTitle(" Preview ")
 	m.previewText.SetDynamicColors(true)
-	m.previewText.SetWordWrap(false)
+	m.previewText.SetWrap(false)
 	m.previewText.SetBorderColor(theme.Current.Border)
 
 	resultsPanel := tview.NewFlex().
-		AddItem(m.resultsList, 0, 30, false).
-		AddItem(m.previewText, 0, 70, false)
+		AddItem(m.resultsList, 0, 40, false).
+		AddItem(m.previewText, 0, 60, false)
 
 	m.container = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(m.form, 7, 0, true).
+		AddItem(m.form, 3, 0, true).
 		AddItem(resultsPanel, 0, 1, false)
 
 	m.setupKeyboardHandlers()
@@ -168,25 +166,41 @@ func (m *ProjectSearchModal) setupUI() {
 func (m *ProjectSearchModal) setupKeyboardHandlers() {
 
 	m.form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Modifiers()&tcell.ModAlt != 0 && event.Key() == tcell.KeyRune {
+			if m.toggles.HandleAltRune(event.Rune()) {
+				return nil
+			}
+		}
+
 		switch event.Key() {
 		case tcell.KeyEscape:
 			if m.onClose != nil {
 				m.onClose()
 			}
 			return nil
-		case tcell.KeyTab:
-
-			return event
-		case tcell.KeyBacktab:
-
+		case tcell.KeyTab, tcell.KeyBacktab:
+			if m.searchField.HasFocus() {
+				m.app.SetFocus(m.replaceField)
+			} else {
+				m.app.SetFocus(m.searchField)
+			}
+			return nil
+		case tcell.KeyUp:
+			if m.replaceField.HasFocus() {
+				m.app.SetFocus(m.searchField)
+				return nil
+			}
 			return event
 		case tcell.KeyDown:
-
-			if len(m.results) > 0 {
+			if m.searchField.HasFocus() && len(m.results) > 0 {
 				m.app.SetFocus(m.resultsList)
 				if m.resultsList.GetItemCount() > 0 {
 					m.resultsList.SetCurrentItem(0)
 				}
+				return nil
+			}
+			if m.searchField.HasFocus() {
+				m.app.SetFocus(m.replaceField)
 				return nil
 			}
 			return event
@@ -226,15 +240,8 @@ func (m *ProjectSearchModal) setupKeyboardHandlers() {
 			}
 			return event
 		case tcell.KeyEnter:
-
 			if m.selectedIdx >= 0 && m.selectedIdx < len(m.results) {
-				result := m.results[m.selectedIdx]
-				if m.onFileOpen != nil {
-					m.onFileOpen(result.FilePath, result.Line, result.Column)
-					if m.onClose != nil {
-						m.onClose()
-					}
-				}
+				m.openResult(m.results[m.selectedIdx])
 			}
 			return nil
 		}
@@ -243,19 +250,32 @@ func (m *ProjectSearchModal) setupKeyboardHandlers() {
 
 	m.previewText.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftClick {
-
 			if m.selectedIdx >= 0 && m.selectedIdx < len(m.results) {
-				result := m.results[m.selectedIdx]
-				if m.onFileOpen != nil {
-					m.onFileOpen(result.FilePath, result.Line, result.Column)
-					if m.onClose != nil {
-						m.onClose()
-					}
-				}
+				m.openResult(m.results[m.selectedIdx])
 			}
 		}
 		return action, event
 	})
+}
+
+// openResult jumps to a search result in the editor. The stored column
+// is a byte offset from the regex engine, the editor cursor works with
+// runes, so it gets converted here.
+func (m *ProjectSearchModal) openResult(result SearchResult) {
+	if m.onFileOpen == nil {
+		return
+	}
+
+	column := result.Column
+	if column > len(result.MatchText) {
+		column = len(result.MatchText)
+	}
+	runeColumn := utf8.RuneCountInString(result.MatchText[:column])
+
+	m.onFileOpen(result.FilePath, result.Line, runeColumn)
+	if m.onClose != nil {
+		m.onClose()
+	}
 }
 
 func (m *ProjectSearchModal) debouncedSearch() {
@@ -666,6 +686,7 @@ func (m *ProjectSearchModal) updateResultsList() {
 
 	if len(m.results) == 0 {
 		m.selectedIdx = -1
+		m.resultsList.SetTitle(" Results ")
 		if m.searchTerm != "" {
 			if m.searching {
 				m.resultsList.AddItem("Searching...", "", 0, nil)
@@ -676,10 +697,29 @@ func (m *ProjectSearchModal) updateResultsList() {
 		return
 	}
 
+	_, _, listWidth, _ := m.resultsList.GetInnerRect()
+	if listWidth <= 0 {
+		listWidth = 60
+	}
+	pathBudget := listWidth / 3
+	if pathBudget < 16 {
+		pathBudget = 16
+	}
+
+	files := make(map[string]struct{}, len(m.results))
 	for _, result := range m.results {
+		files[result.FilePath] = struct{}{}
 		relPath, _ := filepath.Rel(".", result.FilePath)
-		text := fmt.Sprintf("%s:%d", relPath, result.Line)
-		m.resultsList.AddItem(text, "", 0, nil)
+		location := m.truncatePathFromLeft(fmt.Sprintf("%s:%d", relPath, result.Line), pathBudget)
+		snippetBudget := listWidth - runewidth.StringWidth(location) - 2
+		item := "[#8a8a8a]" + tview.Escape(location) + "[-] " + m.buildSnippet(result, snippetBudget)
+		m.resultsList.AddItem(item, "", 0, nil)
+	}
+
+	if m.searching {
+		m.resultsList.SetTitle(fmt.Sprintf(" Results (%d so far…) ", len(m.results)))
+	} else {
+		m.resultsList.SetTitle(fmt.Sprintf(" Results (%d in %d files) ", len(m.results), len(files)))
 	}
 
 	itemCount := m.resultsList.GetItemCount()
@@ -697,12 +737,49 @@ func (m *ProjectSearchModal) updateResultsList() {
 	} else {
 		m.selectedIdx = -1
 	}
+}
 
-	if m.searching {
-		m.statusText = fmt.Sprintf("Searching... %d matches", len(m.results))
-	} else {
-		m.statusText = fmt.Sprintf("Found %d matches", len(m.results))
+// expandTabs replaces tabs with spaces so width math matches what the
+// text views render (they expand tabs and would break truncation).
+func expandTabs(s string) string {
+	return strings.ReplaceAll(s, "\t", "    ")
+}
+
+// buildSnippet returns the matched line fragment for the results list,
+// with leading indentation removed and the match highlighted.
+func (m *ProjectSearchModal) buildSnippet(result SearchResult, maxWidth int) string {
+	if maxWidth < 12 {
+		maxWidth = 12
 	}
+
+	line := result.MatchText
+	col := result.Column
+	length := result.MatchLength
+	if col < 0 || col+length > len(line) {
+		return tview.Escape(m.truncateLine(expandTabs(strings.TrimLeft(line, " \t")), maxWidth))
+	}
+
+	before := expandTabs(strings.TrimLeft(line[:col], " \t"))
+	match := expandTabs(line[col : col+length])
+	after := expandTabs(line[col+length:])
+
+	beforeMax := maxWidth / 3
+	matchMax := maxWidth / 2
+
+	if w := runewidth.StringWidth(before); w > beforeMax {
+		before = runewidth.TruncateLeft(before, w-beforeMax+1, "…")
+	}
+	if runewidth.StringWidth(match) > matchMax {
+		match = runewidth.Truncate(match, matchMax, "…")
+	}
+	afterMax := maxWidth - runewidth.StringWidth(before) - runewidth.StringWidth(match)
+	if afterMax <= 1 {
+		after = ""
+	} else if runewidth.StringWidth(after) > afterMax {
+		after = runewidth.Truncate(after, afterMax, "…")
+	}
+
+	return tview.Escape(before) + "[black:yellow]" + tview.Escape(match) + "[-:-]" + tview.Escape(after)
 }
 
 func (m *ProjectSearchModal) updatePreview() {
@@ -739,34 +816,42 @@ func (m *ProjectSearchModal) updatePreview() {
 
 	for i, line := range contextBefore {
 		lineNum := startLine + i
-		truncated := m.truncateLine(line, maxLineWidth)
+		truncated := m.truncateLine(expandTabs(line), maxLineWidth)
 		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
 	}
 
 	matchLine := result.MatchText
 	if result.Column >= 0 && result.Column+result.MatchLength <= len(matchLine) {
-		before := matchLine[:result.Column]
-		match := matchLine[result.Column : result.Column+result.MatchLength]
-		after := matchLine[result.Column+result.MatchLength:]
+		before := expandTabs(matchLine[:result.Column])
+		match := expandTabs(matchLine[result.Column : result.Column+result.MatchLength])
+		after := expandTabs(matchLine[result.Column+result.MatchLength:])
 
 		visibleBefore := before
 		visibleMatch := match
 		visibleAfter := after
-		totalLen := len(before) + len(match) + len(after)
+		matchWidth := runewidth.StringWidth(match)
+		totalWidth := runewidth.StringWidth(before) + matchWidth + runewidth.StringWidth(after)
 
-		if totalLen > maxLineWidth {
-			availableForContext := maxLineWidth - len(match)
+		if totalWidth > maxLineWidth {
+			if matchWidth > maxLineWidth {
+				visibleMatch = runewidth.Truncate(match, maxLineWidth, "…")
+			}
+			availableForContext := maxLineWidth - matchWidth
 			if availableForContext < 0 {
 				availableForContext = 0
 			}
 			beforeAlloc := availableForContext / 2
 			afterAlloc := availableForContext - beforeAlloc
 
-			if len(before) > beforeAlloc {
-				visibleBefore = "…" + before[len(before)-beforeAlloc+1:]
+			if beforeWidth := runewidth.StringWidth(before); beforeWidth > beforeAlloc {
+				visibleBefore = runewidth.TruncateLeft(before, beforeWidth-beforeAlloc+1, "…")
 			}
-			if len(after) > afterAlloc {
-				visibleAfter = after[:afterAlloc-1] + "…"
+			if runewidth.StringWidth(after) > afterAlloc {
+				if afterAlloc <= 1 {
+					visibleAfter = ""
+				} else {
+					visibleAfter = runewidth.Truncate(after, afterAlloc, "…")
+				}
 			}
 		}
 
@@ -774,13 +859,13 @@ func (m *ProjectSearchModal) updatePreview() {
 			lineNumWidth, result.Line,
 			tview.Escape(visibleBefore), tview.Escape(visibleMatch), tview.Escape(visibleAfter))
 	} else {
-		truncated := m.truncateLine(matchLine, maxLineWidth)
+		truncated := m.truncateLine(expandTabs(matchLine), maxLineWidth)
 		fmt.Fprintf(m.previewText, "[white]%*d│[-] %s\n", lineNumWidth, result.Line, tview.Escape(truncated))
 	}
 
 	for i, line := range contextAfter {
 		lineNum := result.Line + 1 + i
-		truncated := m.truncateLine(line, maxLineWidth)
+		truncated := m.truncateLine(expandTabs(line), maxLineWidth)
 		fmt.Fprintf(m.previewText, "[#666666]%*d│[-] %s\n", lineNumWidth, lineNum, tview.Escape(truncated))
 	}
 }
@@ -833,23 +918,24 @@ func (m *ProjectSearchModal) loadExtendedContext(result SearchResult, availableH
 }
 
 func (m *ProjectSearchModal) truncateLine(line string, maxWidth int) string {
-	if len(line) <= maxWidth {
+	if runewidth.StringWidth(line) <= maxWidth {
 		return line
 	}
 	if maxWidth <= 1 {
 		return "…"
 	}
-	return line[:maxWidth-1] + "…"
+	return runewidth.Truncate(line, maxWidth, "…")
 }
 
 func (m *ProjectSearchModal) truncatePathFromLeft(path string, maxWidth int) string {
-	if len(path) <= maxWidth {
+	width := runewidth.StringWidth(path)
+	if width <= maxWidth {
 		return path
 	}
 	if maxWidth <= 4 {
 		return "…"
 	}
-	return "…" + path[len(path)-maxWidth+1:]
+	return runewidth.TruncateLeft(path, width-maxWidth+1, "…")
 }
 
 func (m *ProjectSearchModal) performReplaceAll() {
@@ -1047,6 +1133,10 @@ func (m *ProjectSearchModal) RestoreState(searchTerm, replaceTerm string, caseSe
 	m.caseSensitive = caseSensitive
 	m.wholeWord = wholeWord
 	m.useRegex = useRegex
+
+	if m.toggles != nil {
+		m.toggles.SetStates(caseSensitive, wholeWord, useRegex)
+	}
 
 	m.results = []SearchResult{}
 	m.selectedIdx = -1
