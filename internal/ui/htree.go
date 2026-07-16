@@ -207,6 +207,7 @@ type HTree struct {
 	selected          *HTreeNode
 	visibleNodes      []*HTreeNode
 	visibleNodesDirty bool
+	hideRoot          bool
 
 	scrollY        int
 	scrollX        int
@@ -254,6 +255,14 @@ func (t *HTree) SetRoot(node *HTreeNode) *HTree {
 	return t
 }
 
+// SetHideRoot hides the root node: its children show at top level and
+// the root itself can not be selected or collapsed.
+func (t *HTree) SetHideRoot(hide bool) *HTree {
+	t.hideRoot = hide
+	t.visibleNodesDirty = true
+	return t
+}
+
 // MarkDirty marks the visible nodes cache as needing rebuild.
 func (t *HTree) MarkDirty() {
 	t.visibleNodesDirty = true
@@ -265,7 +274,16 @@ func (t *HTree) buildVisibleNodes() {
 	}
 	t.visibleNodes = nil
 	if t.root != nil {
-		t.addVisibleNode(t.root, 0, nil)
+		if t.hideRoot {
+			for _, child := range t.root.Children {
+				t.addVisibleNode(child, 0, nil)
+			}
+			if t.selected == t.root && len(t.visibleNodes) > 0 {
+				t.selected = t.visibleNodes[0]
+			}
+		} else {
+			t.addVisibleNode(t.root, 0, nil)
+		}
 	}
 	t.visibleNodesDirty = false
 }
@@ -594,7 +612,7 @@ func (t *HTree) InputHandler() func(event *tcell.EventKey, setFocus func(p tview
 			if t.selected.IsDir && t.selected.IsExpanded {
 				t.selected.IsExpanded = false
 				t.visibleNodesDirty = true
-			} else if t.selected.Parent != nil {
+			} else if t.selected.Parent != nil && !(t.hideRoot && t.selected.Parent == t.root) {
 				t.selected = t.selected.Parent
 			}
 		case tcell.KeyEnter:

@@ -60,14 +60,19 @@ func NewFileManager() *FileManager {
 
 	fm.htree.
 		SetRoot(fm.root).
+		SetHideRoot(true).
 		SetCurrentNode(fm.root).
 		SetBorder(true).
 		SetBorderColor(theme.Current.Border).
-		SetTitle(" Project ").
+		SetTitle(" " + filepath.Base(cwd) + " ").
 		SetTitleColor(theme.Current.Title).
 		SetTitleAlign(tview.AlignLeft)
 
 	fm.loadInitialDirectory()
+
+	if len(fm.root.Children) > 0 {
+		fm.htree.SetCurrentNode(fm.root.Children[0])
+	}
 
 	fm.htree.SetSelectedFunc(func(node *HTreeNode, fromMouse bool) {
 		if !node.IsDir {
