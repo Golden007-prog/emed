@@ -13,8 +13,12 @@ var (
 )
 
 // EmModal represents a modal dialog that can overlay the application.
+// It embeds a Flex holding the content so tview's internal focus chain
+// can walk from the modal root down to the focused widget: without this,
+// SetFocus can not blur the previously focused primitive and stale focus
+// flags make keyboard input land on the wrong widget.
 type EmModal struct {
-	*tview.Box
+	*tview.Flex
 	app            *tview.Application
 	container      *tview.Box
 	content        tview.Primitive
@@ -35,12 +39,13 @@ func (m *EmModal) SetPreviousRoot(root tview.Primitive) {
 // NewEmModal creates a new modal dialog with the given content.
 func NewEmModal(app *tview.Application, content tview.Primitive, cancellable bool) *EmModal {
 	m := &EmModal{
-		Box:         tview.NewBox(),
+		Flex:        tview.NewFlex(),
 		app:         app,
 		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(tcell.ColorBlack),
 		content:     content,
 		cancellable: cancellable,
 	}
+	m.Flex.AddItem(content, 0, 1, true)
 
 	return m
 }
@@ -291,11 +296,13 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 			SetBorderColor(config.BorderColor).
 			SetTitleColor(config.TitleColor)
 
-		modalContent = &backgroundWithContent{
-			Box:        tview.NewBox(),
+		bg := &backgroundWithContent{
+			Flex:       tview.NewFlex(),
 			background: backgroundBox,
 			content:    contentFlex,
 		}
+		bg.Flex.AddItem(contentFlex, 0, 1, true)
+		modalContent = bg
 	}
 
 	modal := NewEmModal(app, modalContent, cancellable)
@@ -303,17 +310,19 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 	modal.SetEscPassthrough(config.EscPassthrough)
 
 	wrapper := &modalWrapper{
-		Box:    tview.NewBox(),
+		Flex:   tview.NewFlex(),
 		modal:  modal,
 		config: config,
 	}
+	wrapper.Flex.AddItem(modal, 0, 1, true)
 
 	return wrapper, contentFlex
 }
 
-// modalWrapper wraps an EmModal with configuration.
+// modalWrapper wraps an EmModal with configuration. Like EmModal it
+// embeds a Flex holding the modal so the focus chain stays walkable.
 type modalWrapper struct {
-	*tview.Box
+	*tview.Flex
 	modal  *EmModal
 	config EmModalConfig
 }
@@ -578,7 +587,7 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 }
 
 type backgroundWithContent struct {
-	*tview.Box
+	*tview.Flex
 	background *tview.Box
 	content    tview.Primitive
 }
@@ -613,11 +622,11 @@ func (b *backgroundWithContent) Draw(screen tcell.Screen) {
 }
 
 func (b *backgroundWithContent) GetRect() (int, int, int, int) {
-	return b.Box.GetRect()
+	return b.Flex.Box.GetRect()
 }
 
 func (b *backgroundWithContent) SetRect(x, y, width, height int) {
-	b.Box.SetRect(x, y, width, height)
+	b.Flex.Box.SetRect(x, y, width, height)
 	// Also set the background box rect to match
 	if b.background != nil {
 		b.background.SetRect(x, y, width, height)
