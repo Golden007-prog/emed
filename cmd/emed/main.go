@@ -14,6 +14,7 @@ import (
 
 	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/logging"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/laborin/emed/internal/ui"
 	"github.com/rivo/tview"
 )
@@ -94,6 +95,16 @@ func main() {
 	logger := logging.GetLogger()
 	defer logger.Close()
 	logging.Info("Emed started in directory: %s", workingDir)
+
+	userConfig := config.LoadUserConfig()
+	if opts.transparent {
+		userConfig.UseTerminalBackground = true
+	}
+	if opts.opaque {
+		userConfig.UseTerminalBackground = false
+	}
+	theme.Init(userConfig.UseTerminalBackground)
+	logging.Info("terminal background mode: %t", userConfig.UseTerminalBackground)
 
 	app := tview.NewApplication()
 	layout := ui.NewLayout(app, ui.LayoutOptions{
@@ -177,6 +188,8 @@ func parseBoolEnv(name string) (bool, bool) {
 
 type cliOptions struct {
 	launchClaude bool
+	transparent  bool
+	opaque       bool
 	showHelp     bool
 	showVersion  bool
 	pathArg      string
@@ -190,6 +203,10 @@ func parseCLIArgs(args []string) (cliOptions, error) {
 		switch arg {
 		case "-c", "--claude":
 			opts.launchClaude = true
+		case "-t", "--transparent":
+			opts.transparent = true
+		case "-o", "--opaque":
+			opts.opaque = true
 		case "-h", "--help":
 			opts.showHelp = true
 		case "-v", "--version":
@@ -225,7 +242,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(w, "%s %s\n", config.AppName, config.Version)
 	fmt.Fprintf(w, "Usage: emed [options] [path]\n\n")
 	fmt.Fprintln(w, "Options:")
-	fmt.Fprintln(w, "  -c, --claude   Launch Claude Code on startup")
-	fmt.Fprintln(w, "  -h, --help     Show this help message")
-	fmt.Fprintln(w, "  -v, --version  Show version")
+	fmt.Fprintln(w, "  -c, --claude       Launch Claude Code on startup")
+	fmt.Fprintln(w, "  -t, --transparent  Use the terminal background (default)")
+	fmt.Fprintln(w, "  -o, --opaque       Use fixed background colors")
+	fmt.Fprintln(w, "  -h, --help         Show this help message")
+	fmt.Fprintln(w, "  -v, --version      Show version")
 }
