@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -38,9 +39,9 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 		UseFixedSize:    true,
 		FixedWidth:      60,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " File Conflict ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -66,7 +67,7 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 			onOverwrite()
 			modal.Close()
 		})
-	overwriteBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	overwriteBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	overwriteBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	saveCopyBtn := tview.NewButton("Save as Copy").
@@ -87,7 +88,7 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 			onSaveAsCopy(copyPath)
 			modal.Close()
 		})
-	saveCopyBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	saveCopyBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	saveCopyBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	cancelBtn := tview.NewButton("Cancel").
@@ -95,7 +96,7 @@ func (dm *EditorDialogManager) ShowSaveConflictDialog(
 			onCancel()
 			modal.Close()
 		})
-	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	buttonsFlex.
@@ -168,9 +169,9 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 		UseFixedSize:    true,
 		FixedWidth:      60,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " File Deleted ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -196,7 +197,7 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 			onCreate()
 			modal.Close()
 		})
-	createBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	createBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	createBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	discardBtn := tview.NewButton("Discard").
@@ -204,7 +205,7 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 			onDiscard()
 			modal.Close()
 		})
-	discardBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	discardBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	discardBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	cancelBtn := tview.NewButton("Cancel").
@@ -212,7 +213,7 @@ func (dm *EditorDialogManager) ShowDeletedFileDialog(
 			onCancel()
 			modal.Close()
 		})
-	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	cancelBtn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	cancelBtn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	buttonsFlex.
@@ -282,9 +283,9 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 		UseFixedSize:    true,
 		FixedWidth:      50,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Unsaved Changes ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -304,7 +305,7 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 			onYes()
 			modal.Close()
 		})
-	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	noButton := tview.NewButton("NO").
@@ -312,7 +313,7 @@ func (dm *EditorDialogManager) ShowUnsavedChangesDialog(fileName string, onYes, 
 			onNo()
 			modal.Close()
 		})
-	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	yesButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

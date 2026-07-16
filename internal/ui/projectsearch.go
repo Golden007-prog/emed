@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -78,7 +79,7 @@ func (m *ProjectSearchModal) setupUI() {
 
 	m.form = tview.NewForm()
 	m.form.SetBorderPadding(0, 0, 1, 1)
-	m.form.SetFieldBackgroundColor(tcell.ColorBlack)
+	m.form.SetFieldBackgroundColor(theme.Current.ModalBg)
 	m.form.SetItemPadding(0)
 
 	m.searchField = tview.NewInputField()
@@ -151,7 +152,7 @@ func (m *ProjectSearchModal) setupUI() {
 	m.previewText.SetTitle(" Preview ")
 	m.previewText.SetDynamicColors(true)
 	m.previewText.SetWordWrap(false)
-	m.previewText.SetBorderColor(tcell.NewRGBColor(102, 102, 102))
+	m.previewText.SetBorderColor(theme.Current.Border)
 
 	resultsPanel := tview.NewFlex().
 		AddItem(m.resultsList, 0, 30, false).

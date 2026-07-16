@@ -9,6 +9,7 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 )
 
 // TokenStyle represents a highlighted token with position and style
@@ -339,7 +340,7 @@ func (h *Highlighter) GetLineTokens(lineNumber int) []TokenStyle {
 
 // tokenTypeToStyle converts Chroma token types to tcell styles
 func (h *Highlighter) tokenTypeToStyle(tokenType chroma.TokenType) tcell.Style {
-	style := tcell.StyleDefault.Background(tcell.NewRGBColor(0, 0, 0)).Foreground(tcell.ColorWhite)
+	style := tcell.StyleDefault.Background(theme.Current.AppBg).Foreground(tcell.ColorWhite)
 
 	switch tokenType {
 	// Comments

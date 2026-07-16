@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -100,7 +101,7 @@ func NewDiffView(filePath, oldContent, newContent, tabName string, meta DiffMeta
 
 	d.SetBorder(false)
 	for _, view := range []*tview.TextView{d.header, d.body, d.footer} {
-		view.SetBackgroundColor(tcell.ColorBlack)
+		view.SetBackgroundColor(theme.Current.ModalBg)
 	}
 
 	d.Flex.

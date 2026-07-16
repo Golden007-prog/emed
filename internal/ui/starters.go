@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/project"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -38,9 +39,9 @@ func ShowStartersModal(deps startersModalDeps) {
 		UseFixedSize:    true,
 		FixedWidth:      64,
 		FixedHeight:     height,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Terminal Starters ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -49,7 +50,7 @@ func ShowStartersModal(deps startersModalDeps) {
 	modal.SetPreviousRoot(mainAppRoot)
 
 	table := tview.NewTable()
-	table.SetBackgroundColor(tcell.ColorBlack)
+	table.SetBackgroundColor(theme.Current.ModalBg)
 	table.SetSelectable(true, false)
 	table.SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorLightGray))
 
@@ -102,9 +103,9 @@ func ShowStartersModal(deps startersModalDeps) {
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
 		SetText("[gray]↑↓ move · Enter run · A add · D delete · Esc close[-]")
-	hints.SetBackgroundColor(tcell.ColorBlack)
+	hints.SetBackgroundColor(theme.Current.ModalBg)
 
-	content.AddItem(tview.NewBox().SetBackgroundColor(tcell.ColorBlack), 1, 0, false)
+	content.AddItem(tview.NewBox().SetBackgroundColor(theme.Current.ModalBg), 1, 0, false)
 	content.AddItem(table, 0, 1, true)
 	content.AddItem(hints, 1, 0, false)
 
@@ -160,9 +161,9 @@ func showStarterForm(deps startersModalDeps, starters []project.Starter) *starte
 		UseFixedSize:    true,
 		FixedWidth:      56,
 		FixedHeight:     13,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " New Starter ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -173,14 +174,14 @@ func showStarterForm(deps startersModalDeps, starters []project.Starter) *starte
 	errorView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter)
-	errorView.SetBackgroundColor(tcell.ColorBlack)
+	errorView.SetBackgroundColor(theme.Current.ModalBg)
 
 	form := tview.NewForm()
-	form.SetBackgroundColor(tcell.ColorBlack)
+	form.SetBackgroundColor(theme.Current.ModalBg)
 	form.SetLabelColor(tcell.ColorLightGray)
 	form.SetFieldBackgroundColor(tcell.NewRGBColor(45, 45, 45))
 	form.SetFieldTextColor(tcell.ColorWhite)
-	form.SetButtonStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	form.SetButtonStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	form.SetButtonActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	nameField := tview.NewInputField().SetLabel("Name")

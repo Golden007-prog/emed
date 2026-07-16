@@ -9,6 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/logging"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/laborin/emed/internal/ui/components"
 	"github.com/rivo/tview"
 )
@@ -98,21 +99,22 @@ func NewTerminal() *Terminal {
 		emulators:   make(map[int]*VT10XTerminal),
 	}
 
-	t.contentArea.SetBackgroundColor(tcell.ColorBlack)
+	t.contentArea.SetBackgroundColor(theme.Current.AppBg)
 
 	t.noTermsView = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("\n\n\nNo terminal open.\n\nPress Ctrl+T to create a new terminal.")
-	t.noTermsView.SetBackgroundColor(tcell.ColorBlack)
+	t.noTermsView.SetBackgroundColor(theme.Current.AppBg)
 
 	addPageSafely(t.contentArea, "no-terms", t.noTermsView, true, false, t.app)
 
+	t.container.SetBackgroundColor(theme.Current.AppBg)
 	t.container.
 		AddItem(t.contentArea, 0, 1, true).
 		SetBorder(true).
-		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
+		SetBorderColor(theme.Current.Border).
 		SetTitle(" Terminal ").
-		SetTitleColor(tcell.ColorLightGray).
+		SetTitleColor(theme.Current.Title).
 		SetTitleAlign(tview.AlignLeft)
 
 	t.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
@@ -373,7 +375,7 @@ func (t *Terminal) UpdateTabBar() {
 	t.clearAlertOnFocusedTab()
 
 	if !t.tabManager.HasTabs() {
-		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
+		t.container.SetTitle(" Terminal ").SetTitleColor(theme.Current.Title)
 		return
 	}
 
@@ -391,9 +393,9 @@ func (t *Terminal) UpdateTabBar() {
 	t.tabClickInfo = clickInfo
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
-		t.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
+		t.container.SetTitle(title).SetTitleColor(theme.Current.Title)
 	} else {
-		t.container.SetTitle(" Terminal ").SetTitleColor(tcell.ColorLightGray)
+		t.container.SetTitle(" Terminal ").SetTitleColor(theme.Current.Title)
 	}
 }
 

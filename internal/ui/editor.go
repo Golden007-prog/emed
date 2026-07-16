@@ -11,6 +11,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/logging"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/laborin/emed/internal/ui/components"
 	"github.com/rivo/tview"
 )
@@ -114,19 +115,20 @@ func NewEditor() *Editor {
 		lineWrapEnabled:   defaultLineWrapEnabled,
 	}
 
-	e.contentArea.SetBackgroundColor(tcell.NewRGBColor(0, 0, 0))
+	e.contentArea.SetBackgroundColor(theme.Current.AppBg)
 
 	splashScreen := components.NewSplashScreen()
 	e.noDocsView = splashScreen.CreateNoDocsView()
 
 	addPageSafely(e.contentArea, "no-docs", e.noDocsView, true, false, e.app)
 
+	e.container.SetBackgroundColor(theme.Current.AppBg)
 	e.container.
 		AddItem(e.contentArea, 0, 1, true).
 		SetBorder(true).
-		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
+		SetBorderColor(theme.Current.Border).
 		SetTitle(" Editor ").
-		SetTitleColor(tcell.ColorLightGray).
+		SetTitleColor(theme.Current.Title).
 		SetTitleAlign(tview.AlignLeft)
 
 	e.container.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
@@ -616,7 +618,7 @@ func (e *Editor) UpdateTabBar() {
 	}
 
 	if !e.tabManager.HasTabs() {
-		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
+		e.container.SetTitle(" Editor ").SetTitleColor(theme.Current.Title)
 		return
 	}
 
@@ -634,9 +636,9 @@ func (e *Editor) UpdateTabBar() {
 	e.tabClickInfo = clickInfo
 	if tabBarText != "" {
 		title := fmt.Sprintf(" %s ", tabBarText)
-		e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
+		e.container.SetTitle(title).SetTitleColor(theme.Current.Title)
 	} else {
-		e.container.SetTitle(" Editor ").SetTitleColor(tcell.ColorLightGray)
+		e.container.SetTitle(" Editor ").SetTitleColor(theme.Current.Title)
 	}
 }
 
@@ -649,7 +651,7 @@ func (e *Editor) updateSingleFileTitle() {
 	}
 
 	e.tabClickInfo = nil
-	e.container.SetTitle(title).SetTitleColor(tcell.ColorLightGray)
+	e.container.SetTitle(title).SetTitleColor(theme.Current.Title)
 }
 
 // NextTab switches to the next editor tab.

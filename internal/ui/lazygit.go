@@ -9,6 +9,7 @@ import (
 	"github.com/laborin/emed/internal/git"
 	"github.com/laborin/emed/internal/terminal/pty"
 	"github.com/laborin/emed/internal/terminal/scrollback"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/laborin/vt10x"
 	"github.com/rivo/tview"
 )
@@ -39,6 +40,7 @@ func NewLazygitModal(app *tview.Application, repoPath string, commitHash string)
 		writeChan: make(chan []byte, 1000),
 	}
 	term.Box.Primitive = term
+	term.SetDefaultColors(tcell.ColorLightGray, theme.Current.ModalBg)
 
 	term.vt = vt10x.New(vt10x.WithSize(term.cols, term.rows))
 	ptyMgr.SetOnData(term.onPTYData)
@@ -58,7 +60,7 @@ func (l *LazygitModal) Show(onClose func()) {
 	config := EmModalConfig{
 		Width:          90,
 		Height:         90,
-		BorderColor:    tcell.NewRGBColor(102, 102, 102),
+		BorderColor:    theme.Current.Border,
 		TitleColor:     tcell.ColorWhite,
 		Title:          " Lazygit ",
 		TitleAlign:     tview.AlignCenter,
@@ -69,7 +71,7 @@ func (l *LazygitModal) Show(onClose func()) {
 	l.modal, content = NewConfiguredModal(l.app, config, true)
 	l.modal.SetPreviousRoot(mainAppRoot)
 
-	termContainer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	termContainer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
 	termContainer.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
 		l.terminal.SetRect(x, y, width, height)
 		l.terminal.Draw(screen)
@@ -225,7 +227,7 @@ func NewRepoSelectorModal(app *tview.Application, repos []git.Repository, curren
 
 	searchInput := tview.NewInputField().
 		SetLabel(" Filter: ").
-		SetFieldBackgroundColor(tcell.ColorBlack).
+		SetFieldBackgroundColor(theme.Current.ModalBg).
 		SetFieldTextColor(tcell.ColorWhite).
 		SetLabelColor(tcell.ColorGray)
 
@@ -301,7 +303,7 @@ func (r *RepoSelectorModal) Show(onSelect func(repo git.Repository), onCancel fu
 		UseFixedSize: true,
 		FixedWidth:   modalWidth,
 		FixedHeight:  modalHeight,
-		BorderColor:  tcell.NewRGBColor(102, 102, 102),
+		BorderColor:  theme.Current.Border,
 		TitleColor:   tcell.ColorWhite,
 		Title:        " Select Repository ",
 		TitleAlign:   tview.AlignCenter,
@@ -420,9 +422,9 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 		UseFixedSize:    true,
 		FixedWidth:      55,
 		FixedHeight:     19,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Git Blame ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -437,14 +439,14 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 		SetTextAlign(tview.AlignLeft)
 
 	closeButton := tview.NewButton("Close")
-	closeButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	closeButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	closeButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	closeButton.SetSelectedFunc(func() {
 		modal.Close()
 	})
 
 	copyButton := tview.NewButton("Copy Hash")
-	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	copyButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	copyButton.SetSelectedFunc(func() {
 		copyToSystemClipboard(commitHash)
@@ -452,7 +454,7 @@ func ShowBlameModalWithCommit(app *tview.Application, blameText string, commitHa
 	})
 
 	showCommitButton := tview.NewButton("Show Commit")
-	showCommitButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	showCommitButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	showCommitButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	showCommitButton.SetSelectedFunc(func() {
 		modal.Close()

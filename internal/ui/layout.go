@@ -14,6 +14,7 @@ import (
 	"github.com/laborin/emed/internal/git"
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/project"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -245,7 +246,7 @@ func (l *Layout) initialize() {
 	l.root = tview.NewFlex().SetDirection(tview.FlexRow)
 
 	l.mainArea = tview.NewFlex().SetDirection(tview.FlexColumn)
-	l.mainArea.SetBackgroundColor(tcell.ColorBlack)
+	l.mainArea.SetBackgroundColor(theme.Current.AppBg)
 	l.mainArea.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
 		l.captureHostScreen(screen)
 		l.checkAndUpdateWidth()
@@ -253,7 +254,7 @@ func (l *Layout) initialize() {
 	})
 
 	l.rightSide = tview.NewFlex()
-	l.rightSide.SetBackgroundColor(tcell.ColorBlack)
+	l.rightSide.SetBackgroundColor(theme.Current.AppBg)
 
 	l.rebuildLayout()
 
@@ -284,7 +285,7 @@ func (l *Layout) initialize() {
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(l.mainArea, 0, 1, true).
 		AddItem(l.statusBar.GetView(), 1, 0, false)
-	mainLayout.SetBackgroundColor(tcell.ColorBlack)
+	mainLayout.SetBackgroundColor(theme.Current.AppBg)
 
 	rootWithMouse := &MouseFocusDetector{
 		Primitive: mainLayout,
@@ -1256,7 +1257,7 @@ func (l *Layout) showProjectSearch() {
 		UseFixedSize: true,
 		FixedWidth:   modalWidth,
 		FixedHeight:  modalHeight,
-		BorderColor:  tcell.NewRGBColor(102, 102, 102),
+		BorderColor:  theme.Current.Border,
 		TitleColor:   tcell.ColorWhite,
 		Title:        " Project Search & Replace ",
 		TitleAlign:   tview.AlignCenter,
@@ -1378,7 +1379,7 @@ func (l *Layout) presentDiffView(dv *DiffView) {
 	config := EmModalConfig{
 		Width:       85,
 		Height:      85,
-		BorderColor: tcell.NewRGBColor(102, 102, 102),
+		BorderColor: theme.Current.Border,
 		TitleColor:  tcell.ColorWhite,
 		Title:       " " + dv.GetTabName() + " ",
 		TitleAlign:  tview.AlignCenter,
@@ -1392,7 +1393,7 @@ func (l *Layout) presentDiffView(dv *DiffView) {
 	})
 	wrapper.modal.SetCancelGuard(dv.InputAllowed)
 
-	dv.SetBackgroundColor(tcell.ColorBlack)
+	dv.SetBackgroundColor(theme.Current.ModalBg)
 	content.AddItem(dv, 0, 1, true)
 
 	l.diffModalWrapper = wrapper

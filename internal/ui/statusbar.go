@@ -15,6 +15,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/git"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -46,7 +47,7 @@ func NewStatusBar() *StatusBar {
 	sb.
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignLeft).
-		SetBackgroundColor(tcell.NewRGBColor(40, 40, 40))
+		SetBackgroundColor(theme.Current.StatusBarBg)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -214,7 +215,7 @@ func (sb *StatusBar) Draw(screen tcell.Screen) {
 		}
 	}
 
-	style := tcell.StyleDefault.Background(tcell.NewRGBColor(40, 40, 40))
+	style := tcell.StyleDefault.Background(theme.Current.StatusBarBg)
 	for i := 0; i < width; i++ {
 		screen.SetContent(x+i, y, ' ', nil, style)
 	}

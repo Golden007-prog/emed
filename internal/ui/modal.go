@@ -3,6 +3,7 @@ package ui
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -50,7 +51,7 @@ func NewEmModal(app *tview.Application, content tview.Primitive, cancellable boo
 	m := &EmModal{
 		Flex:        tview.NewFlex(),
 		app:         app,
-		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(tcell.ColorBlack),
+		container:   tview.NewBox().SetBorder(false).SetBackgroundColor(theme.Current.ModalBg),
 		content:     content,
 		cancellable: cancellable,
 	}
@@ -298,6 +299,7 @@ type EmModalConfig struct {
 // NewConfiguredModal creates a new modal with the specified configuration.
 func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellable bool) (*modalWrapper, *tview.Flex) {
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	contentFlex.SetBackgroundColor(theme.Current.ModalBg)
 
 	var modalContent tview.Primitive
 
@@ -306,7 +308,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 		bordered.SetBorder(true).
 			SetTitle(config.Title).
 			SetTitleAlign(config.TitleAlign).
-			SetBackgroundColor(tcell.ColorBlack).
+			SetBackgroundColor(theme.Current.ModalBg).
 			SetBorderColor(config.BorderColor).
 			SetTitleColor(config.TitleColor)
 
@@ -317,7 +319,7 @@ func NewConfiguredModal(app *tview.Application, config EmModalConfig, cancellabl
 			SetBorder(true).
 			SetTitle(config.Title).
 			SetTitleAlign(config.TitleAlign).
-			SetBackgroundColor(tcell.ColorBlack).
+			SetBackgroundColor(theme.Current.ModalBg).
 			SetBorderColor(config.BorderColor).
 			SetTitleColor(config.TitleColor)
 
@@ -463,7 +465,7 @@ func (w *modalWrapper) drawWithOwnDimensions(screen tcell.Screen) {
 	if w.config.UseFixedSize {
 		for row := y; row < y+contentHeight; row++ {
 			for col := x; col < x+contentWidth; col++ {
-				screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
+				screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(theme.Current.ModalBg))
 			}
 		}
 	}
@@ -527,9 +529,9 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 		UseFixedSize:    true,
 		FixedWidth:      50,
 		FixedHeight:     12,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -545,18 +547,18 @@ func ShowConfirmModal(app *tview.Application, title, message string, onConfirm, 
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
 	yesButton := tview.NewButton("YES")
-	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	noButton := tview.NewButton("NO")
-	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	leftSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	middleSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	rightSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	leftSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	middleSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	rightSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	topSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
 
 	buttonsFlex.
 		AddItem(leftSpacer, 0, 1, false).
@@ -637,7 +639,7 @@ func (b *backgroundWithContent) Draw(screen tcell.Screen) {
 	// Fill the background with black
 	for row := innerY; row < innerY+innerHeight; row++ {
 		for col := innerX; col < innerX+innerWidth; col++ {
-			screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
+			screen.SetContent(col, row, ' ', nil, tcell.StyleDefault.Background(theme.Current.ModalBg))
 		}
 	}
 
@@ -680,9 +682,9 @@ func ShowHelpModal(app *tview.Application, helpText string) {
 		UseFixedSize:    true,
 		FixedWidth:      70,
 		FixedHeight:     25,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Help ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -708,9 +710,9 @@ func ShowBlameModal(app *tview.Application, blameText string, commitHash string)
 		UseFixedSize:    true,
 		FixedWidth:      55,
 		FixedHeight:     19,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Git Blame ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -725,14 +727,14 @@ func ShowBlameModal(app *tview.Application, blameText string, commitHash string)
 		SetTextAlign(tview.AlignLeft)
 
 	closeButton := tview.NewButton("Close")
-	closeButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	closeButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	closeButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	closeButton.SetSelectedFunc(func() {
 		modal.Close()
 	})
 
 	copyButton := tview.NewButton("Copy Hash")
-	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	copyButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	copyButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 	copyButton.SetSelectedFunc(func() {
 		copyToSystemClipboard(commitHash)
@@ -775,9 +777,9 @@ func ShowAlertModal(app *tview.Application, title, message string) {
 		UseFixedSize:    true,
 		FixedWidth:      40,
 		FixedHeight:     7,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/laborin/emed/internal/filemanager/clipboard"
 	"github.com/laborin/emed/internal/filemanager/operations"
 	"github.com/laborin/emed/internal/logging"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -61,9 +62,9 @@ func NewFileManager() *FileManager {
 		SetRoot(fm.root).
 		SetCurrentNode(fm.root).
 		SetBorder(true).
-		SetBorderColor(tcell.NewRGBColor(102, 102, 102)).
+		SetBorderColor(theme.Current.Border).
 		SetTitle(" Project ").
-		SetTitleColor(tcell.ColorLightGray).
+		SetTitleColor(theme.Current.Title).
 		SetTitleAlign(tview.AlignLeft)
 
 	fm.loadInitialDirectory()
@@ -191,9 +192,9 @@ func (fm *FileManager) showBinaryFileDialog(node *HTreeNode) {
 		UseFixedSize:    true,
 		FixedWidth:      50,
 		FixedHeight:     7,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Binary File ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -210,7 +211,7 @@ func (fm *FileManager) showBinaryFileDialog(node *HTreeNode) {
 	okButton := tview.NewButton("OK").SetSelectedFunc(func() {
 		modal.Close()
 	})
-	okButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	okButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	okButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	buttonRow := tview.NewFlex().SetDirection(tview.FlexColumn)
@@ -556,9 +557,9 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 		UseFixedSize:    true,
 		FixedWidth:      50,
 		FixedHeight:     7,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Rename ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -583,8 +584,8 @@ func (fm *FileManager) RenameSelected(parentModal tview.Primitive) {
 	inputArea := tview.NewTextArea().
 		SetText(oldName, true).
 		SetWrap(false)
-	inputArea.SetTextStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
-	inputArea.SetBackgroundColor(tcell.ColorBlack)
+	inputArea.SetTextStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
+	inputArea.SetBackgroundColor(theme.Current.ModalBg)
 	inputArea.Select(0, len(oldName))
 
 	content.
@@ -764,9 +765,9 @@ func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, tit
 		UseFixedSize:    true,
 		FixedWidth:      50,
 		FixedHeight:     10,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " " + title + " ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -782,18 +783,18 @@ func (fm *FileManager) showConfirmModalWithParent(parentModal *modalWrapper, tit
 	buttonsFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 
 	yesButton := tview.NewButton("YES")
-	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	yesButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	yesButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 	noButton := tview.NewButton("NO")
-	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+	noButton.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 	noButton.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
-	leftSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	middleSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	rightSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	leftSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	middleSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	rightSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	topSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(theme.Current.ModalBg)
 
 	buttonsFlex.
 		AddItem(leftSpacer, 0, 1, false).
@@ -876,9 +877,9 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 		UseFixedSize:    true,
 		FixedWidth:      65,
 		FixedHeight:     modalHeight,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " File Information ",
 		TitleAlign:      tview.AlignCenter,
 	}
@@ -905,7 +906,7 @@ func (fm *FileManager) showInfoModal(node *HTreeNode) {
 
 	createButton := func(label string, handler func()) *tview.Button {
 		btn := tview.NewButton(label).SetSelectedFunc(handler)
-		btn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack))
+		btn.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(theme.Current.ModalBg))
 		btn.SetActivatedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 
 		buttons = append(buttons, btn)

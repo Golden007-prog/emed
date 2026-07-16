@@ -53,3 +53,5 @@ temp/
 # Operating System Files
 Thumbs.db
 .DS_Store
+# emed project state (starters.json is shareable, session.json is not)
+.emed/session.json

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -45,9 +46,9 @@ func (m *memStatsModal) Show() {
 		UseFixedSize:    true,
 		FixedWidth:      55,
 		FixedHeight:     22,
-		BackgroundColor: tcell.ColorBlack,
-		BorderColor:     tcell.NewRGBColor(102, 102, 102),
-		TitleColor:      tcell.ColorLightGray,
+		BackgroundColor: theme.Current.ModalBg,
+		BorderColor:     theme.Current.Border,
+		TitleColor:      theme.Current.Title,
 		Title:           " Performance Stats (F8) ",
 		TitleAlign:      tview.AlignCenter,
 	}

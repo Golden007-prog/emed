@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -77,14 +78,14 @@ made with ♥ in Sonora[-]
 		SetTextAlign(tview.AlignCenter).
 		SetText(helpText).
 		SetDynamicColors(true)
-	helpTextView.SetBackgroundColor(tcell.ColorBlack)
+	helpTextView.SetBackgroundColor(theme.Current.AppBg)
 
 	helpTextView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil
 	})
 
-	topSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
-	bottomSpacer := tview.NewBox().SetBackgroundColor(tcell.ColorBlack)
+	topSpacer := tview.NewBox().SetBackgroundColor(theme.Current.AppBg)
+	bottomSpacer := tview.NewBox().SetBackgroundColor(theme.Current.AppBg)
 
 	topSpacer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		return action, nil
@@ -97,7 +98,7 @@ made with ♥ in Sonora[-]
 		AddItem(topSpacer, 0, 1, false).
 		AddItem(helpTextView, 11, 0, false).
 		AddItem(bottomSpacer, 0, 1, false)
-	centerFlex.SetBackgroundColor(tcell.ColorBlack)
+	centerFlex.SetBackgroundColor(theme.Current.AppBg)
 
 	// Make the entire flex container ignore mouse events
 	centerFlex.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {

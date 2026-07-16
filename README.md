@@ -82,7 +82,17 @@ Run `emed` inside your project directory, or pass a path:
 - `emed /path/to/project` - opens that directory as the project.
 - `emed file.txt` - single file mode: a reduced, editor-only layout for quick edits.
 - `emed -c` (or `--claude`) - opens the project and launches Claude Code in a terminal tab.
+- `emed -o` (or `--opaque`) - use fixed background colors instead of the terminal background.
 - `emed -v` / `emed -h` - show version / help.
+
+## Colors and transparent terminals
+By default the main surfaces (panels, editor, tab bars and the embedded terminal) use the terminal own default background, so semi-transparent terminal setups keep their effect. Modal dialogs stay opaque on purpose, for readability. Note that emed's text colors assume a dark background: on light terminal themes you probably want the fixed colors instead.
+
+To use fixed dark backgrounds everywhere, run with `--opaque` or set it permanently in `~/.emed/config.json`:
+
+```json
+{ "useTerminalBackground": false }
+```
 
 ## Claude Code integration
 Emed speaks the same IDE protocol that Claude Code uses with VS Code and JetBrains. There is nothing to configure: when you run `claude` inside an emed terminal tab, it detects the editor and connects automatically.

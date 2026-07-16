@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -38,15 +39,15 @@ func NewSearchBar() *SearchBar {
 
 	sb.form = tview.NewForm()
 	sb.form.SetBorder(true)
-	sb.form.SetBorderColor(tcell.NewRGBColor(102, 102, 102))
+	sb.form.SetBorderColor(theme.Current.Border)
 	sb.form.SetTitle(" Find & Replace ")
 	sb.form.SetTitleAlign(tview.AlignLeft)
-	sb.form.SetBackgroundColor(tcell.ColorBlack)
-	sb.form.SetFieldBackgroundColor(tcell.ColorBlack)
-	sb.form.SetButtonBackgroundColor(tcell.ColorBlack)
+	sb.form.SetBackgroundColor(theme.Current.AppBg)
+	sb.form.SetFieldBackgroundColor(theme.Current.AppBg)
+	sb.form.SetButtonBackgroundColor(theme.Current.AppBg)
 
 	sb.searchInput = tview.NewInputField().
-		SetFieldBackgroundColor(tcell.ColorBlack).
+		SetFieldBackgroundColor(theme.Current.AppBg).
 		SetChangedFunc(func(text string) {
 			if sb.onSearch != nil {
 				sb.onSearch(text, sb.caseSensitive.IsChecked(), sb.wholeWord.IsChecked(), sb.useRegex.IsChecked())
@@ -54,7 +55,7 @@ func NewSearchBar() *SearchBar {
 		})
 
 	sb.replaceInput = tview.NewInputField().
-		SetFieldBackgroundColor(tcell.ColorBlack)
+		SetFieldBackgroundColor(theme.Current.AppBg)
 
 	sb.caseSensitive = tview.NewCheckbox()
 	sb.wholeWord = tview.NewCheckbox()

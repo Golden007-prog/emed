@@ -13,6 +13,7 @@ import (
 	"github.com/laborin/emed/internal/logging"
 	"github.com/laborin/emed/internal/terminal/pty"
 	"github.com/laborin/emed/internal/terminal/scrollback"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/laborin/vt10x"
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
@@ -88,6 +89,13 @@ type VT10XTerminal struct {
 	selStartCol     int
 	selEndRow       int
 	selEndCol       int
+
+	// Colors painted when the shell uses its default fg/bg. Panel
+	// terminals take them from the theme (transparent in terminal
+	// background mode); terminals hosted inside modals override them
+	// with opaque colors via SetDefaultColors.
+	defaultFg tcell.Color
+	defaultBg tcell.Color
 }
 
 // NewVT10XTerminal creates a new VT10X terminal emulator instance.
@@ -108,6 +116,9 @@ func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 		writeChan: make(chan []byte, 1000),
 	}
 	t.Box.Primitive = t
+	t.Box.SetBackgroundColor(theme.Current.AppBg)
+	t.defaultFg = theme.Current.TermDefaultFg
+	t.defaultBg = theme.Current.TermDefaultBg
 
 	t.vt = vt10x.New(
 		vt10x.WithSize(t.cols, t.rows),
@@ -127,6 +138,14 @@ func NewVT10XTerminal(workingDir string) *VT10XTerminal {
 // SetApp sets the tview application reference for the terminal.
 func (t *VT10XTerminal) SetApp(app *tview.Application) {
 	t.app = app
+}
+
+// SetDefaultColors overrides what the terminal paints when the shell
+// uses its default fg/bg. Terminals hosted inside modals use it to
+// stay opaque in terminal background mode.
+func (t *VT10XTerminal) SetDefaultColors(fg, bg tcell.Color) {
+	t.defaultFg = fg
+	t.defaultBg = bg
 }
 
 // SetExtraEnv sets extra environment variables for the terminal process.
@@ -1246,7 +1265,7 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	fg := glyph.FG
 
 	if fg == vt10x.DefaultFG {
-		style = style.Foreground(tcell.ColorLightGray)
+		style = style.Foreground(t.defaultFg)
 	} else if fg == vt10x.DefaultBG {
 		style = style.Foreground(tcell.ColorBlack)
 	} else if fg == vt10x.DefaultCursor {
@@ -1283,11 +1302,11 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 	bg := glyph.BG
 
 	if bg == vt10x.DefaultBG {
-		style = style.Background(tcell.ColorBlack)
+		style = style.Background(t.defaultBg)
 	} else if bg == vt10x.DefaultFG {
 		style = style.Background(tcell.ColorWhite)
 	} else if bg == vt10x.DefaultCursor {
-		style = style.Background(tcell.ColorBlack)
+		style = style.Background(t.defaultBg)
 	} else if bg >= 0 && bg <= 7 {
 		colors := []tcell.Color{
 			tcell.ColorBlack, tcell.ColorRed, tcell.ColorGreen, tcell.ColorYellow,
@@ -1305,7 +1324,7 @@ func (t *VT10XTerminal) vt10xToTcellStyle(glyph vt10x.Glyph) tcell.Style {
 		b := uint8(bg & 0xFF)
 		style = style.Background(tcell.NewRGBColor(int32(r), int32(g), int32(b)))
 	} else {
-		style = style.Background(tcell.ColorBlack)
+		style = style.Background(t.defaultBg)
 	}
 
 	// Apply text attributes from Mode field

@@ -13,6 +13,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/laborin/emed/internal/config"
 	"github.com/laborin/emed/internal/filemanager"
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -241,6 +242,7 @@ func NewHTree() *HTree {
 		visibleNodesDirty: true,
 	}
 	t.Box.Primitive = t
+	t.Box.SetBackgroundColor(theme.Current.AppBg)
 	return t
 }
 
@@ -295,7 +297,7 @@ func (t *HTree) Draw(screen tcell.Screen) {
 
 	t.buildVisibleNodes()
 
-	treeCharColor := tcell.NewRGBColor(102, 102, 102)
+	treeCharColor := theme.Current.TextMuted
 
 	if t.selected != nil {
 		var prefixWidth int
@@ -373,7 +375,7 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		nameLen := len(nameRunes)
 
 		fgColor := node.Color
-		bgColor := tcell.ColorBlack
+		bgColor := theme.Current.AppBg
 
 		isSelected := node == t.selected
 		if isSelected {
@@ -537,7 +539,7 @@ func (t *HTree) Draw(screen tcell.Screen) {
 		}
 	}
 
-	indicatorStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(tcell.ColorBlack)
+	indicatorStyle := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(theme.Current.AppBg)
 	if selectionAbove {
 		screen.SetContent(x+width-1, y, '▲', nil, indicatorStyle)
 	}

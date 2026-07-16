@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/laborin/emed/internal/theme"
 	"github.com/rivo/tview"
 )
 
@@ -52,13 +53,16 @@ type BaseTabManager struct {
 
 // NewBaseTabManager creates a new tab manager.
 func NewBaseTabManager() *BaseTabManager {
-	return &BaseTabManager{
+	m := &BaseTabManager{
 		tabs:      make([]Tab, 0),
 		activeTab: -1,
 		nextTabID: 1,
 		tabBar:    tview.NewTextView(),
 		container: tview.NewFlex(),
 	}
+	m.tabBar.SetBackgroundColor(theme.Current.AppBg)
+	m.container.SetBackgroundColor(theme.Current.AppBg)
+	return m
 }
 
 // AddTab adds a new tab and makes it active.
