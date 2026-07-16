@@ -1084,7 +1084,7 @@ func (l *Layout) handleFileChanges(changes []FileChange) {
 		dirsToRefresh[dir] = true
 
 		switch change.Type {
-		case FileModified:
+		case FileModified, FileCreated:
 			if !strings.HasSuffix(change.Path, "/") {
 				modifiedFiles[change.Path] = true
 			}
